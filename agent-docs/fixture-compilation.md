@@ -1,0 +1,39 @@
+# PHP build and optimizer settings for fixtures
+
+## External PHP build
+
+Build the PHP engine from the external php-src checkout. The sibling checkout supplies upstream `php/php-src` at tag `php-8.6.0`, commit `8aaada3f9605d81a38b8240f93c7389dfbc77ef9`. Keep the exporter’s C source and `config.m4` in this project.
+
+For the proposed fixture driver, default to `../php-src/sapi/cli/php` relative to the project root. Let `ZEND_SPEC_PHP` select another executable, e.g. `/opt/php-8.6.0/bin/php`. The default is the product of an in-tree build. Record the build’s source commit, architecture, configuration and enabled extensions. Multiple source revisions can report the same PHP release.
+
+Select `phpize` and `php-config` from the matching PHP development installation at build time. A standard installation puts both tools alongside `php` in its `bin/` directory. For the source-tree CLI at `sapi/cli/php`, use the paths under the matching installation prefix. [Helper installation paths](../../php-src/scripts/Makefile.frag#L40)
+
+From the extension directory, invoke that installation’s `phpize`, run `./configure --with-php-config=/path/to/pinned/php-config`, then `make`. The configure script gets the required header paths from `php-config --includes`. [Header discovery](../../php-src/scripts/phpize.m4#L63) · [Building shared extensions](https://www.php.net/manual/en/install.pecl.phpize.php)
+
+At fixture generation time the driver needs the PHP executable and the compiled module. It selects the executable using the default or `ZEND_SPEC_PHP` and supplies the module’s build path via `-d extension=...`. PHP checks the module API and build ID. Use a consistent source path for fixtures that observe `__FILE__` or generated names. [Module loader](../../php-src/ext/standard/dl.c#L185)
+
+## Finalized opcode variants
+
+Use a named file and a fresh `php -n -d extension=/absolute/path/to/opcode_export.so -l fixture.php` process per profile, with its `-d` settings before `-l`. For OPcache profiles set `opcache.enable=1`, `opcache.enable_cli=1`, `opcache.file_update_protection=0` and keep JIT disabled. This permits newly written fixtures to reach the optimizer. The extension wraps the installed file compiler at request startup and exports after it returns. [File eligibility](../../php-src/ext/opcache/ZendAccelerator.c#L1804) · [Optimizing a script](../../php-src/ext/opcache/ZendAccelerator.c#L1616) · [Returning the loaded script](../../php-src/ext/opcache/ZendAccelerator.c#L2514)
+
+The proposed standard pair is the ordinary compiler (OPcache off) and OPcache with its pinned default optimizer. The local-only profile is optional when it adds a useful instruction or operand pattern. The probe observed the following complete instruction sequences for `answer()`.
+
+```php
+function answer() {
+    $n = 40;
+    if (false) { return 0; }
+    return $n + 2;
+}
+```
+
+| Profile | Setting | `answer()` body |
+| --- | --- | --- |
+| Ordinary compiler | `opcache.enable=0` | `ASSIGN, JMPZ, RETURN, ADD, RETURN, RETURN` |
+| OPcache, local optimization only | `opcache.optimization_level=0x1` | `ASSIGN, JMP, RETURN, ADD, RETURN, RETURN` |
+| OPcache, pinned default | `opcache.optimization_level=0x7FFEBFFF` | `RETURN int(42)` |
+
+The same native extension observed all three finalized bodies. Two fresh processes per profile produced identical probe output. Executing the same file with `echo answer();` in a separate CLI process printed `42` under each profile.
+
+For a controlled optimizer comparison, keep OPcache enabled and use mask `0` on one side. OPcache sets compiler flags before optimization. With a child class declared before its parent, the plain compiler emitted `DECLARE_CLASS` and OPcache with mask `0` emitted `DECLARE_CLASS_DELAYED`. [Compiler flags](../../php-src/ext/opcache/ZendAccelerator.c#L1852) · [Declaration emission](../../php-src/Zend/zend_compile.c#L10160)
+
+`opcache.optimization_level` selects transformations such as jump simplification, constant propagation and dead-code elimination. `opcache.opt_debug_level` prints diagnostic views. On a fresh run, `0x20000` can confirm a file reached the optimizer even if its final instructions match another profile. Internally the optimizer temporarily reverses parts of `pass_two` and restores the VM encoding at finalization. To generate a runnable variant, select a mask and let compilation finish. Record the profile with its source fixture. Compare normalized program contents, excluding profile labels, when identifying duplicates. [Pinned pass definitions](../../php-src/Zend/Optimizer/zend_optimizer.h#L25) · [Finalization](../../php-src/Zend/Optimizer/zend_optimizer.c#L1460) · [OPcache settings](https://www.php.net/manual/en/opcache.configuration.php#ini.opcache.optimization-level)
