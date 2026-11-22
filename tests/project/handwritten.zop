@@ -1,4 +1,4 @@
-zend-opcodes 1
+zend-opcodes
 file "example.php"
 main
 body - {

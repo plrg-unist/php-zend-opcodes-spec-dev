@@ -112,7 +112,7 @@ zend_module_entry zend_opcodes_module_entry = {
     "zend_opcodes", NULL,
     PHP_MINIT(zend_opcodes), PHP_MSHUTDOWN(zend_opcodes),
     PHP_RINIT(zend_opcodes), PHP_RSHUTDOWN(zend_opcodes),
-    NULL, "0.1", STANDARD_MODULE_PROPERTIES
+    NULL, NO_VERSION_YET, STANDARD_MODULE_PROPERTIES
 };
 
 #ifdef COMPILE_DL_ZEND_OPCODES

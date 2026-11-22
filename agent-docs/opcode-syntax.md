@@ -1,10 +1,10 @@
 # Concrete syntax for opcode fixtures
 
-The native extension prints and loads one compilation unit as line-oriented text. Format version 1 targets the pinned Zend build, including its numeric flags and cache layout. Use it for trusted test programs. The future Rust importer can read the same syntax. [Complete hand-written unit](../tests/project/handwritten.zop) · [Unit reader and writer](../ext/unit.c)
+The native extension prints and loads one compilation unit as line-oriented text. Numeric flags and cache layout follow the pinned Zend build. Use it for trusted test programs. The future Rust importer can read the same syntax. [Complete hand-written unit](../tests/project/handwritten.zop) · [Unit reader and writer](../ext/unit.c)
 
 ## Unit and body layout
 
-A unit starts with `zend-opcodes 1`, its logical `file` name, an optional compiler halt offset, and ordered `autoglobal "NAME"` rows when compilation activated a lazy superglobal. The `main` body comes first, followed by named functions and classes and a final `end`. A body gives its name (`-` for main), source lines, frame and cache sizes, declarations and ordered literals. Nested bodies precede the `code` rows. Class entries describe methods, properties, constants and linkage. [Body grammar](../ext/body.c) · [Enum cases](../ext/enums.c)
+The first line is `zend-opcodes`. The next line gives the logical `file` name, followed by an optional compiler halt offset and ordered `autoglobal "NAME"` rows when compilation activated a lazy superglobal. The `main` body comes first, followed by named functions and classes and a final `end`. A body gives its name (`-` for main), source lines, frame and cache sizes, declarations and ordered literals. Nested bodies precede the `code` rows. Class entries describe methods, properties, constants and linkage. [Body grammar](../ext/body.c) · [Enum cases](../ext/enums.c)
 
 ## Printing and parsing conventions
 

@@ -228,7 +228,7 @@ static void print_class(smart_str *out, zend_string *key, const zend_class_entry
 void zo_print_unit(smart_str *out, const zend_op_array *main, uint32_t functions_start,
     uint32_t classes_start, uint8_t autoglobals_before)
 {
-    smart_str_appends(out, "zend-opcodes 1\nfile ");
+    smart_str_appends(out, "zend-opcodes\nfile ");
     zo_put_string(out, main->filename);
     smart_str_appendc(out, '\n');
     zend_string *key = halt_name(main->filename);
@@ -624,9 +624,6 @@ static void install_classes(zo_reader *r, HashTable *classes)
 zend_op_array *zo_load_unit(zo_reader *r)
 {
     zo_expect(r, "zend-opcodes");
-    if (zo_u32(r) != 1) {
-        zo_fail(r, "unsupported opcode format version");
-    }
     zo_eol(r);
     zo_expect(r, "file");
     zend_string *filename = read_name(r);
