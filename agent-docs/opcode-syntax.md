@@ -1,6 +1,6 @@
 # Concrete syntax for opcode fixtures
 
-The native extension prints and loads one compilation unit as line-oriented text. Numeric flags and cache layout follow the pinned Zend build. Use it for trusted test programs. The future Rust importer can read the same syntax. [Complete hand-written unit](../tests/project/handwritten.zop) · [Unit reader and writer](../ext/unit.c)
+The native extension and Rust library read and write one compilation unit as line-oriented text. Numeric flags and cache layout follow the pinned Zend build. Use it for trusted test programs. [Complete hand-written unit](../tests/project/handwritten.zop) · [Native unit reader and writer](../ext/unit.c) · [Rust library](opcode-ast.md)
 
 ## Unit and body layout
 

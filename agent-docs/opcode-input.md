@@ -1,6 +1,6 @@
 # Compiling PHP fixtures to an opcode AST
 
-Use a regular shared PHP extension to capture one compilation unit at a time. Its output and hand-written listings use the same concrete syntax and feed the planned Rust parser. [Fixture syntax](opcode-syntax.md) · [AST and Rust library](opcode-ast.md) · [Pinned engine, module build and optimizer profiles](fixture-compilation.md)
+Use a regular shared PHP extension to capture one compilation unit at a time. Its output and hand-written listings use the same concrete syntax and feed the Rust parser. [Fixture syntax](opcode-syntax.md) · [AST and Rust library](opcode-ast.md) · [Pinned engine, module build and optimizer profiles](fixture-compilation.md)
 
 ## Where to capture
 

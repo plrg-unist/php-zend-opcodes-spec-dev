@@ -1,0 +1,44 @@
+;; Calling a function with a unit argument makes the guarded runner check its entire tree.
+dec $accept_unit(unit) : bool
+def $accept_unit(unit) = true
+
+dec $byte_program(bytes) : unit
+def $byte_program(bytes) = UNIT bytes 11 ([ [ 95, 69, 78, 86 ] ])
+  (BODY (BODYDECL eps 0 0 eps (LINES 2 4 eps) eps eps) (FRAME 0 0 eps eps)
+    ([ LITERAL (STRING ([ 65, 0, 255, 92, 34 ])), LITERAL (INT (-7)) ])
+    eps eps eps
+    ([ OPLINE ECHO UNUSED (LIT 0) UNUSED 2 eps eps eps eps eps false,
+       OPLINE RETURN UNUSED (LIT 1) UNUSED 4 eps eps eps eps eps false ]))
+  eps eps
+
+dec $bytes_and_literal : unit
+def $bytes_and_literal = $byte_program([ 102, 255 ])
+
+dec $nonbyte_filename : unit
+def $nonbyte_filename = $byte_program([ 256 ])
+
+dec $branch_and_array : unit
+def $branch_and_array = UNIT ([ 99 ]) eps eps
+  (BODY (BODYDECL eps 0 0 eps (LINES 7 9 eps) eps eps)
+    (FRAME 0 0 ([ [ 120 ] ]) eps)
+    ([ LITERAL (FLOAT 0x8000000000000000),
+       LITERAL (ARRAY ([ ENTRY (KEY ([ 48 ])) (FLOAT 0xFFF8000000000042),
+                         ENTRY (INDEX (-3)) TRUE ]) 0 1) ])
+    eps eps eps
+    ([ OPLINE ASSIGN UNUSED (CV 0) (LIT 0) 7 eps eps eps eps eps false,
+       OPLINE JMPZ UNUSED (CV 0) (TARGET 3) 7 eps eps eps eps eps false,
+       OPLINE RETURN UNUSED (LIT 0) UNUSED 8 eps eps eps eps eps false,
+       OPLINE RETURN UNUSED (LIT 1) UNUSED 9 eps eps eps eps eps false ]))
+  eps eps
+
+dec $property_and_attribute : unit
+def $property_and_attribute = UNIT ([ 100 ]) eps eps
+  (BODY (BODYDECL eps 0 0 eps (LINES 1 3 eps) eps eps) (FRAME 0 0 eps eps)
+    ([ LITERAL (INT 1) ]) eps eps eps
+    ([ OPLINE RETURN UNUSED (LIT 0) UNUSED 3 (EXT_VALUE 4294967295) eps eps eps eps false ]))
+  eps
+  ([ CLASS (CLASSHEADER ([ 97 ]) ([ 65 ]) LINKED 512 2 2 eps eps)
+       ([ ATTRIBUTE ([ 65 ]) 0 2 0 eps ([ ATTRARG ([ 107 ]) (INT (-7)) ]) ])
+       eps eps (TRAITS eps eps eps)
+       ([ PROPERTY (MEMBER ([ 112 ]) 1 (MASK 16) eps (INT 12) eps) eps eps ])
+       eps eps ])

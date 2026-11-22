@@ -1,6 +1,6 @@
 # Testing the opcode printer and loader
 
-These checks cover native opcode printing and loading on the pinned engine. The planned Cargo integration test reuses this corpus and PHP invocation. [Local corpus](test-corpus.md) · [AST milestone tests](opcode-ast.md#tests) · [Future spec comparisons and VM observation](differential-testing.md)
+These checks cover native opcode printing and loading on the pinned engine. The Cargo integration test uses the same corpus and PHP helper. [Local corpus](test-corpus.md) · [AST tests](opcode-ast.md#tests) · [Future spec comparisons and VM observation](differential-testing.md)
 
 ## Test script
 

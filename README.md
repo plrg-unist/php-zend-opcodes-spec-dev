@@ -1,17 +1,18 @@
 # PHP Zend Opcode Specification
 
-This project aims to specify PHP's Zend opcodes using P4-SpecTec. Its PHP CLI extension prints a compiled PHP file as text and loads a text listing back into Zend for execution.
+The PHP CLI extension prints compiled PHP as a `.zop` listing and loads listings for execution. The Rust library exposes `parse_zop` and `print_zop` to convert between listings and the Zend compilation-unit AST. [P4-SpecTec syntax](spec/syntax.watsup)
 
 ## Build and test
 
-Use a PHP build from the `php-8.6.0` tag with OPcache support. Put its matching `phpize` and `php-config` on `PATH`. From the project root, build the module and run the tests with Python 3.10 or later.
+Use Rust 1.97.1, Python 3.10 or later, and a PHP build from the `php-8.6.0` tag with OPcache support. Place the P4-SpecTec checkout at `../p4-spectec` and put PHP's matching `phpize` and `php-config` on `PATH`. Run the commands below from the project root.
 
 ```sh
 (cd ext && phpize && ./configure && make)
 ./scripts/test_extension.py
+cargo test
 ```
 
-The runner uses `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to use a matching executable elsewhere. It finds `.php`, `.phpt`, and `.zop` files anywhere under `tests/` and checks them with OPcache off and with its default optimizer.
+Both test suites discover `.php`, `.phpt`, and `.zop` files under `tests/` and check them with OPcache off and with its default optimizer. They use `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to select a matching executable elsewhere. Use `cargo test --lib` for the Rust unit tests alone.
 
 ## Print and run a listing
 
