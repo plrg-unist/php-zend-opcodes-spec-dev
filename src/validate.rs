@@ -1,0 +1,336 @@
+use p4spectec::lang::{
+    common::prim::num,
+    data::value::flat::{ValueKind, get},
+};
+
+use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
+
+/// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
+pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
+    let [_, _, _, main, functions, classes] = fields(arena, *unit, "UNIT")?;
+    let mut pending = vec![classes, functions, main];
+    while let Some(value) = pending.pop() {
+        match arena.value.kind(value.node) {
+            ValueKind::Case(_) => match case_fields(arena, value)? {
+                ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
+                    let [temps, _, locals, _] = fields(arena, frame, "FRAME")?;
+                    let locals = get::list(arena, &locals)?.len();
+                    let slots = locals + index(arena, temps)?;
+                    // On the pinned 64-bit ABI, offsets use 16-byte zvals after five call-frame slots.
+                    if slots > (u32::MAX / 16 - 5) as usize {
+                        return Err(Error::new("frame exceeds Zend's slot range"));
+                    }
+                    let layout = Layout {
+                        locals,
+                        slots,
+                        pool: get::list(arena, &pool)?,
+                    };
+                    let code = get::list(arena, &code)?;
+                    layout.validate_ranges(arena, tries, ranges, code.len())?;
+                    layout.validate_code(arena, code)?;
+                    // Deferred expressions anywhere in declarations or values can contain another body.
+                    pending.extend([decl, frame, pool, children]);
+                }
+                ("BODY", _) => return Err(Error::new("invalid body fields")),
+                (_, args) => pending.extend_from_slice(args),
+            },
+            ValueKind::List(items) => {
+                if let Some(first) = items.first()
+                    && !matches!(arena.value.kind(first.node), ValueKind::Num(_))
+                {
+                    pending.extend_from_slice(items);
+                }
+            }
+            ValueKind::Opt(Some(child)) => pending.push(*child),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn index(arena: &Arena, value: Value) -> Result<usize> {
+    usize::try_from(num::to_int(get::num(arena, &value)?))
+        .map_err(|_| Error::new("expected a nonnegative index"))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Operand {
+    Unused,
+    Immediate,
+    Target(usize),
+    Literal(usize),
+    Cv(usize),
+    Tmp(usize),
+    Var(usize),
+}
+
+impl Operand {
+    fn read(arena: &Arena, value: Value, layout: &Layout<'_>) -> Result<Self> {
+        let operand = match case_fields(arena, value)? {
+            ("UNUSED", []) => Self::Unused,
+            ("IMM", [_]) => Self::Immediate,
+            ("TARGET", &[n]) => Self::Target(index(arena, n)?),
+            ("LIT", &[n]) => Self::Literal(index(arena, n)?),
+            ("CV", &[n]) => Self::Cv(index(arena, n)?),
+            ("TMP", &[n]) => Self::Tmp(index(arena, n)?),
+            ("VAR", &[n]) => Self::Var(index(arena, n)?),
+            _ => return Err(Error::new("invalid operand")),
+        };
+        match operand {
+            Self::Literal(n) if n >= layout.pool.len() => {
+                Err(Error::new(format!("missing literal lit[{n}]")))
+            }
+            Self::Cv(n) if n >= layout.locals => Err(Error::new(format!("invalid local CV{n}"))),
+            Self::Tmp(n) | Self::Var(n) if !(layout.locals..layout.slots).contains(&n) => {
+                Err(Error::new(format!("invalid temporary slot {n}")))
+            }
+            _ => Ok(operand),
+        }
+    }
+
+    fn slot(self) -> bool {
+        matches!(self, Self::Cv(_) | Self::Tmp(_) | Self::Var(_))
+    }
+
+    fn value(self) -> bool {
+        self.slot() || matches!(self, Self::Literal(_))
+    }
+}
+
+struct Instruction<'a> {
+    name: &'a str,
+    result: Operand,
+    left: Operand,
+    right: Operand,
+    smart: Option<&'a str>,
+    extended_target: Option<usize>,
+}
+
+impl<'a> Instruction<'a> {
+    fn read(arena: &'a Arena, row: Value, layout: &Layout<'_>) -> Result<Self> {
+        let [
+            op,
+            result,
+            left,
+            right,
+            _,
+            ext,
+            cache,
+            default_cache,
+            mask,
+            smart,
+            numeric,
+        ] = fields(arena, row, "OPLINE")?;
+        let name = case_fields(arena, op)?.0;
+        let result = Operand::read(arena, result, layout)?;
+        let left = Operand::read(arena, left, layout)?;
+        let right = Operand::read(arena, right, layout)?;
+        let smart = get::opt(arena, &smart)?
+            .map(|v| case_fields(arena, v))
+            .transpose()?
+            .map(|(tag, _)| tag);
+        let ext = get::opt(arena, &ext)?
+            .map(|v| case_fields(arena, v))
+            .transpose()?;
+        let extended_target = match ext {
+            Some(("EXT_TARGET", &[n])) => Some(index(arena, n)?),
+            _ => None,
+        };
+        let row = Self {
+            name,
+            result,
+            left,
+            right,
+            smart,
+            extended_target,
+        };
+        let unused = Operand::Unused;
+        if result != unused && !result.slot() {
+            return Err(Error::new("expected a result slot"));
+        }
+        let writable = matches!(left, Operand::Cv(_) | Operand::Var(_));
+        let valid = match name {
+            "NOP" => left == unused && right == unused && result == unused,
+            "ASSIGN" => writable && right.value(),
+            "PRE_INC" => writable && right == unused,
+            "IS_SMALLER" => left.value() && right.value() && result.slot(),
+            "JMP" => matches!(left, Operand::Target(_)) && right == unused && result == unused,
+            "JMPZ" | "JMPNZ" => {
+                left.value() && matches!(right, Operand::Target(_)) && result == unused
+            }
+            "ECHO" | "RETURN" => left.value() && right == unused && result == unused,
+            _ => return Ok(row),
+        };
+        if !valid {
+            return Err(Error::new(format!("wrong operands for {name}")));
+        }
+        for operand in [left, right] {
+            if let Operand::Literal(n) = operand
+                && case_fields(arena, layout.pool[n])?.0 != "LITERAL"
+            {
+                return Err(Error::new(format!(
+                    "expected a value in lit[{n}] for {name}"
+                )));
+            }
+        }
+        if !matches!(ext, None | Some(("EXT_VALUE", [_])))
+            || get::opt(arena, &cache)?.is_some()
+            || get::opt(arena, &default_cache)?.is_some()
+            || get::opt(arena, &mask)?.is_some()
+            || get::bool(arena, &numeric)?
+        {
+            return Err(Error::new(format!("unexpected metadata for {name}")));
+        }
+        Ok(row)
+    }
+}
+
+struct Layout<'a> {
+    locals: usize,
+    slots: usize,
+    pool: &'a [Value],
+}
+
+impl Layout<'_> {
+    fn validate_ranges(
+        &self,
+        arena: &Arena,
+        tries: Value,
+        ranges: Value,
+        count: usize,
+    ) -> Result<()> {
+        let mut previous = 0;
+        for &region in get::list(arena, &tries)? {
+            let [start, catch, finally, end] = fields(arena, region, "TRY")?;
+            let (start, catch, finally, end) = (
+                index(arena, start)?,
+                index(arena, catch)?,
+                index(arena, finally)?,
+                index(arena, end)?,
+            );
+            if [start, catch, finally, end].into_iter().any(|n| n >= count)
+                || start < previous
+                || (catch != 0 && catch < start)
+                || (finally != 0 && finally < start.max(catch))
+                || (finally == 0) != (end == 0)
+                || end < finally
+            {
+                return Err(Error::new("invalid try region"));
+            }
+            previous = start;
+        }
+        previous = 0;
+        for &range in get::list(arena, &ranges)? {
+            let [slot, kind, start, end] = fields(arena, range, "LIVE")?;
+            let (start, end) = (index(arena, start)?, index(arena, end)?);
+            if !(self.locals..self.slots).contains(&index(arena, slot)?)
+                || index(arena, kind)? > 4
+                || start < previous
+                || start >= end
+                || end > count
+            {
+                return Err(Error::new("invalid live range"));
+            }
+            previous = start;
+        }
+        Ok(())
+    }
+
+    fn validate_code(&self, arena: &Arena, rows: &[Value]) -> Result<()> {
+        let code: Vec<_> = rows
+            .iter()
+            .map(|&row| Instruction::read(arena, row, self))
+            .collect::<Result<_>>()?;
+        let Some(last) = code.last() else {
+            return Err(Error::new("body has no instructions"));
+        };
+        if !matches!(
+            last.name,
+            "RETURN"
+                | "RETURN_BY_REF"
+                | "GENERATOR_RETURN"
+                | "THROW"
+                | "FAST_RET"
+                | "JMP"
+                | "MATCH"
+                | "MATCH_ERROR"
+                | "VERIFY_NEVER_TYPE"
+                | "DO_ICALL"
+                | "DO_UCALL"
+        ) {
+            return Err(Error::new("body can fall past its final instruction"));
+        }
+        for (i, op) in code.iter().enumerate() {
+            for operand in [op.left, op.right] {
+                if let Operand::Target(target) = operand {
+                    check_target(&code, target)?;
+                }
+            }
+            if let Some(target) = op.extended_target {
+                check_target(&code, target)?;
+            }
+            if let Some(smart) = op.smart {
+                let jump = match smart {
+                    "SMART_JMPZ" => "JMPZ",
+                    "SMART_JMPNZ" => "JMPNZ",
+                    _ => return Err(Error::new("unknown smart branch")),
+                };
+                if !smart_producer(op.name)
+                    || !matches!(op.result, Operand::Tmp(_))
+                    || !code
+                        .get(i + 1)
+                        .is_some_and(|next| next.name == jump && next.left == op.result)
+                {
+                    return Err(Error::new(format!(
+                        "mismatched smart branch at instruction {i}"
+                    )));
+                }
+            }
+            if matches!(op.name, "SWITCH_LONG" | "SWITCH_STRING" | "MATCH") {
+                let Operand::Literal(n) = op.right else {
+                    return Err(Error::new("expected jump-table literal"));
+                };
+                let [array] = fields(arena, self.pool[n], "LITERAL")?;
+                let [entries, _, _] = fields(arena, array, "ARRAY")?;
+                for &entry in get::list(arena, &entries)? {
+                    let [_, target] = fields(arena, entry, "ENTRY")?;
+                    let [target] = fields(arena, target, "INT")?;
+                    check_target(&code, index(arena, target)?)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn check_target(code: &[Instruction<'_>], target: usize) -> Result<()> {
+    if code.get(target).is_some_and(|op| op.name != "OP_DATA") {
+        Ok(())
+    } else {
+        Err(Error::new(format!("invalid jump target @{target}")))
+    }
+}
+
+fn smart_producer(name: &str) -> bool {
+    matches!(
+        name,
+        "IS_IDENTICAL"
+            | "IS_NOT_IDENTICAL"
+            | "IS_EQUAL"
+            | "IS_NOT_EQUAL"
+            | "IS_SMALLER"
+            | "IS_SMALLER_OR_EQUAL"
+            | "CASE"
+            | "CASE_STRICT"
+            | "ISSET_ISEMPTY_CV"
+            | "ISSET_ISEMPTY_VAR"
+            | "ISSET_ISEMPTY_DIM_OBJ"
+            | "ISSET_ISEMPTY_PROP_OBJ"
+            | "ISSET_ISEMPTY_STATIC_PROP"
+            | "INSTANCEOF"
+            | "TYPE_CHECK"
+            | "DEFINED"
+            | "IN_ARRAY"
+            | "ARRAY_KEY_EXISTS"
+    )
+}

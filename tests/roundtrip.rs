@@ -1,7 +1,7 @@
 use std::{error::Error, fs, path::Path, process::Command};
 
 use p4spectec::lang::traits::eq::SyntaxEq;
-use zend_opcodes::{Arena, parse_zop, print_zop};
+use zend_opcodes::{Arena, parse_zop, print_zop, validate_unit};
 
 #[path = "../src/test_spec.rs"]
 mod test_spec;
@@ -47,6 +47,9 @@ fn corpus_roundtrip() -> Result<(), Box<dyn Error>> {
             }
             Err(err) => return Err(format!("{label}: parsing input: {err}").into()),
         };
+        if !case.join("expected-error").is_file() {
+            validate_unit(&arena, &ast).map_err(|err| format!("{label}: invalid unit: {err}"))?;
+        }
         test_spec::check_unit(&mut spec, &mut arena, ast)
             .map_err(|err| format!("{label}: input AST: {err}"))?;
         let printed = print_zop(&arena, &ast).map_err(|err| format!("{label}: printing: {err}"))?;

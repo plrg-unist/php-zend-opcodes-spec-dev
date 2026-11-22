@@ -5,18 +5,22 @@ use std::fmt;
 use p4spectec::lang::data::value::ValueError;
 pub use p4spectec::lang::data::{arena::Arena, value::flat::Value};
 
+mod ast;
 mod bodies;
 mod instructions;
 mod metadata;
 mod parse;
 mod print;
 mod units;
+mod validate;
 mod values;
 
+use ast::case_fields;
 use parse::Parser;
 pub use parse::parse_zop;
 use print::Printer;
 pub use print::print_zop;
+pub use validate::validate_unit;
 
 /// A malformed listing or a value that cannot be printed as a Zend opcode unit.
 #[derive(Debug)]

@@ -1,4 +1,4 @@
-use super::{Arena, parse_zop, print_zop};
+use super::{Arena, parse_zop, print_zop, validate_unit};
 use p4spectec::lang::{
     data::value::flat::make,
     traits::{eq::SyntaxEq, print::Print},
@@ -120,6 +120,7 @@ fn syntax_preserves_unresolved_references() {
         (BRANCH_AND_ARRAY, "JMPZ CV0, @3", "JMP @9"),
     ] {
         let program = parse_zop(&mut arena, &input.replace(original, dangling)).unwrap();
+        assert!(validate_unit(&arena, &program).is_err());
         test_spec::check_unit(&mut runner, &mut arena, program).unwrap();
         let printed = print_zop(&arena, &program).unwrap();
         assert!(printed.contains(dangling), "{printed}");
@@ -129,6 +130,58 @@ fn syntax_preserves_unresolved_references() {
             "{printed}"
         );
     }
+}
+
+#[test]
+fn execution_checks_slots_and_smart_branch_pairs() {
+    let listing = BRANCH_AND_ARRAY
+        .replace("frame 0", "frame 2")
+        .replace(
+            "ASSIGN CV0, lit[0] | line=7",
+            "T1 = IS_SMALLER CV0, lit[0] | smart=JMPZ",
+        )
+        .replace("JMPZ CV0", "JMPZ T1");
+    let mut arena = Arena::new();
+    let valid = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &valid).unwrap();
+    for (original, invalid) in [
+        ("frame 2", "frame 0"),
+        ("T1 = IS_SMALLER", "T0 = IS_SMALLER"),
+        ("IS_SMALLER CV0", "IS_SMALLER CV1"),
+        ("JMPZ T1", "JMPZ V1"),
+        ("JMPZ T1", "JMPZ T2"),
+        ("smart=JMPZ", "smart=JMPNZ"),
+        ("T1 = IS_SMALLER CV0", "T1 = ASSIGN CV0"),
+        ("JMPZ T1, @3", "JMPZ T1, CV0"),
+        ("RETURN lit[1]", "ECHO lit[1]"),
+    ] {
+        let program = parse_zop(&mut arena, &listing.replace(original, invalid)).unwrap();
+        assert!(validate_unit(&arena, &program).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn execution_validates_bodies_inside_deferred_attribute_arguments() {
+    let closure = "ast(closure(0 2\nbody \"f\" {\nlines 2 2\nframe 0 cache 0\n\
+        size 1 literals 1 children 0\nlit[0] = null\ncode\n0: RETURN lit[0]\n}\n))";
+    let listing = PROPERTY_AND_ATTRIBUTE.replace("int(-7)", closure);
+    let mut arena = Arena::new();
+    let valid = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &valid).unwrap();
+    let broken = listing.replace("0: RETURN lit[0]\n", "0: RETURN lit[1]\n");
+    let program = parse_zop(&mut arena, &broken).unwrap();
+    assert!(validate_unit(&arena, &program).is_err());
+}
+
+#[test]
+fn execution_rejects_attribute_tables_as_value_operands() {
+    let listing = include_str!("../tests/project/handwritten.zop").replace(
+        "int(41)",
+        "attributes {\nattribute \"Example\" 0 1 0 0 none\n}",
+    );
+    let mut arena = Arena::new();
+    let parsed = parse_zop(&mut arena, &listing).unwrap();
+    assert!(validate_unit(&arena, &parsed).is_err());
 }
 
 #[test]

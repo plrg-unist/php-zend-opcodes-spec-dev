@@ -1,0 +1,16 @@
+# Execution semantics scope
+
+## Agreed boundary
+
+- Keep the full [opcode syntax](../spec/syntax.watsup). The execution semantics operates on one finalized compilation unit, including its functions, methods, closures and conditional declarations. Both compiler profiles supply inputs.
+- Exclude runtime compilation of source and loading additional units, including through an autoloader. A dynamically selected call can still resolve to a body in the unit or a supported builtin. [Zend include and eval](../../php-src/Zend/zend_execute.c#L5354)
+- Run one fresh CLI request with fixed initial settings. Supply stdin bytes followed by EOF and collect stdout and stderr separately. The logical filename in the unit is available as data. Filesystem, network, process environment, clock and host randomness are outside scope. Include selected builtins whose behavior can be expressed within the model.
+- Exclude host resource limits and allocator measurements. A runner deadline can fail a test run. If either side times out, the comparison has no final PHP outcome from that side.
+
+## Execution policy
+
+- Use the [pinned CLI](fixture-compilation.md) with `-n` for initial PHP settings. Both compiler profiles have effective `error_reporting() == E_ALL`, `display_errors=1` (diagnostics on stdout), `log_errors=0`, `html_errors=0` and `output_buffering=0`. Runtime changes made by a modeled PHP operation apply from that point on.
+- Define execution on structurally well-formed units. After parsing, `validate_unit` checks every body before execution, including bodies nested inside deferred expressions. It checks literal and frame indices, jump targets, smart-branch pairs, and operand forms for the implemented opcodes. Extend opcode-specific checks as their semantics enter. A typed AST can contain an out-of-range jump, which must be reported before program output. A PHP exception or fatal error during a well-formed execution is a separate outcome. [Structural checks](../src/validate.rs) · [Invalid jump](../tests/project/invalid/missing_target.zop)
+- Stop with a plain `UNSUPPORTED` when execution needs an excluded operation, including during binding, implicit calls or shutdown. As milestones progress, this outcome also covers features scheduled for a later milestone. Excluded instructions in an unused function or untaken branch do not trigger it. PHP code cannot catch it. A missing rule for a case declared supported is a spec defect.
+- Model runtime warnings and deprecations incrementally with the operations that emit them. Share dispatch of severity, message, PHP filename and PHP line. A matching user handler may handle the diagnostic, return exactly `false` for default processing, or throw. Account for the handler mask, suppression, last-error state and default display as exercised. Compiler diagnostics precede the input unit. [User handler dispatch](../../php-src/Zend/zend.c#L1550) · [Default processing](../../php-src/main/main.c#L1317)
+- Reuse builtin behavior across call forms and specialized opcodes. A user-defined `Countable` object's `count()` uses ordinary method execution, including its side effects and exceptions. Some internal classes provide their own native counting behavior. [Zend count handler](../../php-src/Zend/zend_vm_def.h#L9619)
