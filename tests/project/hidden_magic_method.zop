@@ -1,0 +1,35 @@
+zend-opcodes
+file "hidden_magic_method.php"
+main
+body - {
+  lines 1 9
+  frame 1 cache 0
+  locals 1 ["active"]
+  size 5 literals 6 children 0
+  lit[0] = false
+  lit[1] = "unavailableparent"
+  lit[2] = "dormantmagic"
+  lit[3] = "\x00dormantmagichidden_magic_method.php:4$0"
+  lit[4] = "main"
+  lit[5] = int(1)
+  code
+    0: ASSIGN CV0, lit[0] | line=2
+    1: JMPZ CV0, @3 | line=3
+    2: DECLARE_CLASS lit[2], lit[1] | line=4
+    3: ECHO lit[4] | line=8
+    4: RETURN lit[5] | line=9 ext=4294967295
+}
+class "\x00dormantmagichidden_magic_method.php:4$0" "DormantMagic" unlinked 0 4 6 "UnavailableParent" - {
+method "__wakeup"
+body "__wakeup" {
+  flags 4 0
+  scope "DormantMagic"
+  lines 5 5
+  frame 0 cache 0
+  size 1 literals 1 children 0
+  lit[0] = null
+  code
+    0: RETURN lit[0] | line=5 ext=4294967295
+}
+}
+end

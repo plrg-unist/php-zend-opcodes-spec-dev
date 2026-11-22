@@ -1,6 +1,6 @@
 # PHP Zend Opcode Specification
 
-The PHP CLI extension prints compiled PHP as a `.zop` listing and loads listings for execution. The Rust library exposes `parse_zop` and `print_zop` to convert between listings and the Zend compilation-unit AST. [P4-SpecTec syntax](spec/syntax.watsup)
+The PHP extension prints compiled PHP as a `.zop` listing and loads listings into Zend. The Rust library converts between listings and the compilation-unit AST. The `zend-opcodes` executable runs the supported main-body instructions using P4-SpecTec. [Syntax](spec/syntax.watsup) · [Execution rules](spec/vm.watsup)
 
 ## Build and test
 
@@ -10,9 +10,10 @@ Use Rust 1.97.1, Python 3.10 or later, and a PHP build from the `php-8.6.0` tag 
 (cd ext && phpize && ./configure && make)
 ./scripts/test_extension.py
 cargo test
+./scripts/test_semantics.py
 ```
 
-Both test suites discover `.php`, `.phpt`, and `.zop` files under `tests/` and check them with OPcache off and with its default optimizer. They use `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to select a matching executable elsewhere. Use `cargo test --lib` for the Rust unit tests alone.
+The extension and Cargo suites discover `.php`, `.phpt`, and `.zop` fixtures under `tests/`. The semantics suite builds the executable, compares its results with Zend under both compiler profiles, and checks spec instruction coverage. It runs the [semantics cases](tests/semantics.json). All three suites use `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to select a matching PHP elsewhere.
 
 ## Print and run a listing
 
@@ -23,4 +24,6 @@ php -n -d extension="$PWD/ext/modules/zend_opcodes.so" -d zend_opcodes.output=ex
 php -n -d extension="$PWD/ext/modules/zend_opcodes.so" example.zop
 ```
 
-Use listings from trusted sources with the same PHP build. [Hand-written example](tests/project/handwritten.zop)
+Build the spec executable with `cargo build`. Running `target/debug/zend-opcodes tests/project/handwritten.zop </dev/null` prints `running=41`. The executable reads stdin through EOF. Add `--json` before the path for a structured outcome. [Hand-written example](tests/project/handwritten.zop)
+
+Use listings from trusted sources with the matching PHP build when loading them into Zend.

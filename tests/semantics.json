@@ -1,0 +1,22 @@
+[
+  {"fixture": "php-src/tests/lang/001.phpt"},
+  {"fixture": "php-src/tests/lang/002.phpt"},
+  {"fixture": "project/handwritten.zop"},
+  {"fixture": "project/standalone_branches.zop"},
+  {"fixture": "project/standalone_branches.zop", "stdin": "stdin/standalone_branches/binary.bin"},
+  {"fixture": "project/assignment_results.php"},
+  {"fixture": "project/variable_results.zop"},
+  {"fixture": "project/unused_function.php"},
+  {"fixture": "project/unused_environment.php", "expect": "unsupported"},
+  {"fixture": "project/dormant_class.php"},
+  {"fixture": "project/eager_class.php", "expect": "unsupported"},
+  {"fixture": "project/hidden_magic_method.zop", "expect": "unsupported"},
+  {"fixture": "project/addition_after_echo.zop", "expect": "unsupported", "stdout": [65, 0, 255]},
+  {"fixture": "project/increment_overflow.php", "expect": "unsupported", "stdout": [73]},
+  {"fixture": "project/integer_condition.php", "expect": "unsupported", "stdout": [66]},
+  {"fixture": "project/numeric_string_comparison.php", "expect": "unsupported", "stdout": [67]},
+  {"fixture": "project/eval_after_echo.php", "expect": "unsupported", "stdout": [69]},
+  {"fixture": "project/return_uninitialized.php", "expect": "unsupported", "stdout": [85]},
+  {"fixture": "project/invalid/missing_literal.zop", "expect": "malformed"},
+  {"fixture": "project/invalid/missing_target.zop", "expect": "malformed"}
+]

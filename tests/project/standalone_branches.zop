@@ -1,0 +1,33 @@
+zend-opcodes
+file "standalone_branches.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  size 16 literals 7 children 0
+  lit[0] = true
+  lit[1] = false
+  lit[2] = "A"
+  lit[3] = "B"
+  lit[4] = "wrong"
+  lit[5] = "\x00\xff"
+  lit[6] = int(7)
+  code
+    0: NOP | line=1
+    1: JMPZ lit[0], @11 | line=1
+    2: JMPNZ lit[1], @11 | line=1
+    3: ECHO lit[2] | line=1
+    4: JMPZ lit[1], @7 | line=1
+    5: T0 = ADD lit[6], lit[6] | line=1
+    6: ECHO T0 | line=1
+    7: ECHO lit[3] | line=1
+    8: JMPNZ lit[0], @12 | line=1
+    9: ECHO lit[4] | line=1
+    10: JMP @12 | line=1
+    11: ECHO lit[4] | line=1
+    12: ECHO lit[5] | line=1
+    13: RETURN lit[6] | line=1
+    14: ECHO lit[4] | line=1
+    15: RETURN lit[6] | line=1
+}
+end

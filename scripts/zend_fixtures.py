@@ -66,6 +66,36 @@ class Execution:
     listing: bytes
 
 
+def run_php(
+    php: Path, profile: str, entry: Path, *,
+    load: bool = False, rejection: bytes | None = None, compile_only: bool = False, stdin: bytes | None = None,
+) -> Execution:
+    output = entry.parent / "native.listing"
+    output.unlink(missing_ok=True)
+    command = [str(php), "-n", "-d", f"extension={EXTENSION}", "-d", f"zend_opcodes.output={output}"]
+    for setting in PROFILES[profile]:
+        command.extend(["-d", setting])
+    if load:
+        command.extend(["-d", "zend_opcodes.load=1"])
+    if rejection is not None:
+        command.extend(["-d", "display_errors=stderr"])
+    if compile_only:
+        command.append("-l")
+    result = subprocess.run(
+        [*command, str(entry)], cwd=entry.parent, input=stdin, stdin=subprocess.DEVNULL if stdin is None else None,
+        env={**os.environ, "ZEND_OPCODES_TEST_PROFILE": profile}, capture_output=True, timeout=30,
+    )
+    listing = output.read_bytes() if output.is_file() else b""
+    if rejection is None:
+        if result.returncode < 0 or (compile_only and result.returncode != 0) or not listing:
+            raise ValueError(f"PHP status {result.returncode} producing listing: "
+                             f"stdout {result.stdout[:500]!r}, stderr {result.stderr[:500]!r}")
+    elif result.returncode <= 0 or result.stdout or output.exists() or rejection not in result.stderr:
+        raise ValueError(f"expected loader rejection {rejection!r}, got status {result.returncode}, "
+                         f"stdout {result.stdout[:250]!r}, stderr {result.stderr[:250]!r}")
+    return Execution(result.stdout, result.stderr, result.returncode, listing)
+
+
 def execute(
     php: Path, profile: str, fixture: Path, directory: Path, program: bytes, *,
     load: bool = False, rejection: bytes | None = None,
@@ -74,28 +104,8 @@ def execute(
     run_dir.mkdir()
     try:
         entry = run_dir / (fixture.with_suffix(".php").name if fixture.suffix == ".phpt" else fixture.name)
-        output = run_dir / "native.listing"
         entry.write_bytes(program)
-        command = [str(php), "-n", "-d", f"extension={EXTENSION}", "-d", f"zend_opcodes.output={output}"]
-        for setting in PROFILES[profile]:
-            command.extend(["-d", setting])
-        if load:
-            command.extend(["-d", "zend_opcodes.load=1"])
-        if rejection is not None:
-            command.extend(["-d", "display_errors=stderr"])
-        result = subprocess.run(
-            [*command, str(entry)], cwd=run_dir, stdin=subprocess.DEVNULL,
-            env={**os.environ, "ZEND_OPCODES_TEST_PROFILE": profile}, capture_output=True, timeout=30,
-        )
-        listing = output.read_bytes() if output.is_file() else b""
-        if rejection is None:
-            if result.returncode < 0 or not listing:
-                raise ValueError(f"PHP status {result.returncode} producing listing: "
-                                 f"stdout {result.stdout[:500]!r}, stderr {result.stderr[:500]!r}")
-        elif result.returncode <= 0 or result.stdout or output.exists() or rejection not in result.stderr:
-            raise ValueError(f"expected loader rejection {rejection!r}, got status {result.returncode}, "
-                             f"stdout {result.stdout[:250]!r}, stderr {result.stderr[:250]!r}")
-        return Execution(result.stdout, result.stderr, result.returncode, listing)
+        return run_php(php, profile, entry, load=load, rejection=rejection)
     finally:
         shutil.rmtree(run_dir)
 

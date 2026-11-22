@@ -8,9 +8,11 @@ Introduce project-defined versioning only at the user's request. Supply version 
 - [Compiling PHP fixtures to an opcode AST](opcode-input.md) covers the extension hook, required data and scope of a compilation unit.
 - [Concrete syntax for opcode fixtures](opcode-syntax.md) describes the notation used by the printer and loader.
 - [Zend opcode AST and Rust library](opcode-ast.md) covers the spec types, library API and Cargo tests.
+- [Execution semantics scope](semantics-scope.md) records the single-unit boundary and execution outcomes.
+- [Semantics milestones](semantics-roadmap.md) gives cumulative targets, library coverage and acceptance tests. [Opcode assignments](semantics-opcodes.md) maps the pinned mnemonics to those milestones.
 - [PHP source corpus](test-corpus.md) lists the local fixtures and how to select and copy more from php-src.
 - [Testing the opcode printer and loader](extension-testing.md) describes the test runner and its checks.
-- [Differential testing against Zend](differential-testing.md) covers future spec comparisons and live VM observation.
+- [Differential testing against Zend](differential-testing.md) covers the executable, fixture manifest, spec coverage gate, and future VM observation.
 
 ## Dependencies
 
