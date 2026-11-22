@@ -346,7 +346,13 @@ static void load_property(zo_reader *r, zend_class_entry *ce)
         && !ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(value))) {
         zo_fail(r, "default value does not match property type");
     }
-    zend_property_info *prop = zend_declare_typed_property(ce, name, &value, flags, doc, type);
+    uint32_t declaration_flags = flags;
+    if ((flags & (ZEND_ACC_PUBLIC | ZEND_ACC_READONLY | ZEND_ACC_PPP_SET_MASK))
+        == (ZEND_ACC_PUBLIC | ZEND_ACC_READONLY)) {
+        /* Zend strips explicit public(set) but defaults an omitted setter to protected(set). */
+        declaration_flags |= ZEND_ACC_PUBLIC_SET;
+    }
+    zend_property_info *prop = zend_declare_typed_property(ce, name, &value, declaration_flags, doc, type);
     prop->attributes = zo_get_attributes(r, 0);
     for (uint32_t i = 0; i < ZEND_PROPERTY_HOOK_COUNT; i++) {
         const char *kind = i == ZEND_PROPERTY_HOOK_GET ? "get" : "set";

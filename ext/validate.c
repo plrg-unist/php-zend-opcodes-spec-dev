@@ -114,7 +114,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(CHECK_FUNC_ARG, unused, unused | literal, unused),
     SHAPE(SEND_FUNC_ARG, var, unused | literal, unused),
     SHAPE(SEND_UNPACK, value, unused, unused),
-    SHAPE(SEND_ARRAY, value, unused | literal, unused),
+    SHAPE(SEND_ARRAY, value, optional, unused),
     SHAPE(SEND_USER, value, unused, unused),
     SHAPE(CHECK_UNDEF_ARGS, unused, unused, unused),
     SHAPE(NEW, class_ref, unused, slot),
@@ -311,8 +311,7 @@ static void check_names_and_cache(zo_reader *r, const zend_op_array *b, const ze
             break;
         case ZEND_FETCH_CLASS_CONSTANT:
             if (one) name_literals(r, b, op, op->op1, 2);
-            if (two) name_literals(r, b, op, op->op2, 1);
-            cache(r, b, op, ext, 2);
+            if (one || two || ext) cache(r, b, op, ext, 2);
             break;
         case ZEND_FETCH_CLASS:
         case ZEND_INSTANCEOF:
@@ -615,7 +614,11 @@ typedef struct {
     uint32_t argc;
     uint32_t placeholders;
     const zend_function *target;
+    enum { NO_CALL_CHANGE, OPEN_CALL, CLOSE_CALL } change;
 } call_site;
+
+#define NO_CALL UINT32_MAX
+#define UNREACHED (UINT32_MAX - 1)
 
 static const zend_function *direct_method(const zend_op_array *b, const zend_op *op)
 {
@@ -704,16 +707,12 @@ static void check_partial(zo_reader *r, const zend_op_array *b, uint32_t index,
     if (names && named != zend_hash_num_elements(names)) invalid(r, b, op, "surplus named placeholder position");
 }
 
-static void validate_calls_in_body(zo_reader *r, const zend_op_array *b)
+static void init_call_sites(zo_reader *r, const zend_op_array *b, call_site *sites)
 {
-    const zend_string *parent_body = r->body;
-    r->body = b->function_name;
-    call_site *sites = safe_emalloc(b->last, sizeof(*sites), 0);
-    uint32_t top = UINT32_MAX;
     for (uint32_t i = 0; i < b->last; ++i) {
         const zend_op *op = &b->opcodes[i];
         call_site *site = &sites[i];
-        site->parent = top;
+        site->parent = UNREACHED;
         switch (op->opcode) {
             case ZEND_INIT_FCALL:
             case ZEND_INIT_FCALL_BY_NAME:
@@ -724,6 +723,7 @@ static void validate_calls_in_body(zo_reader *r, const zend_op_array *b)
             case ZEND_INIT_PARENT_PROPERTY_HOOK_CALL:
             case ZEND_INIT_USER_CALL:
             case ZEND_NEW:
+                site->change = OPEN_CALL;
                 site->argc = op->extended_value;
                 site->placeholders = 0;
                 site->target = NULL;
@@ -745,8 +745,125 @@ static void validate_calls_in_body(zo_reader *r, const zend_op_array *b)
                         || op->opcode == ZEND_INIT_PARENT_PROPERTY_HOOK_CALL) {
                     site->target = direct_method(b, op);
                 }
-                top = i;
                 break;
+            case ZEND_DO_ICALL:
+            case ZEND_DO_UCALL:
+            case ZEND_DO_FCALL:
+            case ZEND_DO_FCALL_BY_NAME:
+            case ZEND_CALLABLE_CONVERT:
+            case ZEND_CALLABLE_CONVERT_PARTIAL:
+                site->change = CLOSE_CALL;
+                break;
+            default:
+                site->change = NO_CALL_CHANGE;
+                break;
+        }
+    }
+}
+
+static bool call_never_returns(const call_site *site, const zend_op *op)
+{
+    const zend_function *target = site->target;
+    return (op->opcode == ZEND_DO_ICALL || op->opcode == ZEND_DO_UCALL)
+        && target && (target->common.fn_flags & ZEND_ACC_HAS_RETURN_TYPE)
+        && (ZEND_TYPE_PURE_MASK(target->common.arg_info[-1].type) & MAY_BE_NEVER);
+}
+
+static bool raises_exception(uint8_t opcode)
+{
+    return opcode == ZEND_THROW || opcode == ZEND_MATCH_ERROR || opcode == ZEND_VERIFY_NEVER_TYPE;
+}
+
+static const zend_op *jump_target(const zend_op *op)
+{
+    uint32_t flags = zend_get_opcode_flags(op->opcode);
+    if ((ZEND_VM_OP1_FLAGS(flags) & ZEND_VM_OP_MASK) == ZEND_VM_OP_JMP_ADDR) {
+        return OP_JMP_ADDR(op, op->op1);
+    }
+    if ((ZEND_VM_OP2_FLAGS(flags) & ZEND_VM_OP_MASK) == ZEND_VM_OP_JMP_ADDR
+            && !(op->opcode == ZEND_CATCH && (op->extended_value & ZEND_LAST_CATCH))) {
+        return OP_JMP_ADDR(op, op->op2);
+    }
+    if ((flags & ZEND_VM_EXT_MASK) == ZEND_VM_EXT_JMP_ADDR) {
+        return ZEND_OFFSET_TO_OPLINE(op, op->extended_value);
+    }
+    return NULL;
+}
+
+static void enter_call_path(zo_reader *r, const zend_op_array *b, const zend_op *from,
+        call_site *sites, uint32_t *work, uint32_t *count, uint32_t to, uint32_t top, const char *reason)
+{
+    if (sites[to].parent == UNREACHED) {
+        sites[to].parent = top;
+        work[(*count)++] = to;
+    } else if (sites[to].parent != top) {
+        invalid(r, b, from, reason);
+    }
+}
+
+static void find_call_paths(zo_reader *r, const zend_op_array *b, call_site *sites)
+{
+    uint32_t *work = safe_emalloc(b->last, sizeof(*work), 0);
+    uint32_t count = 0;
+    const char *crossed = "jump crosses an unfinished call";
+    enter_call_path(r, b, b->opcodes, sites, work, &count, 0, NO_CALL, crossed);
+    for (uint32_t i = 0; i < b->last_try_catch; ++i) {
+        const zend_try_catch_element *region = &b->try_catch_array[i];
+        if (region->catch_op) enter_call_path(r, b, b->opcodes, sites, work, &count, region->catch_op, NO_CALL, crossed);
+        if (region->finally_op) enter_call_path(r, b, b->opcodes, sites, work, &count, region->finally_op, NO_CALL, crossed);
+    }
+    while (count) {
+        uint32_t i = work[--count];
+        const zend_op *op = &b->opcodes[i];
+        uint32_t top = sites[i].parent;
+        if (sites[i].change == OPEN_CALL) {
+            top = i;
+        } else if (sites[i].change == CLOSE_CALL && top != NO_CALL) {
+            if (call_never_returns(&sites[top], op)) continue;
+            top = sites[top].parent;
+        }
+        if (raises_exception(op->opcode)) continue;
+        if (op->opcode == ZEND_RETURN || op->opcode == ZEND_RETURN_BY_REF
+                || op->opcode == ZEND_GENERATOR_RETURN || op->opcode == ZEND_FAST_RET) {
+            if (top != NO_CALL) invalid(r, b, &b->opcodes[top], "unfinished call");
+            continue;
+        }
+        const zend_op *target = jump_target(op);
+        if (target) enter_call_path(r, b, op, sites, work, &count, target - b->opcodes, top, crossed);
+        if (op->opcode == ZEND_MATCH || op->opcode == ZEND_SWITCH_LONG || op->opcode == ZEND_SWITCH_STRING) {
+            zval *offset;
+            ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(RT_CONSTANT(op, op->op2)), offset) {
+                target = ZEND_OFFSET_TO_OPLINE(op, Z_LVAL_P(offset));
+                enter_call_path(r, b, op, sites, work, &count, target - b->opcodes, top,
+                    "table target crosses an unfinished call");
+            } ZEND_HASH_FOREACH_END();
+        }
+        if (op->opcode != ZEND_JMP && op->opcode != ZEND_MATCH && i + 1 < b->last) {
+            enter_call_path(r, b, op, sites, work, &count, i + 1, top, crossed);
+        }
+    }
+    efree(work);
+}
+
+static void validate_calls_in_body(zo_reader *r, const zend_op_array *b)
+{
+    const zend_string *parent_body = r->body;
+    r->body = b->function_name;
+    call_site *sites = safe_emalloc(b->last, sizeof(*sites), 0);
+    init_call_sites(r, b, sites);
+    find_call_paths(r, b, sites);
+    uint32_t top = NO_CALL;
+    for (uint32_t i = 0; i < b->last; ++i) {
+        const zend_op *op = &b->opcodes[i];
+        call_site *site = &sites[i];
+        /* A source-compiled throw expression may retain unreachable sends and a call completion. */
+        if (site->parent == UNREACHED) site->parent = top;
+        else top = site->parent;
+        if (site->change == OPEN_CALL) {
+            top = i;
+            continue;
+        }
+        switch (op->opcode) {
             case ZEND_SEND_VAL:
             case ZEND_SEND_VAL_EX:
             case ZEND_SEND_VAR:
@@ -792,11 +909,10 @@ static void validate_calls_in_body(zo_reader *r, const zend_op_array *b)
                 if (op->opcode == ZEND_DO_UCALL && (!target || target->type != ZEND_USER_FUNCTION)) {
                     invalid(r, b, op, "user call needs a known user function");
                 }
-                if (i == b->last - 1 && (!target || !(target->common.fn_flags & ZEND_ACC_HAS_RETURN_TYPE)
-                        || !(ZEND_TYPE_PURE_MASK(target->common.arg_info[-1].type) & MAY_BE_NEVER))) {
+                if (i == b->last - 1 && !call_never_returns(&sites[top], op)) {
                     invalid(r, b, op, "body can fall past its final call");
                 }
-                top = sites[top].parent;
+                top = i == b->last - 1 ? NO_CALL : sites[top].parent;
                 break;
             }
             case ZEND_DECLARE_CLASS:
@@ -806,21 +922,14 @@ static void validate_calls_in_body(zo_reader *r, const zend_op_array *b)
                 break;
         }
     }
-    if (top != UINT32_MAX) invalid(r, b, &b->opcodes[top], "unfinished call");
+    if (top != NO_CALL && !raises_exception(b->opcodes[b->last - 1].opcode)) {
+        invalid(r, b, &b->opcodes[top], "unfinished call");
+    }
 
     /* Branches may skip whole calls or branch inside an argument expression. */
     for (uint32_t i = 0; i < b->last; ++i) {
         const zend_op *op = &b->opcodes[i];
-        uint32_t flags = zend_get_opcode_flags(op->opcode);
-        const zend_op *target = NULL;
-        if ((ZEND_VM_OP1_FLAGS(flags) & ZEND_VM_OP_MASK) == ZEND_VM_OP_JMP_ADDR) {
-            target = OP_JMP_ADDR(op, op->op1);
-        } else if ((ZEND_VM_OP2_FLAGS(flags) & ZEND_VM_OP_MASK) == ZEND_VM_OP_JMP_ADDR
-                && !(op->opcode == ZEND_CATCH && (op->extended_value & ZEND_LAST_CATCH))) {
-            target = OP_JMP_ADDR(op, op->op2);
-        } else if ((flags & ZEND_VM_EXT_MASK) == ZEND_VM_EXT_JMP_ADDR) {
-            target = ZEND_OFFSET_TO_OPLINE(op, op->extended_value);
-        }
+        const zend_op *target = jump_target(op);
         if (target && sites[i].parent != sites[target - b->opcodes].parent) {
             invalid(r, b, op, "jump crosses an unfinished call");
         }
