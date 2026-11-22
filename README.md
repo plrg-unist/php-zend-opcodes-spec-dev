@@ -11,7 +11,7 @@ Use a PHP build from the `php-8.6.0` tag with OPcache support. Put its matching 
 ./scripts/test_extension.py
 ```
 
-The runner uses `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to use a matching executable elsewhere. One run checks opcode listings and execution results with OPcache off and with its default optimizer.
+The runner uses `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to use a matching executable elsewhere. It finds `.php`, `.phpt`, and `.zop` files anywhere under `tests/` and checks them with OPcache off and with its default optimizer.
 
 ## Print and run a listing
 

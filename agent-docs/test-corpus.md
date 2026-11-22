@@ -1,6 +1,6 @@
 # PHP source corpus
 
-Keep all test inputs under `tests/`. Upstream PHPTs live in `tests/php-src/` and our own PHP and assembly cases live in `tests/project/`. The runner discovers PHP sources and generates opcode variants during testing. [Fixture provenance and license](../tests/README.md) · [Printer and loader checks](extension-testing.md)
+Keep all test inputs under `tests/`. Upstream PHPTs live in `tests/php-src/` and our own PHP and assembly cases live in `tests/project/`. The runner compiles PHP sources and directly loads opcode fixtures. [Fixture provenance and license](../tests/README.md) · [Printer and loader checks](extension-testing.md)
 
 ## Representative upstream fixtures
 

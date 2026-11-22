@@ -2,7 +2,7 @@
 
 This directory is the entry point for agents working on the PHP Zend opcode specification in P4-SpecTec. Keep agent documentation here. Keep the human-facing project overview and build and test commands concise in the [root README](../README.md).
 
-Add project-defined version numbers only when the user explicitly requests them.
+Introduce project-defined versioning only at the user's request. Supply version fields when external tooling requires them.
 
 - [PHP build and optimizer settings](fixture-compilation.md) gives the php-src pin, executable lookup and verified fixture variants.
 - [Compiling PHP fixtures to an opcode AST](opcode-input.md) covers the extension hook, required data and scope of a compilation unit.
@@ -13,7 +13,7 @@ Add project-defined version numbers only when the user explicitly requests them.
 
 ## Dependencies
 
-Use Python's standard library by default. If a third-party package would significantly simplify the implementation, explain what it would simplify and discuss dependency management with the user before adopting it. Discuss any additional build or runtime dependency the native extension needs before adding it.
+Use Python's standard library by default. Make scripts executable, use type hints and keep comments minimal. If a third-party package would significantly simplify the implementation, explain what it would simplify and discuss dependency management with the user before adopting it. Discuss any additional build or runtime dependency the native extension needs before adding it.
 
 ## Maintaining these files
 

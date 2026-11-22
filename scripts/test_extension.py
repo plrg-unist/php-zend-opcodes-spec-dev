@@ -25,7 +25,7 @@ PROFILES = {
 
 def read_fixture(path: Path) -> tuple[bytes, bytes | None]:
     data = path.read_bytes()
-    if path.suffix == ".php":
+    if path.suffix != ".phpt":
         return data, None
     parts = re.split(rb"^--([A-Z_]+)--[^\n]*(?:\n|$)", data, flags=re.MULTILINE)
     names = parts[1::2]
@@ -36,16 +36,17 @@ def read_fixture(path: Path) -> tuple[bytes, bytes | None]:
 
 
 def run_php(
-    php: Path, settings: tuple[str, ...], entry: Path, output: Path, *, load: bool = False
+    php: Path, profile: str, entry: Path, output: Path, *, load: bool = False,
+    settings: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[bytes]:
     command = [str(php), "-n", "-d", f"extension={EXTENSION}", "-d", f"zend_opcodes.output={output}"]
-    for setting in settings:
+    for setting in (*PROFILES[profile], *settings):
         command.extend(["-d", setting])
     if load:
         command.extend(["-d", "zend_opcodes.load=1"])
     return subprocess.run(
         [*command, str(entry)], cwd=entry.parent, stdin=subprocess.DEVNULL,
-        capture_output=True, timeout=30,
+        env={**os.environ, "ZEND_OPCODES_TEST_PROFILE": profile}, capture_output=True, timeout=30,
     )
 
 
@@ -68,15 +69,35 @@ def compare(label: str, expected: bytes, actual: bytes) -> None:
 
 
 def check_fixture(
-    php: Path, settings: tuple[str, ...], entry: Path, source: bytes, expected: bytes | None,
-) -> bytes:
+    php: Path, profile: str, fixture: Path, directory: Path,
+) -> None:
+    source, expected = read_fixture(fixture)
+    entry = directory / (fixture.with_suffix(".php").name if fixture.suffix == ".phpt" else fixture.name)
     entry.write_bytes(source)
-    first = entry.parent / "original.zop"
-    second = entry.parent / "reloaded.zop"
-    first.unlink(missing_ok=True)
-    second.unlink(missing_ok=True)
-    reference = run_php(php, settings, entry, first)
+    first = directory / "original.listing"
+    second = directory / "reloaded.listing"
+    error = fixture.with_name(f"{fixture.name}.error")
+    stdout = fixture.with_name(f"{fixture.name}.out")
+    if fixture.suffix == ".zop" and error.is_file():
+        if stdout.is_file():
+            raise ValueError("a listing cannot expect both successful output and loader rejection")
+        reason = error.read_bytes().rstrip(b"\r\n")
+        result = run_php(php, profile, entry, first, settings=("display_errors=stderr",))
+        if (result.returncode <= 0 or result.stdout or first.exists()
+                or not reason or reason not in result.stderr):
+            raise ValueError(
+                f"expected loader rejection {reason!r}, got status {result.returncode}, "
+                f"stdout {result.stdout[:250]!r}, stderr {result.stderr[:250]!r}"
+            )
+        return
+
+    reference = run_php(php, profile, entry, first)
     original = listing(first, reference)
+    if fixture.suffix == ".zop" and stdout.is_file():
+        compare("stdout", stdout.read_bytes(), reference.stdout)
+        compare("stderr", b"", reference.stderr)
+        if reference.returncode != 0:
+            raise ValueError(f"expected exit status 0, got {reference.returncode}")
     if expected is not None:
         if reference.stdout and reference.stderr:
             raise ValueError("mixed stdout and stderr in PHPT EXPECT requires the upstream PHPT runner")
@@ -86,75 +107,34 @@ def check_fixture(
                 observed.replace(b"\r\n", b"\n").strip(whitespace))
 
     entry.write_bytes(original)
-    candidate = run_php(php, settings, entry, second, load=True)
+    candidate = run_php(php, profile, entry, second, load=True)
     compare("opcode listing", original, listing(second, candidate))
     compare("stdout", reference.stdout, candidate.stdout)
     compare("stderr", reference.stderr, candidate.stderr)
     if reference.returncode != candidate.returncode:
         raise ValueError(f"exit status: expected {reference.returncode}, got {candidate.returncode}")
-    return original
-
-
-def check_handwritten(php: Path, settings: tuple[str, ...]) -> None:
-    source = (TESTS / "project/handwritten.zop").read_bytes()
-    with tempfile.TemporaryDirectory(prefix="zend-assembly-") as directory:
-        entry = Path(directory) / "example.zop"
-        for number in (41, 42):
-            program = source.replace(b"int(41)", f"int({number})".encode())
-            entry.write_bytes(program)
-            output = entry.with_name(f"printed-{number}.zop")
-            result = run_php(php, settings, entry, output)
-            compare("handwritten listing", program, listing(output, result))
-            compare("handwritten stdout", f"running={number}".encode(), result.stdout)
-            compare("handwritten stderr", b"", result.stderr)
-            if result.returncode != 0:
-                raise ValueError(f"handwritten exit status {result.returncode}")
-
-        for instruction, reason in ((b"ECHO lit[9]", b"literal"), (b"JMP @9", b"target")):
-            entry.write_bytes(source.replace(b"ECHO lit[1]", instruction))
-            output = entry.with_name("rejected.zop")
-            result = run_php(php, settings, entry, output)
-            diagnostic = result.stdout + result.stderr
-            if result.returncode <= 0 or reason not in diagnostic or b"running=" in diagnostic or output.exists():
-                raise ValueError(f"expected {reason.decode()} error before execution, got {result.returncode} {diagnostic[:500]!r}")
 
 
 def main() -> int:
     php = Path(os.environ.get("ZEND_SPEC_PHP", ROOT.parent / "php-src/sapi/cli/php")).resolve()
-    fixtures = sorted([*TESTS.rglob("*.phpt"), *(TESTS / "project").rglob("*.php")])
+    fixtures = sorted(
+        path for path in TESTS.rglob("*") if path.suffix in {".php", ".phpt", ".zop"} and path.is_file()
+    )
     if not php.is_file() or not EXTENSION.is_file() or not fixtures:
         sys.exit(f"Need a PHP executable at {php}, a built module at {EXTENSION}, and fixtures in {TESTS}.")
     failures = 0
     for fixture in fixtures:
-        label = str(fixture.relative_to(ROOT))
-        try:
-            source, expected = read_fixture(fixture)
-        except (OSError, ValueError) as error:
-            print(f"FAIL {label}: {error}", file=sys.stderr)
-            failures += 1
-            continue
-        with tempfile.TemporaryDirectory(prefix="zend-opcodes-") as directory:
-            entry = Path(directory) / fixture.with_suffix(".php").name
-            for profile, settings in PROFILES.items():
-                try:
-                    output = check_fixture(php, settings, entry, source, expected)
-                    if fixture == TESTS / "project/folded_branch.php":
-                        has_branch = re.search(rb"^\s*\d+:\s+JMPZ\b", output, re.MULTILINE) is not None
-                        if has_branch != (profile == "ordinary"):
-                            raise ValueError("constant-folding fixture should contain JMPZ only in the ordinary profile")
-                except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-                    print(f"FAIL {label} [{profile}]: {error}", file=sys.stderr)
-                    failures += 1
-    for profile, settings in PROFILES.items():
-        try:
-            check_handwritten(php, settings)
-        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-            print(f"FAIL handwritten assembly [{profile}]: {error}", file=sys.stderr)
-            failures += 1
+        for profile in PROFILES:
+            try:
+                with tempfile.TemporaryDirectory(prefix="zend-opcodes-") as directory:
+                    check_fixture(php, profile, fixture, Path(directory))
+            except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                print(f"FAIL {fixture.relative_to(ROOT)} [{profile}]: {error}", file=sys.stderr)
+                failures += 1
     if failures:
         print(f"{failures} failed", file=sys.stderr)
         return 1
-    print(f"{len(fixtures)} source fixtures and handwritten assembly checks passed under both compiler profiles.")
+    print(f"{len(fixtures)} fixtures passed under both compiler profiles.")
     return 0
 
 

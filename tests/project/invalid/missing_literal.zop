@@ -1,0 +1,14 @@
+zend-opcodes
+file "invalid.php"
+main
+body - {
+  lines 1 1
+  frame 0 cache 0
+  size 3 literals 1 children 0
+  lit[0] = "executed"
+  code
+    0: ECHO lit[0] | line=1
+    1: ECHO lit[9] | line=1
+    2: RETURN lit[0] | line=1
+}
+end
