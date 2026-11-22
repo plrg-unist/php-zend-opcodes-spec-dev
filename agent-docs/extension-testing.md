@@ -6,7 +6,7 @@ The first extension milestone covers native opcode printing and loading. Start w
 
 Use one `scripts/test_extension.py` with `#!/usr/bin/env python3`, type hints, standard-library modules and minimal comments. Set its executable bit with `chmod +x` and run it directly with Python 3. Discover `*.phpt` recursively under `tests/` and standalone `*.php` under `tests/project/`, in sorted order. Run the whole corpus with fixed profiles and checks on each invocation.
 
-Use standalone PHP source or the bytes of a PHPT's `--FILE--` section. Each fixture gets a Python `TemporaryDirectory` for its source and listings. The same temporary script path is used for both runs. Replacing its source bytes with the listing ensures the loader can execute independently. The current PHPTs use only `TEST`, `FILE` and `EXPECT` and expect successful stdout-only execution. Check that reference against its bundled expectation, then compare the loaded run's streams as raw bytes. Report unsupported sections with their fixture path. [Local corpus](test-corpus.md)
+Use standalone PHP source or the bytes of a PHPT's `--FILE--` section. Each fixture gets a Python `TemporaryDirectory` for its source and listings. Replacing the temporary source bytes with the listing preserves the logical path and verifies independent execution. For simple `TEST`/`FILE`/`EXPECT` PHPTs, check the reference against the bundled expectation. Mixed-stream PHPT expectations and additional sections need the upstream runner. Standalone fixtures can exercise both streams and nonzero status. [Test script](../scripts/test_extension.py) · [Local corpus](test-corpus.md)
 
 ## Two checks per PHP fixture
 
@@ -21,7 +21,8 @@ For a fixture designed to observe a scalar or array return value, an ordinary PH
 
 A round trip can pass if both sides omit the same information. Conversely, two programs can give the same result for an input while differing on an unexecuted branch. Give branching fixtures inputs that exercise each relevant path. In a source-side check on both profiles, two PHP programs printed `done`, wrote nothing to stderr and exited `0`. Their separately captured return arrays distinguished `['answer' => 41]` from `['answer' => 42]`.
 
-## Later additions for the opcode syntax
+## Independent assembly checks
 
-- Keep a small hand-written [opcode fixture](opcode-syntax.md) with a known result and a canonical expected listing. Where there is a matching PHP source, check its printed output against the hand-written expectation as well. Editing one literal in the hand-written fixture and checking the changed result directly exercises the loader.
-- Include a small rejection case, such as a reference to a missing literal. Expect an error identifying the relevant body and operand, a failing exit status, and no fixture execution.
+The runner executes a hand-written listing, changes an integer literal, and checks the changed output. It also checks that a missing literal and an invalid jump target produce a diagnostic and a failing exit before the first observable instruction. [Hand-written listing](../tests/project/handwritten.zop)
+
+The execution comparison covers runtime effects. Compiler-only diagnostics (such as a deprecation during parsing) occur in the source process. A fixture that reads its own file bytes also needs special treatment because the second process reads a listing at that path.

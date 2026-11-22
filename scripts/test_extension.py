@@ -78,11 +78,12 @@ def check_fixture(
     reference = run_php(php, settings, entry, first)
     original = listing(first, reference)
     if expected is not None:
-        if reference.returncode != 0 or reference.stderr:
-            raise ValueError(f"PHPT reference status {reference.returncode}, stderr {reference.stderr[:500]!r}")
+        if reference.stdout and reference.stderr:
+            raise ValueError("mixed stdout and stderr in PHPT EXPECT requires the upstream PHPT runner")
         whitespace = b" \t\n\r\x00\v"
+        observed = reference.stdout or reference.stderr
         compare("PHPT EXPECT", expected.replace(b"\r\n", b"\n").strip(whitespace),
-                reference.stdout.replace(b"\r\n", b"\n").strip(whitespace))
+                observed.replace(b"\r\n", b"\n").strip(whitespace))
 
     entry.write_bytes(original)
     candidate = run_php(php, settings, entry, second, load=True)
@@ -92,6 +93,30 @@ def check_fixture(
     if reference.returncode != candidate.returncode:
         raise ValueError(f"exit status: expected {reference.returncode}, got {candidate.returncode}")
     return original
+
+
+def check_handwritten(php: Path, settings: tuple[str, ...]) -> None:
+    source = (TESTS / "project/handwritten.zop").read_bytes()
+    with tempfile.TemporaryDirectory(prefix="zend-assembly-") as directory:
+        entry = Path(directory) / "example.zop"
+        for number in (41, 42):
+            program = source.replace(b"int(41)", f"int({number})".encode())
+            entry.write_bytes(program)
+            output = entry.with_name(f"printed-{number}.zop")
+            result = run_php(php, settings, entry, output)
+            compare("handwritten listing", program, listing(output, result))
+            compare("handwritten stdout", f"running={number}".encode(), result.stdout)
+            compare("handwritten stderr", b"", result.stderr)
+            if result.returncode != 0:
+                raise ValueError(f"handwritten exit status {result.returncode}")
+
+        for instruction, reason in ((b"ECHO lit[9]", b"literal"), (b"JMP @9", b"target")):
+            entry.write_bytes(source.replace(b"ECHO lit[1]", instruction))
+            output = entry.with_name("rejected.zop")
+            result = run_php(php, settings, entry, output)
+            diagnostic = result.stdout + result.stderr
+            if result.returncode <= 0 or reason not in diagnostic or b"running=" in diagnostic or output.exists():
+                raise ValueError(f"expected {reason.decode()} error before execution, got {result.returncode} {diagnostic[:500]!r}")
 
 
 def main() -> int:
@@ -116,14 +141,20 @@ def main() -> int:
                     if fixture == TESTS / "project/folded_branch.php":
                         has_branch = re.search(rb"^\s*\d+:\s+JMPZ\b", output, re.MULTILINE) is not None
                         if has_branch != (profile == "ordinary"):
-                            raise ValueError("unexpected JMPZ in the constant-folding check")
+                            raise ValueError("constant-folding fixture should contain JMPZ only in the ordinary profile")
                 except (OSError, ValueError, subprocess.TimeoutExpired) as error:
                     print(f"FAIL {label} [{profile}]: {error}", file=sys.stderr)
                     failures += 1
+    for profile, settings in PROFILES.items():
+        try:
+            check_handwritten(php, settings)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            print(f"FAIL handwritten assembly [{profile}]: {error}", file=sys.stderr)
+            failures += 1
     if failures:
         print(f"{failures} failed", file=sys.stderr)
         return 1
-    print(f"{len(fixtures)} fixtures passed both checks under both compiler profiles.")
+    print(f"{len(fixtures)} source fixtures and handwritten assembly checks passed under both compiler profiles.")
     return 0
 
 
