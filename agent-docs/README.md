@@ -2,11 +2,11 @@
 
 This directory is the entry point for agents working on the PHP Zend opcode specification in P4-SpecTec. Keep agent documentation here. Keep the human-facing project overview and build and test commands concise in the [root README](../README.md).
 
-- [PHP build and optimizer settings](fixture-compilation.md) gives the php-src pin, proposed executable lookup and verified fixture variants.
+- [PHP build and optimizer settings](fixture-compilation.md) gives the php-src pin, executable lookup and verified fixture variants.
 - [Compiling PHP fixtures to an opcode AST](opcode-input.md) covers the extension hook, required data and scope of a compilation unit.
-- [Concrete syntax for opcode fixtures](opcode-syntax.md) gives the proposed notation for native exports and hand-written programs.
+- [Concrete syntax for opcode fixtures](opcode-syntax.md) describes the notation used by the printer and loader.
 - [PHP source corpus](test-corpus.md) lists the local fixtures and how to select and copy more from php-src.
-- [Testing the opcode printer and loader](extension-testing.md) gives the proposed checks for the first extension milestone.
+- [Testing the opcode printer and loader](extension-testing.md) describes the test runner and its checks.
 - [Differential testing against Zend](differential-testing.md) covers future spec comparisons and live VM observation.
 
 ## Dependencies

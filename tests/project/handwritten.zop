@@ -1,0 +1,16 @@
+zend-opcodes 1
+file "example.php"
+main
+body - {
+  lines 1 1
+  frame 0 cache 0
+  size 3 literals 3 children 0
+  lit[0] = "running="
+  lit[1] = int(41)
+  lit[2] = int(1)
+  code
+    0: ECHO lit[0] | line=1
+    1: ECHO lit[1] | line=1
+    2: RETURN lit[2] | line=1
+}
+end

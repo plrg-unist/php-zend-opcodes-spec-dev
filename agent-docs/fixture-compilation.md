@@ -4,11 +4,11 @@
 
 Build the PHP engine from the external php-src checkout. The sibling checkout supplies upstream `php/php-src` at tag `php-8.6.0`, commit `8aaada3f9605d81a38b8240f93c7389dfbc77ef9`.
 
-For the proposed fixture driver, default to `../php-src/sapi/cli/php` relative to the project root. Let `ZEND_SPEC_PHP` select another executable, e.g. `/opt/php-8.6.0/bin/php`. The default is the product of an in-tree build. Record the build’s source commit, architecture, configuration and enabled extensions. Multiple source revisions can report the same PHP release.
+The fixture driver defaults to `../php-src/sapi/cli/php` relative to the project root. `ZEND_SPEC_PHP` selects another executable, e.g. `/opt/php-8.6.0/bin/php`. The default is the product of an in-tree build. Match the source commit, architecture, configuration and enabled extensions when sharing fixtures. Multiple source revisions can report the same PHP release.
 
 ## Extension layout and build
 
-Keep the extension in `ext/`. Use `config.m4` as its build definition, `zend_opcodes.c` for module registration and the compiler hook, `print.c` for the printer and `load.c` for the loader.
+The extension lives in `ext/`. Its build definition is `config.m4`. The module and CLI compiler hook live in `zend_opcodes.c`. Each text representation keeps its reader and writer together, including compilation units and declarations in `unit.c`, function bodies in `body.c`, and oplines in `instructions.c`. [Module](../ext/zend_opcodes.c) · [Build definition and source list](../ext/config.m4)
 
 Select `phpize` and `php-config` from the matching PHP development installation. A standard installation puts both tools in its `bin/` directory. For the source-tree CLI, use the tools under the matching installation prefix. The following commands start at the project root with those tools on `PATH`.
 
@@ -25,9 +25,9 @@ The runner loads `ext/modules/zend_opcodes.so` by absolute path with `-d extensi
 
 ## Finalized opcode variants
 
-For an export-only run, use a named file and a fresh `php -n -d extension=/absolute/path/to/zend_opcodes.so -l fixture.php` process per profile, with its `-d` settings before `-l`. For OPcache profiles set `opcache.enable=1`, `opcache.enable_cli=1`, `opcache.file_update_protection=0` and keep JIT disabled. This permits newly written fixtures to reach the optimizer. The extension wraps the installed file compiler at request startup and exports after it returns. [File eligibility](../../php-src/ext/opcache/ZendAccelerator.c#L1804) · [Optimizing a script](../../php-src/ext/opcache/ZendAccelerator.c#L1616) · [Returning the loaded script](../../php-src/ext/opcache/ZendAccelerator.c#L2514)
+For an export-only run, use a named file and a fresh `php -n -d extension=/absolute/path/to/zend_opcodes.so -d zend_opcodes.output=out.zop -l fixture.php` process per profile. For OPcache profiles set `opcache.enable=1`, `opcache.enable_cli=1`, `opcache.file_update_protection=0` and keep JIT disabled. This permits newly written fixtures to reach the optimizer. The extension wraps the installed file compiler at request startup and exports after it returns. [File eligibility](../../php-src/ext/opcache/ZendAccelerator.c#L1804) · [Optimizing a script](../../php-src/ext/opcache/ZendAccelerator.c#L1616) · [Returning the loaded script](../../php-src/ext/opcache/ZendAccelerator.c#L2514)
 
-The proposed standard pair is the ordinary compiler (OPcache off) and OPcache with its pinned default optimizer. The local-only profile is optional when it adds a useful instruction or operand pattern. The probe observed the following complete instruction sequences for `answer()`.
+The standard pair is the ordinary compiler (OPcache off) and OPcache with its pinned default optimizer. A local-only profile can be used for manual investigation. The probe observed the following complete instruction sequences for `answer()`.
 
 ```php
 function answer() {
