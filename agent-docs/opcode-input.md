@@ -1,6 +1,6 @@
 # Compiling PHP fixtures to an opcode AST
 
-Use a regular shared PHP extension to capture one compilation unit at a time. The extension prints the same concrete opcode syntax used for hand-written examples. The planned Rust importer will parse this into the program value declared by the `.watsup` syntax. [Fixture syntax](opcode-syntax.md) · [Pinned engine, module build and optimizer profiles](fixture-compilation.md) · [While runner example](../../while-example/src/main.rs#L60)
+Use a regular shared PHP extension to capture one compilation unit at a time. Its output and hand-written listings use the same concrete syntax and feed the planned Rust parser. [Fixture syntax](opcode-syntax.md) · [AST and Rust library](opcode-ast.md) · [Pinned engine, module build and optimizer profiles](fixture-compilation.md)
 
 ## Where to capture
 

@@ -1,0 +1,151 @@
+;; Byte strings are sequences of octets in the range 0 through 255.
+syntax bytes = nat*
+
+;; Named opcodes in the pinned Zend table, in opcode-number order.
+syntax opcode =
+  | NOP | ADD | SUB | MUL | DIV | MOD | SL | SR | CONCAT | BW_OR | BW_AND | BW_XOR | POW
+  | BW_NOT | BOOL_NOT | BOOL_XOR | IS_IDENTICAL | IS_NOT_IDENTICAL | IS_EQUAL | IS_NOT_EQUAL
+  | IS_SMALLER | IS_SMALLER_OR_EQUAL | ASSIGN | ASSIGN_DIM | ASSIGN_OBJ | ASSIGN_STATIC_PROP
+  | ASSIGN_OP | ASSIGN_DIM_OP | ASSIGN_OBJ_OP | ASSIGN_STATIC_PROP_OP | ASSIGN_REF
+  | QM_ASSIGN | ASSIGN_OBJ_REF | ASSIGN_STATIC_PROP_REF | PRE_INC | PRE_DEC | POST_INC
+  | POST_DEC | PRE_INC_STATIC_PROP | PRE_DEC_STATIC_PROP | POST_INC_STATIC_PROP
+  | POST_DEC_STATIC_PROP | JMP | JMPZ | JMPNZ | JMPZ_EX | JMPNZ_EX | CASE | CHECK_VAR
+  | SEND_VAR_NO_REF_EX | CAST | BOOL | FAST_CONCAT | ROPE_INIT | ROPE_ADD | ROPE_END
+  | BEGIN_SILENCE | END_SILENCE | INIT_FCALL_BY_NAME | DO_FCALL | INIT_FCALL | RETURN | RECV
+  | RECV_INIT | SEND_VAL | SEND_VAR_EX | SEND_REF | NEW | INIT_NS_FCALL_BY_NAME | FREE
+  | INIT_ARRAY | ADD_ARRAY_ELEMENT | INCLUDE_OR_EVAL | UNSET_VAR | UNSET_DIM | UNSET_OBJ
+  | FE_RESET_R | FE_FETCH_R | FETCH_R | FETCH_DIM_R | FETCH_OBJ_R | FETCH_W | FETCH_DIM_W
+  | FETCH_OBJ_W | FETCH_RW | FETCH_DIM_RW | FETCH_OBJ_RW | FETCH_IS | FETCH_DIM_IS
+  | FETCH_OBJ_IS | FETCH_FUNC_ARG | FETCH_DIM_FUNC_ARG | FETCH_OBJ_FUNC_ARG | FETCH_UNSET
+  | FETCH_DIM_UNSET | FETCH_OBJ_UNSET | FETCH_LIST_R | FETCH_CONSTANT | CHECK_FUNC_ARG
+  | EXT_STMT | EXT_FCALL_BEGIN | EXT_FCALL_END | EXT_NOP | TICKS | SEND_VAR_NO_REF | CATCH
+  | THROW | FETCH_CLASS | CLONE | RETURN_BY_REF | INIT_METHOD_CALL | INIT_STATIC_METHOD_CALL
+  | ISSET_ISEMPTY_VAR | ISSET_ISEMPTY_DIM_OBJ | SEND_VAL_EX | SEND_VAR | INIT_USER_CALL
+  | SEND_ARRAY | SEND_USER | STRLEN | DEFINED | TYPE_CHECK | VERIFY_RETURN_TYPE
+  | FE_RESET_RW | FE_FETCH_RW | FE_FREE | INIT_DYNAMIC_CALL | DO_ICALL | DO_UCALL
+  | DO_FCALL_BY_NAME | PRE_INC_OBJ | PRE_DEC_OBJ | POST_INC_OBJ | POST_DEC_OBJ | ECHO
+  | OP_DATA | INSTANCEOF | GENERATOR_CREATE | MAKE_REF | DECLARE_FUNCTION
+  | DECLARE_LAMBDA_FUNCTION | DECLARE_CONST | DECLARE_CLASS | DECLARE_CLASS_DELAYED
+  | DECLARE_ANON_CLASS | ADD_ARRAY_UNPACK | ISSET_ISEMPTY_PROP_OBJ | HANDLE_EXCEPTION
+  | USER_OPCODE | ASSERT_CHECK | JMP_SET | UNSET_CV | ISSET_ISEMPTY_CV | FETCH_LIST_W
+  | SEPARATE | FETCH_CLASS_NAME | CALL_TRAMPOLINE | DISCARD_EXCEPTION | YIELD
+  | GENERATOR_RETURN | FAST_CALL | FAST_RET | RECV_VARIADIC | SEND_UNPACK | YIELD_FROM
+  | COPY_TMP | BIND_GLOBAL | COALESCE | SPACESHIP | FUNC_NUM_ARGS | FUNC_GET_ARGS
+  | FETCH_STATIC_PROP_R | FETCH_STATIC_PROP_W | FETCH_STATIC_PROP_RW | FETCH_STATIC_PROP_IS
+  | FETCH_STATIC_PROP_FUNC_ARG | FETCH_STATIC_PROP_UNSET | UNSET_STATIC_PROP
+  | ISSET_ISEMPTY_STATIC_PROP | FETCH_CLASS_CONSTANT | BIND_LEXICAL | BIND_STATIC
+  | FETCH_THIS | SEND_FUNC_ARG | ISSET_ISEMPTY_THIS | SWITCH_LONG | SWITCH_STRING | IN_ARRAY
+  | COUNT | GET_CLASS | GET_CALLED_CLASS | GET_TYPE | ARRAY_KEY_EXISTS | MATCH | CASE_STRICT
+  | MATCH_ERROR | JMP_NULL | CHECK_UNDEF_ARGS | FETCH_GLOBALS | VERIFY_NEVER_TYPE
+  | CALLABLE_CONVERT | BIND_INIT_STATIC_OR_JMP | FRAMELESS_ICALL_0 | FRAMELESS_ICALL_1
+  | FRAMELESS_ICALL_2 | FRAMELESS_ICALL_3 | JMP_FRAMELESS | INIT_PARENT_PROPERTY_HOOK_CALL
+  | DECLARE_ATTRIBUTED_CONST | TYPE_ASSERT | CALLABLE_CONVERT_PARTIAL | SEND_PLACEHOLDER
+
+syntax operand = UNUSED | IMM nat | TARGET nat | LIT nat | CV nat | TMP nat | VAR nat
+
+syntax extension = EXT_VALUE nat | EXT_TARGET nat | BUILTIN bytes
+syntax smartbranch = SMART_JMPZ | SMART_JMPNZ
+
+;; Instruction indices are positions in a body's code list.
+;; OPLINE carries opcode, result, op1, op2, PHP source line, extended value,
+;; result cache, default cache, bound argument mask, smart branch and numeric string key.
+syntax instruction = OPLINE opcode operand operand operand nat extension? nat? nat? nat? smartbranch? bool
+
+syntax zval
+syntax expr
+syntax body
+
+;; FLOAT holds the 64 bits of a binary64 value. ARRAY preserves entry order,
+;; the optional next integer key and the optional internal cursor position.
+syntax arraykey = INDEX int | KEY bytes
+syntax arrayentry = ENTRY arraykey zval
+syntax zval =
+  | UNDEF | NULL | FALSE | TRUE
+  | INT int | FLOAT nat | STRING bytes
+  | ARRAY arrayentry* int? nat?
+  | DEFERRED expr
+
+;; Each Zend type carries its primitive and qualifier mask.
+syntax ztype =
+  | MASK nat | NAMED nat bytes
+  | UNION nat ztype* | INTERSECTION nat ztype*
+
+;; Declaration attributes carry their parameter offset, source line, flags and possible delayed error.
+syntax attrarg = ATTRARG bytes? zval
+syntax attribute = ATTRIBUTE bytes nat nat nat bytes? attrarg*
+
+;; Present nodes retain their Zend AST flags and source line. ABSENT represents a missing child.
+syntax expr =
+  | ABSENT
+  | VALUE nat nat zval
+  | CONSTANT nat nat bytes
+  | CLASS_CONSTANT nat nat expr expr
+  | CLASS_NAME nat nat expr
+  | CURRENT_CLASS nat nat
+  | BINARY nat nat expr expr
+  | UNARY nat nat expr
+  | PLUS nat nat expr
+  | MINUS nat nat expr
+  | CAST nat nat expr
+  | GREATER nat nat expr expr
+  | GREATER_EQUAL nat nat expr expr
+  | AND nat nat expr expr
+  | OR nat nat expr expr
+  | COALESCE nat nat expr expr
+  | CONDITIONAL nat nat expr expr expr
+  | DIMENSION nat nat expr expr
+  | PROPERTY nat nat expr expr
+  | NULLSAFE_PROPERTY nat nat expr expr
+  | ARRAY nat nat expr*
+  | ELEMENT nat nat expr expr
+  | UNPACK nat nat expr
+  | NEW nat nat expr expr
+  | ARGUMENTS nat nat expr*
+  | NAMED nat nat expr expr
+  | CLOSURE nat nat body
+  | CALL nat nat expr expr
+  | STATIC_CALL nat nat expr expr expr
+  | CALLABLE nat nat bytes? bytes? expr
+  | PLACEHOLDER nat nat
+
+syntax poolentry = LITERAL zval | ATTRIBUTES attribute*
+
+;; ARGS holds the declared and required counts, optional return type and argument rows.
+syntax arginfo = ARG bytes ztype bytes?
+syntax signature = ARGS nat nat ztype? arginfo*
+syntax bodysource = LINES nat nat bytes?
+;; Body name, two flag words, scope name, source information, signature and attributes.
+syntax bodydecl = BODYDECL bytes? nat nat bytes? bodysource signature? attribute*
+;; Temporary slots, cache bytes, ordered local names, optional static variable table.
+syntax bodyframe = FRAME nat nat bytes* zval?
+
+;; TRY records the try, catch, finally and finally-end instruction indices.
+;; LIVE records the frame slot, range kind, first instruction and exclusive end.
+syntax tryregion = TRY nat nat nat nat
+syntax liverange = LIVE nat nat nat nat
+;; Literal, child-body and instruction indices are positions in the respective lists.
+syntax body = BODY bodydecl bodyframe poolentry* tryregion* liverange* body* instruction*
+
+syntax classLink = LINKED | UNLINKED
+syntax enumBacking = PURE | INTBACKING | STRINGBACKING
+
+;; Key, source name, linkage, flags, first and last source lines, parent, doc comment.
+syntax classHeader = CLASSHEADER bytes bytes classLink nat nat nat bytes? bytes?
+
+syntax traitAlias = ALIAS bytes? bytes nat bytes?
+syntax traitPrecedence = INSTEAD bytes bytes bytes*
+syntax traitUse = TRAITS bytes* traitAlias* traitPrecedence*
+
+;; Property and constant declarations share the name, flags, type, comment, value and attributes.
+syntax classMember = MEMBER bytes nat ztype bytes? zval attribute*
+syntax propertyDecl = PROPERTY classMember body? body?
+syntax classConstant =
+  | CONSTANT classMember
+  | ENUMCASE nat bytes nat nat bytes? expr attribute*
+
+;; Function and method keys may differ from their source names.
+syntax namedBody = NAMEDBODY bytes body
+syntax classDecl = CLASS classHeader attribute* enumBacking? bytes* traitUse propertyDecl* classConstant* namedBody*
+
+;; Filename, compiler halt offset, ordered lazy superglobals, main body, functions, classes.
+syntax unit = UNIT bytes nat? bytes* body namedBody* classDecl*

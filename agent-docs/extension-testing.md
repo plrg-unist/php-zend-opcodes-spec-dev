@@ -1,6 +1,6 @@
 # Testing the opcode printer and loader
 
-The first extension milestone covers native opcode printing and loading. Start with the [PHP source corpus](test-corpus.md) on the pinned engine. The [future spec comparisons and VM observation](differential-testing.md) are a separate milestone.
+These checks cover native opcode printing and loading on the pinned engine. The planned Cargo integration test reuses this corpus and PHP invocation. [Local corpus](test-corpus.md) · [AST milestone tests](opcode-ast.md#tests) · [Future spec comparisons and VM observation](differential-testing.md)
 
 ## Test script
 

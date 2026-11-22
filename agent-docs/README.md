@@ -7,13 +7,16 @@ Introduce project-defined versioning only at the user's request. Supply version 
 - [PHP build and optimizer settings](fixture-compilation.md) gives the php-src pin, executable lookup and verified fixture variants.
 - [Compiling PHP fixtures to an opcode AST](opcode-input.md) covers the extension hook, required data and scope of a compilation unit.
 - [Concrete syntax for opcode fixtures](opcode-syntax.md) describes the notation used by the printer and loader.
+- [Zend opcode AST and Rust library](opcode-ast.md) gives the agreed layout, library API and Cargo tests for the next milestone.
 - [PHP source corpus](test-corpus.md) lists the local fixtures and how to select and copy more from php-src.
 - [Testing the opcode printer and loader](extension-testing.md) describes the test runner and its checks.
 - [Differential testing against Zend](differential-testing.md) covers future spec comparisons and live VM observation.
 
 ## Dependencies
 
-Use Python's standard library by default. Make scripts executable, use type hints and keep comments minimal. If a third-party package would significantly simplify the implementation, explain what it would simplify and discuss dependency management with the user before adopting it. Discuss any additional build or runtime dependency the native extension needs before adding it.
+- Add required Rust dependencies directly.
+- Use Python's standard library by default. Make scripts executable, use type hints and keep comments minimal. If a third-party package would significantly simplify the implementation, explain what it would simplify and discuss dependency management with the user before adopting it.
+- Discuss any additional build or runtime dependency the native extension needs before adding it.
 
 ## Maintaining these files
 
