@@ -1,0 +1,124 @@
+var n : nat
+var i : int
+var b : bool
+
+syntax outcome = PHP bytes bytes nat | UNSUPPORTED bytes bytes
+syntax frame = { CODE instruction*, POOL poolentry*, PC nat, SLOTS zval*, STDOUT bytes }
+syntax transition = CONTINUE frame | FINISH outcome
+
+;; The text loader checks frame indices before entering the spec. CV, TMP and VAR
+;; indices all count from the start of the same physical frame.
+dec $empty_slots(nat) : zval*
+def $empty_slots(0) = eps
+def $empty_slots(n) = UNDEF :: $empty_slots(n')
+  -- if $(n > 0)
+  -- if n' = $(n - 1)
+
+dec $read(frame, operand) : zval
+def $read(frame, LIT n) = zval
+  -- if LITERAL zval = frame.POOL[n]
+def $read(frame, CV n) = frame.SLOTS[n]
+def $read(frame, TMP n) = frame.SLOTS[n]
+def $read(frame, VAR n) = frame.SLOTS[n]
+
+dec $write(frame, operand, zval) : frame
+def $write(frame, UNUSED, _) = frame
+def $write(frame, CV n, zval) = frame[.SLOTS[n] = zval]
+def $write(frame, TMP n, zval) = frame[.SLOTS[n] = zval]
+def $write(frame, VAR n, zval) = frame[.SLOTS[n] = zval]
+
+dec $simple_value(zval) : bool
+def $simple_value(INT _) = true
+def $simple_value(STRING _) = true
+def $simple_value(TRUE) = true
+def $simple_value(FALSE) = true
+def $simple_value(NULL) = true
+def $simple_value(_) = false
+  -- otherwise
+
+;; Decimal PHP integers are emitted as ASCII octets.
+dec $digits(nat) : bytes
+def $digits(n) = [ $(48 + n) ]
+  -- if $(n < 10)
+def $digits(n) = $digits($(n / 10)) ++ [ $(48 + (n \ 10)) ]
+  -- if $(n >= 10)
+
+dec $decimal(int) : bytes
+def $decimal(i) = $digits(n)
+  -- if $(i >= 0)
+  -- if n = i
+def $decimal(i) = 45 :: $digits(n)
+  -- if $(i < 0)
+  -- if n = $(-i)
+
+dec $zend_bool(bool) : zval
+def $zend_bool(true) = TRUE
+def $zend_bool(false) = FALSE
+
+relation Condition: zval ~> bool
+  hint(input %0)
+rule Condition/true: TRUE ~> true
+rule Condition/false: FALSE ~> false
+
+;; PC already points to the fallthrough instruction.
+dec $branch(frame, opcode, bool, nat) : frame
+def $branch(frame, opcode, b, n) = frame[.PC = n]
+  -- if (opcode = JMPNZ) = b
+def $branch(frame, _, _, _) = frame
+  -- otherwise
+
+dec $comparison(frame, operand, smartbranch?, bool) : frame
+def $comparison(frame, operand, eps, b) = $write(frame, operand, $zend_bool(b))
+def $comparison(frame, _, smartbranch, b) = $branch(frame[.PC = $(frame.PC + 1)], opcode, b, n)
+  -- if OPLINE opcode _ _ (TARGET n) _ _ _ _ _ _ _ = frame.CODE[frame.PC]
+
+dec $step(frame, opcode, operand, operand, operand, smartbranch?) : transition
+def $step(frame, NOP, _, _, _, _) = CONTINUE frame
+def $step(frame, ASSIGN, operand_r, operand_dst, operand_v, _)
+  = CONTINUE $write($write(frame, operand_dst, zval), operand_r, zval)
+  -- if zval = $read(frame, operand_v)
+  -- if $simple_value(zval)
+def $step(frame, PRE_INC, operand_r, operand_dst, _, _)
+  = CONTINUE $write($write(frame, operand_dst, zval), operand_r, zval)
+  -- if INT i = $read(frame, operand_dst)
+  -- if $(i < 9223372036854775807)
+  -- if zval = INT $(i + 1)
+def $step(frame, IS_SMALLER, operand_r, operand_l, operand_h, smartbranch?)
+  = CONTINUE $comparison(frame, operand_r, smartbranch?, $(i_l < i_h))
+  -- if INT i_l = $read(frame, operand_l)
+  -- if INT i_h = $read(frame, operand_h)
+def $step(frame, JMP, _, TARGET n, _, _) = CONTINUE frame[.PC = n]
+def $step(frame, opcode, _, operand, TARGET n, _) = CONTINUE $branch(frame, opcode, b, n)
+  -- if opcode = JMPZ \/ opcode = JMPNZ
+  -- Condition: $read(frame, operand) ~> b
+def $step(frame, ECHO, _, operand, _, _) = CONTINUE frame[.STDOUT = frame.STDOUT ++ bytes]
+  -- if STRING bytes = $read(frame, operand)
+def $step(frame, ECHO, _, operand, _, _) = CONTINUE frame[.STDOUT = frame.STDOUT ++ $decimal(i)]
+  -- if INT i = $read(frame, operand)
+def $step(frame, RETURN, _, operand, _, _) = FINISH (PHP frame.STDOUT eps 0)
+  -- if $simple_value($read(frame, operand))
+def $step(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+dec $run(frame) : outcome
+dec $resume(transition) : outcome
+def $resume(CONTINUE frame) = $run(frame)
+def $resume(FINISH outcome) = outcome
+def $run(frame) = $resume($step(frame[.PC = $(frame.PC + 1)], opcode, operand_r, operand_a, operand_b, smartbranch?))
+  -- if OPLINE opcode operand_r operand_a operand_b _ _ _ _ _ smartbranch? _ = frame.CODE[frame.PC]
+
+;; Conditional and anonymous classes have a NUL in their table key. Loading
+;; members can already emit diagnostics before the declaration opline runs.
+dec $dormant_class(classDecl) : bool
+def $dormant_class(CLASS (CLASSHEADER bytes_key _ classLink _ _ _ bytes_parent? _)
+                      eps eps eps (TRAITS eps eps eps) eps eps eps)
+  = (0 <- bytes_key) /\ ((classLink = UNLINKED) \/ (bytes_parent? = eps))
+def $dormant_class(_) = false
+  -- otherwise
+
+dec $execute(unit, bytes) : outcome
+def $execute(UNIT _ _ eps (BODY _ (FRAME n _ bytes_cv* _) poolentry* _ _ _ instruction*) _ classDecl*, _)
+  = $run({ CODE instruction*, POOL poolentry*, PC 0, SLOTS $empty_slots($(|bytes_cv*| + n)), STDOUT eps })
+  -- if ~(false <- ($dormant_class(classDecl))*)
+def $execute(_, _) = UNSUPPORTED eps eps
+  -- otherwise
