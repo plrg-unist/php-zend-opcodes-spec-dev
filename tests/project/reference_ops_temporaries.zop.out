@@ -1,0 +1,7 @@
+
+Notice: Only variables should be assigned by reference in reference_ops_temporaries.php on line 1
+22|
+Notice: Attempting to set reference to non referenceable value in reference_ops_temporaries.php on line 1
+8|5|
+Notice: Only variables should be assigned by reference in reference_ops_temporaries.php on line 1
+!

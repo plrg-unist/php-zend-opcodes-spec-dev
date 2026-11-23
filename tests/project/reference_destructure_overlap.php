@@ -1,0 +1,20 @@
+<?php
+$a = [[$argc, 5], 3];
+[&$first, $a[0][1]] = $a[0];
+$first = 7;
+echo $a[0][0], $a[0][1], $first, "\n";
+$b = [2, 4];
+$saved = $b;
+[&$b, &$later] = $b;
+$b = 9;
+$later = 8;
+echo $b, $later, ":", $saved[0], $saved[1], "\n";
+$items = [$argc, 2];
+[&$value, $value] = $items;
+++$value;
+echo $items[0], $items[1], $value, "\n";
+unset($value);
+$items = [$argc, 2];
+[$value, &$value] = $items;
+++$value;
+echo $items[0], $items[1], $value, "\n";

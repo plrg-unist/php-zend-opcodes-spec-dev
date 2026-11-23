@@ -1,0 +1,35 @@
+zend-opcodes
+file "ref_server_recursive_later.php"
+main
+body - {
+  lines 1 4
+  frame 10 cache 0
+  locals 3 ["s", "_SERVER", "t"]
+  size 17 literals 7 children 0
+  lit[0] = "d.x"
+  lit[1] = int(1)
+  lit[2] = "d.x"
+  lit[3] = int(2)
+  lit[4] = "c.x"
+  lit[5] = "c.x"
+  lit[6] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN CV2, CV1 | line=2
+    2: ASSIGN_DIM CV0, lit[0] | line=2
+    3: OP_DATA lit[1] | line=2
+    4: ASSIGN_DIM CV2, lit[2] | line=2
+    5: OP_DATA lit[3] | line=2
+    6: V7 = FETCH_DIM_W CV0, lit[4] | line=3 ext=1
+    7: ASSIGN_REF V7, CV0 | line=3
+    8: V8 = FETCH_DIM_W CV2, lit[5] | line=3 ext=1
+    9: ASSIGN_REF V8, CV2 | line=3
+    10: T9 = IS_IDENTICAL CV0, CV2 | line=3
+    11: T10 = CAST T9 | line=3 ext=4
+    12: ECHO T10 | line=3
+    13: T11 = IS_EQUAL CV0, CV2 | line=3
+    14: T12 = CAST T11 | line=3 ext=4
+    15: ECHO T12 | line=3
+    16: RETURN lit[6] | line=4 ext=4294967295
+}
+end

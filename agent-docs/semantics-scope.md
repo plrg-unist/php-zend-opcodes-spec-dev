@@ -17,6 +17,8 @@
 
 ## Choosing what to model
 
+Automatic cycle collection is an approved standing abstraction. Preserve outgoing owners from unreachable cycles until an explicit collection or cleanup removes them. Model last-owner destruction, explicit collection on the actual spec heap and request shutdown under their own rules. Use default Zend for differential testing. Report newly observable effects on explicit collection counts, object destructors, weak references, weak maps or exit status when those features enter. Decide separately whether implementation telemetry in `gc_status()` belongs in scope. [Design decision](../design-docs/automatic-cycle-collection.md)
+
 Pinned Zend defines in-scope behavior. Describe a rule in terms of what a PHP program can observe, including through code that runs later. Abstract a C representation or optimization when replacing it preserves stdout, stderr and exit status for every in-scope continuation. For example, the spec can choose its own representation of ownership. When `unset($x)` releases the last reference to an object, preserve the order of its destructor's output and the following `echo`. [Lifetime milestone](semantics-roadmap.md#L27)
 
 When two rules might differ observably, look for a small program that distinguishes them. A handler can print its arguments, or a `catch` block can inspect a property changed before a throw. For a specialized opcode and an ordinary call, inspect the listings to confirm which path each compiler profile emitted. Preserve each path's observable behavior by default.

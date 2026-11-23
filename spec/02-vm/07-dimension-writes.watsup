@@ -20,7 +20,6 @@ def $scalar_array_error(frame) = $raise(frame,
 
 ;; Key conversion and compound operators may report diagnostics before their
 ;; value or error is available to the dimension handler.
-dec $dimension_diagnostics(frame, numericResult) : (frame, numericResult)
 def $dimension_diagnostics(frame, NUM_WARNING bytes numericResult) =
   $dimension_diagnostics($report(frame, WARNING, bytes), numericResult)
 def $dimension_diagnostics(frame, NUM_DEPRECATED bytes numericResult) =
@@ -29,22 +28,33 @@ def $dimension_diagnostics(frame, numericResult) = (frame, numericResult) -- oth
 
 dec $inserted_dimension(frame, dimensionWrite, slotValue, numericResult) : transition
 def $inserted_dimension(frame, dimensionWrite, slotValue, NUM_VALUE slotValue_array) =
-  CONTINUE $write($assign(frame, dimensionWrite.DEST, slotValue_array), dimensionWrite.RESULT, slotValue)
+  CONTINUE $write($assign_array(frame, dimensionWrite.DEST, slotValue_array), dimensionWrite.RESULT, slotValue)
 def $inserted_dimension(frame, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
+
+dec $dimension_reference(slotValue, arraykey?) : nat?
+def $dimension_reference(slotValue, arraykey) = n
+  -- if $stored_table(slotValue) =/= eps
+  -- if REFERENCE n = $array_find($stored_entries(slotValue), arraykey)
+def $dimension_reference(_, _) = eps -- otherwise
 
 dec $store_dimension_value(frame, dimensionWrite, slotValue, arraykey?, numericResult) : transition
 def $store_dimension_value(frame, dimensionWrite, slotValue_array, arraykey?, NUM_VALUE slotValue) =
+  CONTINUE $write($set_cell(frame, n, slotValue), dimensionWrite.RESULT, slotValue)
+  -- if n = $dimension_reference(slotValue_array, arraykey?)
+def $store_dimension_value(frame, dimensionWrite, slotValue_array, arraykey?, NUM_VALUE slotValue) =
   $inserted_dimension(frame, dimensionWrite, slotValue, $array_insert(slotValue_array, arraykey?, slotValue))
   -- if ARRAY_VALUE _ _ _ _ = slotValue_array
+  -- if $dimension_reference(slotValue_array, arraykey?) = eps
 def $store_dimension_value(frame, dimensionWrite, slotValue_server, arraykey, NUM_VALUE slotValue) =
-  CONTINUE $write($assign(frame', dimensionWrite.DEST, slotValue_new), dimensionWrite.RESULT, slotValue)
+  CONTINUE $write($assign_array(frame, dimensionWrite.DEST, slotValue_new), dimensionWrite.RESULT, slotValue)
   -- if $server_array(slotValue_server)
-  -- if (frame', slotValue_new) = $server_put(frame, slotValue_server, arraykey, slotValue)
+  -- if $dimension_reference(slotValue_server, arraykey) = eps
+  -- if slotValue_new = $server_changed(slotValue_server, $server_id(slotValue_server), arraykey, slotValue)
 def $store_dimension_value(frame, _, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
 def $store_dimension_value(frame, _, _, _, NUM_UNSUPPORTED) = FINISH (UNSUPPORTED frame.STDOUT eps)
 
 dec $dimension_rhs(frame, dimensionWrite, slotValue, slotValue) : (frame, numericResult)
-def $dimension_rhs(frame, dimensionWrite, _, slotValue_rhs) = (frame, NUM_VALUE slotValue_rhs)
+def $dimension_rhs(frame, dimensionWrite, _, slotValue_rhs) = (frame, NUM_VALUE $copy_value(frame, dimensionWrite.RHS, slotValue_rhs))
   -- if dimensionWrite.OP = ASSIGN_DIM
 def $dimension_rhs(frame, dimensionWrite, slotValue_l, slotValue_rhs) =
   $dim_compound(frame, dimensionWrite.EXT, slotValue_l, slotValue_rhs)
@@ -54,7 +64,7 @@ dec $fill_dimension(frame, dimensionWrite, slotValue, arraykey?, slotValue) : tr
 def $fill_dimension(frame, dimensionWrite, slotValue_array, arraykey?, slotValue_l) =
   $store_dimension_value(frame_done, dimensionWrite, slotValue_array, arraykey?, numericResult_done)
   -- if (frame_rhs, slotValue_rhs) = $read_operand(frame, dimensionWrite.RHS)
-  -- if (frame_op, numericResult) = $dimension_rhs(frame_rhs, dimensionWrite, slotValue_l, slotValue_rhs)
+  -- if (frame_op, numericResult) = $dimension_rhs(frame_rhs, dimensionWrite, $deref(frame_rhs, slotValue_l), slotValue_rhs)
   -- if (frame_done, numericResult_done) = $dimension_diagnostics(frame_op, numericResult)
 
 dec $missing_write_key(frame, opcode, arraykey) : frame
@@ -67,7 +77,7 @@ dec $keyed_dimension(frame, dimensionWrite, slotValue, arraykey, slotValue?) : t
 def $keyed_dimension(frame, dimensionWrite, slotValue_array, arraykey, slotValue_old) =
   $fill_dimension(frame, dimensionWrite, slotValue_array, arraykey, slotValue_old)
 def $keyed_dimension(frame, dimensionWrite, slotValue_array, arraykey, eps) =
-  $fill_dimension($assign(frame', dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new, arraykey, NULL)
+  $fill_dimension($assign_array(frame', dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new, arraykey, NULL)
   -- if frame' = $missing_write_key(frame, dimensionWrite.OP, arraykey)
   -- if NUM_VALUE slotValue_new = $array_insert(slotValue_array, arraykey, NULL)
 
@@ -75,17 +85,19 @@ dec $compound_server_key(frame, dimensionWrite, slotValue, arraykey, serverLooku
 def $compound_server_key(frame, dimensionWrite, slotValue_server, arraykey, SERVER_KNOWN slotValue_old) =
   $fill_dimension(frame, dimensionWrite, slotValue_server, arraykey, slotValue_old)
 def $compound_server_key(frame, dimensionWrite, slotValue_server, arraykey, SERVER_KNOWN eps) =
-  $fill_dimension($assign(frame', dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new, arraykey, NULL)
-  -- if (frame', slotValue_new) = $server_put($missing_array_key(frame, arraykey), slotValue_server, arraykey, NULL)
+  $fill_dimension($assign_array($missing_array_key(frame, arraykey), dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new, arraykey, NULL)
+  -- if slotValue_new = $server_changed(slotValue_server, $server_id(slotValue_server), arraykey, NULL)
 ;; The timestamp keys are present. Zend fetches OP_DATA before the compound
 ;; operator needs their values. An unknown key can already affect the missing-key warning.
 def $compound_server_key(frame, dimensionWrite, _, _, SERVER_PRESENT) = FINISH (UNSUPPORTED frame'.STDOUT eps)
+  -- if (frame', _) = $read_operand(frame, dimensionWrite.RHS)
+def $compound_server_key(frame, dimensionWrite, _, _, SERVER_CAPTURED _) = FINISH (UNSUPPORTED frame'.STDOUT eps)
   -- if (frame', _) = $read_operand(frame, dimensionWrite.RHS)
 def $compound_server_key(frame, _, _, _, SERVER_UNKNOWN) = FINISH (UNSUPPORTED frame.STDOUT eps)
 
 dec $converted_write_key(frame, dimensionWrite, slotValue, numericResult) : transition
 def $converted_write_key(frame, dimensionWrite, slotValue_array, NUM_VALUE slotValue_key) =
-  CONTINUE $assign(frame, dimensionWrite.DEST, $array_remove(slotValue_array, $array_key_tag(slotValue_key)))
+  CONTINUE $assign_array(frame, dimensionWrite.DEST, $array_remove(slotValue_array, $array_key_tag(slotValue_key)))
   -- if dimensionWrite.OP = UNSET_DIM
   -- if ARRAY_VALUE _ _ _ _ = slotValue_array
 def $converted_write_key(frame, dimensionWrite, slotValue_array, NUM_VALUE slotValue_key) =
@@ -94,10 +106,10 @@ def $converted_write_key(frame, dimensionWrite, slotValue_array, NUM_VALUE slotV
   -- if ARRAY_VALUE _ runtimeEntry* _ _ = slotValue_array
   -- if arraykey = $array_key_tag(slotValue_key)
 def $converted_write_key(frame, dimensionWrite, slotValue_server, NUM_VALUE slotValue_key) =
-  CONTINUE $assign(frame', dimensionWrite.DEST, slotValue_new)
+  CONTINUE $assign_array(frame, dimensionWrite.DEST, slotValue_new)
   -- if dimensionWrite.OP = UNSET_DIM
   -- if $server_array(slotValue_server)
-  -- if (frame', slotValue_new) = $server_put(frame, slotValue_server, $array_key_tag(slotValue_key), eps)
+  -- if slotValue_new = $server_changed(slotValue_server, $server_id(slotValue_server), $array_key_tag(slotValue_key), eps)
 def $converted_write_key(frame, dimensionWrite, slotValue_server, NUM_VALUE slotValue_key) =
   $fill_dimension(frame, dimensionWrite, slotValue_server, $array_key_tag(slotValue_key), NULL)
   -- if dimensionWrite.OP = ASSIGN_DIM
@@ -113,7 +125,7 @@ def $converted_write_key(frame, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
 ;; reads OP_DATA first, even when the next integer index is already occupied.
 dec $reserved_append(frame, dimensionWrite, numericResult) : transition
 def $reserved_append(frame, dimensionWrite, NUM_VALUE slotValue_array) =
-  $fill_dimension($assign(frame, dimensionWrite.DEST, slotValue_array), dimensionWrite, slotValue_array, arraykey, NULL)
+  $fill_dimension($assign_array(frame, dimensionWrite.DEST, slotValue_array), dimensionWrite, slotValue_array, arraykey, NULL)
   -- if ARRAY_VALUE _ runtimeEntry* _ _ = slotValue_array
   -- if n_last = $(|runtimeEntry*| - 1)
   -- if ITEM arraykey _ = runtimeEntry*[n_last]
@@ -122,7 +134,7 @@ def $reserved_append(frame, _, NUM_ERROR bytes) = $raise(frame, bytes)
 ;; A write to LONG_MAX or its predecessor pins the next index even in the
 ;; host-backed array. Its occupancy still depends on the host until a write or unset resolves it.
 dec $server_append_rhs(frame, dimensionWrite) : (frame, slotValue?)
-def $server_append_rhs(frame, dimensionWrite) = (frame', slotValue)
+def $server_append_rhs(frame, dimensionWrite) = (frame', $copy_value(frame', dimensionWrite.RHS, slotValue))
   -- if dimensionWrite.OP = ASSIGN_DIM
   -- if (frame', slotValue) = $read_operand(frame, dimensionWrite.RHS)
 def $server_append_rhs(frame, dimensionWrite) = (frame, eps) -- if dimensionWrite.OP = ASSIGN_DIM_OP
@@ -131,9 +143,11 @@ dec $server_append_at_max(frame, dimensionWrite, slotValue, slotValue?, serverLo
 def $server_append_at_max(frame, dimensionWrite, slotValue_server, slotValue_rhs, SERVER_KNOWN eps) =
   $store_dimension_value(frame, dimensionWrite, slotValue_server, INDEX 9223372036854775807, NUM_VALUE slotValue_rhs)
 def $server_append_at_max(frame, dimensionWrite, slotValue_server, eps, SERVER_KNOWN eps) =
-  $fill_dimension($assign(frame', dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new, INDEX 9223372036854775807, NULL)
-  -- if (frame', slotValue_new) = $server_put(frame, slotValue_server, INDEX 9223372036854775807, NULL)
+  $fill_dimension($assign_array(frame, dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new, INDEX 9223372036854775807, NULL)
+  -- if slotValue_new = $server_changed(slotValue_server, $server_id(slotValue_server), INDEX 9223372036854775807, NULL)
 def $server_append_at_max(frame, _, _, _, SERVER_KNOWN slotValue) =
+  $apply_numeric(frame, UNUSED, UNUSED, eps, $append_error())
+def $server_append_at_max(frame, _, _, _, SERVER_CAPTURED _) =
   $apply_numeric(frame, UNUSED, UNUSED, eps, $append_error())
 def $server_append_at_max(frame, _, _, _, SERVER_UNKNOWN) = FINISH (UNSUPPORTED frame.STDOUT eps)
 
@@ -159,7 +173,7 @@ def $write_array_dimension(frame, dimensionWrite, slotValue_array) =
   -- if slotValue_key = $read(frame, dimensionWrite.KEY)
   -- if $known_value(slotValue_key) \/ (slotValue_key = UNDEF)
   -- if (frame', _) = $read_value(frame, dimensionWrite.KEY, slotValue_key)
-  -- if (frame'', numericResult) = $dimension_diagnostics(frame', $array_key(dimensionWrite.OP, dimensionWrite.KEY, slotValue_key))
+  -- if (frame'', numericResult) = $dimension_diagnostics(frame', $vm_array_key(frame', dimensionWrite.OP, dimensionWrite.KEY, slotValue_key))
 def $write_array_dimension(frame, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
 
 dec $write_key_notice(frame, operand) : frame
@@ -189,9 +203,10 @@ def $write_container(frame, dimensionWrite, slotValue_array) =
   -- if ARRAY_VALUE _ _ _ _ = slotValue_array
   -- if (frame', slotValue_new) = $separate_array(frame, dimensionWrite.DEST, slotValue_array)
 def $write_container(frame, dimensionWrite, slotValue_server) =
-  $write_array_dimension(frame, dimensionWrite, slotValue_server)
+  $write_array_dimension(frame', dimensionWrite, slotValue_new)
   -- if $server_array(slotValue_server)
   -- if dimensionWrite.KEY =/= UNUSED \/ $server_max_cursor(slotValue_server)
+  -- if (frame', slotValue_new) = $server_separate(frame, dimensionWrite.DEST, slotValue_server)
 ;; Host-provided integer keys make the next index unknown. Plain append still
 ;; reads OP_DATA before the insertion; compound append needs the index first.
 def $write_container(frame, dimensionWrite, slotValue_server) =

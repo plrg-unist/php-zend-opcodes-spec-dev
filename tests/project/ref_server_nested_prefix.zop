@@ -1,0 +1,41 @@
+zend-opcodes
+file "ref_server_nested_prefix.php"
+main
+body - {
+  lines 1 5
+  frame 12 cache 0
+  locals 7 ["s", "_SERVER", "u", "l", "r", "a", "b"]
+  size 20 literals 7 children 0
+  lit[0] = "MAYBE_P"
+  lit[1] = array#0()
+  lit[2] = array-ref(0)
+  lit[3] = int(0)
+  lit[4] = int(0)
+  lit[5] = "H"
+  lit[6] = int(1)
+  ranges 2
+  live T13 kind 0 @10 @11
+  live T15 kind 0 @13 @14
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN CV2, CV1 | line=2
+    2: UNSET_DIM CV2, lit[0] | line=2
+    3: ASSIGN CV3, lit[1] | line=3
+    4: ASSIGN CV4, lit[2] | line=3
+    5: V11 = FETCH_DIM_W CV3, lit[3] | line=3 ext=1
+    6: ASSIGN_REF V11, CV3 | line=3
+    7: V12 = FETCH_DIM_W CV4, lit[4] | line=3 ext=1
+    8: ASSIGN_REF V12, CV4 | line=3
+    9: T13 = INIT_ARRAY CV0 | line=4 ext=8
+    10: T13 = ADD_ARRAY_ELEMENT CV3 | line=4
+    11: ASSIGN CV5, T13 | line=4
+    12: T15 = INIT_ARRAY CV2 | line=4 ext=8
+    13: T15 = ADD_ARRAY_ELEMENT CV4 | line=4
+    14: ASSIGN CV6, T15 | line=4
+    15: ECHO lit[5] | line=4
+    16: T17 = IS_EQUAL CV5, CV6 | line=4
+    17: T18 = CAST T17 | line=4 ext=4
+    18: ECHO T18 | line=4
+    19: RETURN lit[6] | line=5 ext=4294967295
+}
+end

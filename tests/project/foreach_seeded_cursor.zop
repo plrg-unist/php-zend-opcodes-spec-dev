@@ -1,0 +1,50 @@
+zend-opcodes
+file "foreach_seeded_cursor.php"
+main
+body - {
+  lines 1 18
+  frame 8 cache 0
+  locals 4 ["other", "a", "value", "key"]
+  size 25 literals 11 children 0
+  lit[0] = array(0 => array("a" => int(1), "b" => int(2), "c" => int(3), "d" => int(4), "e" => int(5), "f" => int(6), "g" => int(7), "h" => int(8); cursor=8), 1 => array#7("a" => int(1), "b" => int(2), "c" => int(3), "d" => int(4), "e" => int(5), "f" => int(6), "g" => int(7), "h" => int(8); cursor=8), 2 => array-ref(7))
+  lit[1] = "a"
+  lit[2] = "b"
+  lit[3] = "c"
+  lit[4] = "x"
+  lit[5] = int(9)
+  lit[6] = array(0 => int(0))
+  lit[7] = int(0)
+  lit[8] = "!"
+  lit[9] = "\x0a"
+  lit[10] = int(1)
+  ranges 2
+  live T4 kind 1 @1 @22
+  live T7 kind 1 @9 @18
+  code
+    0: V4 = FE_RESET_R lit[0], @22 | line=2
+    1: FE_FETCH_R V4, CV0 | line=2 ext=@22
+    2: UNSET_DIM CV0, lit[1] | line=3
+    3: UNSET_DIM CV0, lit[2] | line=3
+    4: UNSET_DIM CV0, lit[3] | line=3
+    5: ASSIGN_DIM CV0, lit[4] | line=4
+    6: OP_DATA lit[5] | line=4
+    7: ASSIGN CV1, lit[6] | line=5
+    8: V7 = FE_RESET_RW CV1, @18 | line=6
+    9: T8 = FE_FETCH_RW V7, CV2 | line=6 ext=@18
+    10: ASSIGN CV3, T8 | line=6
+    11: T10 = IS_IDENTICAL CV2, lit[7] | line=7 smart=JMPZ
+    12: JMPZ T10, @16 | line=7
+    13: ASSIGN CV1, CV0 | line=8
+    14: UNSET_CV CV0 | line=9
+    15: JMP @17 | line=7
+    16: ECHO CV3 | line=11
+    17: JMP @9 | line=6
+    18: FE_FREE V7 | line=6
+    19: UNSET_CV CV2 | line=14
+    20: ECHO lit[8] | line=15
+    21: JMP @1 | line=2
+    22: FE_FREE V4 | line=2
+    23: ECHO lit[9] | line=17
+    24: RETURN lit[10] | line=18 ext=4294967295
+}
+end

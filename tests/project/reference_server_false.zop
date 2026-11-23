@@ -1,0 +1,28 @@
+zend-opcodes
+file "reference_server_false.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 4 ["_SERVER", "i", "copy", "alias"]
+  size 12 literals 5 children 0
+  lit[0] = array(0 => "PHP_SELF", 1 => "SCRIPT_NAME", 2 => "SCRIPT_FILENAME", 3 => "PATH_TRANSLATED", 4 => "DOCUMENT_ROOT", 5 => "argc", 6 => "argv", 7 => "REQUEST_TIME", 8 => "REQUEST_TIME_FLOAT")
+  lit[1] = int(0)
+  lit[2] = int(9)
+  lit[3] = "|"
+  lit[4] = false
+  code
+    0: ASSIGN CV2, CV0 | line=1
+    1: ASSIGN_REF CV3, CV2 | line=1
+    2: ASSIGN CV1, lit[1] | line=1
+    3: T4 = FETCH_DIM_R lit[0], CV1 | line=1
+    4: UNSET_DIM CV3, T4 | line=1
+    5: PRE_INC CV1 | line=1
+    6: T4 = IS_SMALLER CV1, lit[2] | line=1
+    7: JMPNZ T4, @3 | line=1
+    8: ECHO lit[3] | line=1
+    9: T4 = IS_EQUAL CV2, lit[4] | line=1
+    10: ECHO T4 | line=1
+    11: RETURN lit[2] | line=1
+}
+end

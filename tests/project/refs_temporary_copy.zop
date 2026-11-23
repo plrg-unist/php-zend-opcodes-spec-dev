@@ -1,0 +1,40 @@
+zend-opcodes
+file "refs_temporary_copy.php"
+main
+body - {
+  lines 1 1
+  frame 3 cache 0
+  locals 1 ["x"]
+  size 24 literals 5 children 0
+  lit[0] = int(1)
+  lit[1] = int(9)
+  lit[2] = "\x0a"
+  lit[3] = int(0)
+  lit[4] = array(0 => int(1))
+  code
+    0: ASSIGN CV0, lit[0]
+    1: V1 = MAKE_REF CV0
+    2: V2 = COPY_TMP V1
+    3: T3 = TYPE_CHECK CV0 | ext=1024
+    4: ECHO T3
+    5: T3 = TYPE_CHECK CV0 | ext=16
+    6: ECHO T3
+    7: T3 = QM_ASSIGN V1
+    8: ASSIGN CV0, lit[1]
+    9: ECHO T3
+    10: T3 = QM_ASSIGN V2
+    11: ECHO T3
+    12: ECHO lit[2]
+    13: ASSIGN CV0, lit[4]
+    14: V1 = FETCH_DIM_W CV0, lit[3]
+    15: V2 = COPY_TMP V1
+    16: ASSIGN V2, lit[1]
+    17: V2 = MAKE_REF V1
+    18: T3 = QM_ASSIGN V2
+    19: ECHO T3
+    20: T3 = FETCH_DIM_R CV0, lit[3]
+    21: ECHO T3
+    22: ECHO lit[2]
+    23: RETURN lit[0]
+}
+end

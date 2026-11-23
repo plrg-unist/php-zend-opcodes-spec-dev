@@ -1,0 +1,23 @@
+zend-opcodes
+file "ref_server_foreach_read.php"
+main
+body - {
+  lines 1 3
+  frame 2 cache 0
+  locals 3 ["s", "_SERVER", "v"]
+  size 8 literals 2 children 0
+  lit[0] = "X"
+  lit[1] = int(1)
+  ranges 1
+  live T4 kind 1 @2 @6
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: T4 = FE_RESET_R CV0, @6 | line=2
+    2: ECHO lit[0] | line=2
+    3: FE_FETCH_R T4, CV2 | line=2 ext=@6
+    4: JMP @6 | line=2
+    5: JMP @2 | line=2
+    6: FE_FREE T4 | line=2
+    7: RETURN lit[1] | line=3 ext=4294967295
+}
+end

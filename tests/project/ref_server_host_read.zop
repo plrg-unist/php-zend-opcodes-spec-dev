@@ -1,0 +1,20 @@
+zend-opcodes
+file "ref_server_host_read.php"
+main
+body - {
+  lines 1 3
+  frame 2 cache 0
+  locals 3 ["s", "_SERVER", "r"]
+  size 6 literals 3 children 0
+  lit[0] = "ZEND_TEST_HOST_READ"
+  lit[1] = "A"
+  lit[2] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: V4 = FETCH_DIM_W CV0, lit[0] | line=2 ext=1
+    2: ASSIGN_REF CV2, V4 | line=2
+    3: ECHO lit[1] | line=2
+    4: ECHO CV2 | line=2
+    5: RETURN lit[2] | line=3 ext=4294967295
+}
+end

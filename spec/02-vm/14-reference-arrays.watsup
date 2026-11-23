@@ -1,0 +1,25 @@
+;; A shallow array copy unwraps a reference with one owner, except for
+;; a reference back to the table being copied. Union's right operand and
+;; unpacking have no self-reference exception.
+def $copy_array_entry(frame, arrayId?, REFERENCE n) = slotValue
+  -- if ~$shared_reference(frame, n)
+  -- if slotValue = $deref(frame, REFERENCE n)
+  -- if arrayId? = eps \/ $stored_table(slotValue) =/= arrayId?
+def $copy_array_entry(_, _, slotValue) = slotValue -- otherwise
+
+def $dup_array(frame, slotValue_src, arrayId_new) =
+  ARRAY_VALUE arrayId_new (ITEM arraykey $copy_array_entry(frame, arrayId_src, slotValue))* arrayIndex? n?
+  -- if ARRAY_VALUE arrayId_src _ _ _ = slotValue_src
+  -- if ARRAY_VALUE arrayId_new (ITEM arraykey slotValue)* arrayIndex? n? = $array_copy(slotValue_src, arrayId_new)
+
+;; Overwriting a string key during unpack can drop the last outside owner
+;; of a reference in a later source entry. Publish each change before the
+;; next entry tests its reference count.
+dec $unpack_after(frame, operand, numericResult, runtimeEntry*) : transition
+def $unpack_entries(frame, _, eps) = CONTINUE frame
+def $unpack_entries(frame, operand_r, (ITEM arraykey slotValue) :: runtimeEntry*) =
+  $unpack_after(frame, operand_r, $array_insert($read(frame, operand_r), $unpack_key(arraykey),
+                  $copy_array_entry(frame, eps, slotValue)), runtimeEntry*)
+def $unpack_after(frame, operand_r, NUM_VALUE slotValue, runtimeEntry*) =
+  $unpack_entries($assign_array(frame, operand_r, slotValue), operand_r, runtimeEntry*)
+def $unpack_after(frame, _, NUM_ERROR bytes, _) = $raise(frame, bytes)

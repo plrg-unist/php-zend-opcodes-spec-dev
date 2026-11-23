@@ -1,14 +1,11 @@
-def $server_fresh(frame, slotValue) =
-  (frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], CLI_UPDATED (FRESH_ARRAY frame.NEXTARRAY) ($server_changes(slotValue)) ($server_history(slotValue)))
+def $server_fresh(frame, slotValue, arrayId?) =
+  (frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], CLI_UPDATED (FRESH_ARRAY frame.NEXTARRAY) runtimeEntry* ($server_history(slotValue)))
+  -- if runtimeEntry* = $server_copied_entries(frame, arrayId?, $server_changes(slotValue))
 
 dec $server_writable(frame, slotValue) : (frame, slotValue)
-def $server_writable(frame, slotValue) = $server_fresh(frame, slotValue)
+def $server_writable(frame, slotValue) = $server_fresh(frame, slotValue, $server_id(slotValue))
   -- if slotValue = CLI_ARRAY \/ $shared_array(frame, slotValue)
 def $server_writable(frame, slotValue) = (frame, slotValue) -- otherwise
 
 def $server_separate(frame, operand, slotValue_server) = ($assign(frame', operand, slotValue_new), slotValue_new)
-  -- if (frame', slotValue_new) = $server_writable(frame, slotValue_server)
-
-def $server_put(frame, slotValue_server, arraykey, slotValue?) =
-  (frame', $server_changed(slotValue_new, $server_id(slotValue_new), arraykey, slotValue?))
   -- if (frame', slotValue_new) = $server_writable(frame, slotValue_server)

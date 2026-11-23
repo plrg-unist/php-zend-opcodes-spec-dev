@@ -1,0 +1,46 @@
+zend-opcodes
+file "cursor_layout_dispatch.php"
+main
+body - {
+  lines 1 1
+  frame 9 cache 0
+  locals 4 ["b", "a", "value", "key"]
+  statics array("unused" => array(mixed=8; holes=[0]; "a" => true; position=4))
+  size 21 literals 11 children 0
+  lit[0] = array(mixed=8; holes=[0, 4]; "a" => int(19), "b" => int(19), "c" => int(19); position=4)
+  lit[1] = "x"
+  lit[2] = int(9)
+  lit[3] = "y"
+  lit[4] = int(10)
+  lit[5] = array(0 => int(0))
+  lit[6] = int(0)
+  lit[7] = ","
+  lit[8] = "\x0a"
+  lit[9] = int(1)
+  lit[10] = "b"
+  ranges 1
+  live T8 kind 1 @7 @17
+  code
+    0: ASSIGN CV0, lit[0]
+    1: ASSIGN_DIM CV0, lit[1]
+    2: OP_DATA lit[2]
+    3: ASSIGN_DIM CV0, lit[3]
+    4: OP_DATA lit[4]
+    5: ASSIGN CV1, lit[5]
+    6: V8 = FE_RESET_RW CV1, @17
+    7: T9 = FE_FETCH_RW V8, CV2 | ext=@17
+    8: ASSIGN CV3, T9
+    9: T11 = IS_IDENTICAL CV2, lit[6] | smart=JMPZ
+    10: JMPZ T11, @14
+    11: ASSIGN CV1, CV0
+    12: UNSET_CV CV0
+    13: JMP @16
+    14: ECHO CV3
+    15: ECHO lit[7]
+    16: JMP @7
+    17: FE_FREE V8
+    18: SWITCH_STRING lit[10], lit[0] | ext=@20
+    19: ECHO lit[8]
+    20: RETURN lit[9]
+}
+end

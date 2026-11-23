@@ -1,12 +1,13 @@
 syntax outcome = PHP bytes bytes nat | UNSUPPORTED bytes bytes
 syntax fragment = FRAGMENT nat nat bytes
-syntax borrowedTable = TABLE arrayId slotValue
+syntax iteratorPosition = ITER_AT arrayId nat
+syntax foreachIterator = SNAPSHOT nat nat | LIVE nat iteratorPosition iteratorPosition*
 syntax frameSlot = { VALUE slotValue, OWNS bool }
 dec $owned(slotValue) : frameSlot
 def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
   CODE instruction*, POOL poolentry*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
-  FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, STRICT bool, TRIES tryregion*, STDOUT bytes
+  CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
 syntax transition = CONTINUE frame | FINISH outcome
 
@@ -36,30 +37,51 @@ def $ext_value(EXT_VALUE n) = n
 ;; Ordinary nested arrays inherit the identity of their root and their own key path.
 ;; A shared literal starts a new root wherever the unit names it.
 dec $runtime_value(zval, literalRoot, arraykey*) : slotValue
-def $runtime_value(ARRAY (ENTRY arraykey zval)* i? n? literalLayout?, literalRoot, arraykey_path*) =
-  ARRAY_VALUE (LITERAL_ARRAY literalRoot arraykey_path*) runtimeEntry* ($literal_index($array_next(runtimeEntry*, i?), literalLayout?)) n?
+def $runtime_value(ARRAY (ENTRY arraykey zval)* i? literalCursor? literalLayout?, literalRoot, arraykey_path*) =
+  ARRAY_VALUE (LITERAL_ARRAY literalRoot arraykey_path*) runtimeEntry* (STORAGE ($array_next(runtimeEntry*, i?)) arrayLayout)
+    ($literal_pointer(arrayLayout, runtimeEntry*, literalCursor?))
   -- if runtimeEntry* = (ITEM arraykey $runtime_value(zval, literalRoot, arraykey_path* ++ [arraykey]))*
-def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITERAL n, eps)
+  -- if arrayLayout = $literal_layout(runtimeEntry*, literalLayout?)
+def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITERAL n ($freezable_literal(zval)), eps)
 def $runtime_value(zval, _, _) = zval
   -- otherwise
 
 dec $literal_value(zval, nat, instruction*) : slotValue
-dec $current(borrowedTable*, slotValue) : slotValue
+dec $deref(frame, slotValue) : slotValue
+dec $bind(frame, operand, slotValue) : frame
+dec $as_reference(frame, operand) : (frame, slotValue)
+dec $new_reference(frame, slotValue) : (frame, slotValue)
+dec $set_cell(frame, nat, slotValue) : frame
+dec $shared_reference(frame, nat) : bool
+dec $dup_array(frame, slotValue, arrayId) : slotValue
+dec $iterator_update(frame, slotValue, slotValue) : frame
 dec $assign(frame, operand, slotValue) : frame
+dec $assign_array(frame, operand, slotValue) : frame
 dec $shared_array(frame, slotValue) : bool
 dec $separate_array(frame, operand, slotValue) : (frame, slotValue)
 dec $release(frame, operand, operand) : frame
-dec $server_fresh(frame, slotValue) : (frame, slotValue)
-dec $server_put(frame, slotValue, arraykey, slotValue?) : (frame, slotValue)
+dec $server_fresh(frame, slotValue, arrayId?) : (frame, slotValue)
 dec $server_separate(frame, operand, slotValue) : (frame, slotValue)
 
 ;; CV, TMP and VAR indices address the same frame.
-dec $read(frame, operand) : slotValue
-def $read(frame, LIT n) = $literal_value(zval, n, frame.CODE)
+dec $raw_read(frame, operand) : slotValue
+def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE)
   -- if LITERAL zval = frame.POOL[n]
-def $read(frame, CV n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
-def $read(frame, TMP n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
-def $read(frame, VAR n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
+def $raw_read(frame, CV n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
+def $raw_read(frame, TMP n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
+def $raw_read(frame, VAR n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
+
+dec $read(frame, operand) : slotValue
+def $read(frame, operand) = $cell_value(frame.BORROWED, frame.CELLS, $raw_read(frame, operand))
+
+;; TMP assignment transfers the stored zval, including a reference made by MAKE_REF.
+dec $copy_value(frame, operand, slotValue) : slotValue
+def $copy_value(frame, TMP n, _) = $raw_read(frame, TMP n)
+def $copy_value(_, _, slotValue) = slotValue -- otherwise
+
+dec $temporary_value(frame, operand) : slotValue
+def $temporary_value(frame, TMP n) = frame.SLOTS[n].VALUE
+def $temporary_value(frame, VAR n) = frame.SLOTS[n].VALUE
 
 dec $write(frame, operand, slotValue) : frame
 def $write(frame, UNUSED, _) = frame
@@ -67,8 +89,9 @@ def $write(frame, CV n, slotValue) = frame[.SLOTS[n] = $owned(slotValue)]
 def $write(frame, TMP n, slotValue) = frame[.SLOTS[n] = $owned(slotValue)]
 def $write(frame, VAR n, slotValue) = frame[.SLOTS[n] = $owned(slotValue)]
 
-syntax severity = WARNING | DEPRECATED | FATAL
+syntax severity = NOTICE | WARNING | DEPRECATED | FATAL
 dec $severity_label(severity) : bytes
+def $severity_label(NOTICE) = [ 78, 111, 116, 105, 99, 101 ]
 def $severity_label(WARNING) = [ 87, 97, 114, 110, 105, 110, 103 ]
 def $severity_label(DEPRECATED) = [ 68, 101, 112, 114, 101, 99, 97, 116, 101, 100 ]
 def $severity_label(FATAL) = [ 70, 97, 116, 97, 108, 32, 101, 114, 114, 111, 114 ]
@@ -180,8 +203,9 @@ def $apply_numeric(frame, _, _, _, NUM_UNSUPPORTED) = FINISH (UNSUPPORTED frame.
 
 dec $post_incdec(frame, operand, operand, slotValue, numericResult) : transition
 dec $unary(frame, opcode, operand, operand, operand, slotValue) : transition
-def $unary(frame, ASSIGN, operand_r, operand_dst, _, slotValue) = $store_result(frame, operand_r, operand_dst, slotValue)
-  -- if $known_value(slotValue)
+def $unary(frame, ASSIGN, operand_r, operand_dst, operand_src, slotValue) =
+  $store_result(frame, operand_r, operand_dst, $copy_value(frame, operand_src, slotValue))
+  -- if $known_value(slotValue) \/ $host_offset(slotValue)
 def $unary(frame, opcode, operand_r, operand_dst, _, slotValue) =
   $apply_numeric(frame, operand_r, operand_dst, eps, $numeric_incdec(opcode, slotValue))
   -- if opcode = PRE_INC \/ opcode = PRE_DEC
@@ -193,24 +217,29 @@ def $unary(frame, opcode, operand_r, operand_dst, _, slotValue) =
 def $unary(frame, BW_NOT, operand_r, _, _, slotValue) =
   $apply_numeric(frame, operand_r, UNUSED, eps, $bitwise(BW_NOT, slotValue, NULL))
   -- if $known_value(slotValue)
-def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
-  -- if opcode = QM_ASSIGN \/ opcode = COPY_TMP
-  -- if $known_value(slotValue)
+def $unary(frame, QM_ASSIGN, operand_r, operand_src, _, slotValue) =
+  CONTINUE $write(frame, operand_r, $copy_value(frame, operand_src, slotValue))
+  -- if $known_value(slotValue) \/ $host_offset(slotValue)
 def $unary(frame, FREE, _, _, _, slotValue) = CONTINUE frame
-  -- if $known_value(slotValue)
+  -- if $known_value(slotValue) \/ $host_offset(slotValue)
 def $unary(frame, CHECK_VAR, _, _, _, _) = CONTINUE frame
 def $unary(frame, ECHO, _, _, _, slotValue) = CONTINUE frame'[.STDOUT = frame'.STDOUT ++ $scalar_bytes(slotValue)]
   -- if $known_value(slotValue)
   -- if frame' = $string_frame(frame, slotValue)
 def $unary(frame, RETURN, _, _, _, slotValue) = FINISH (PHP frame.STDOUT eps 0)
-  -- if $known_value(slotValue)
+  -- if $known_value(slotValue) \/ $host_offset(slotValue)
 def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write($truth_frame(frame, slotValue), operand_r, $zend_bool(b))
   -- if opcode = BOOL \/ opcode = BOOL_NOT
   -- if $truth_known(slotValue)
   -- if b = ($truth(slotValue) = (opcode = BOOL))
-def $unary(frame, GET_TYPE, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, STRING $gettype(slotValue))
-def $unary(frame, STRLEN, operand_r, _, _, slotValue) = $length_result(frame, operand_r, slotValue, $strlen(slotValue, frame.STRICT))
+def $unary(frame, GET_TYPE, operand_r, operand_src, _, slotValue) =
+  CONTINUE $write(frame, operand_r, STRING $gettype($copy_value(frame, operand_src, slotValue)))
+def $unary(frame, STRLEN, operand_r, operand_src, _, slotValue) =
+  $length_result(frame, operand_r, slotValue, LENGTH_ERROR $value_name(slotValue))
+  -- if $is_reference($copy_value(frame, operand_src, slotValue))
+def $unary(frame, STRLEN, operand_r, operand_src, _, slotValue) = $length_result(frame, operand_r, slotValue, $strlen(slotValue, frame.STRICT))
   -- if $known_value(slotValue)
+  -- if ~$is_reference($copy_value(frame, operand_src, slotValue))
 
 dec $xor_result(frame, operand, slotValue, slotValue) : transition
 def $xor_result(frame, operand_r, slotValue_l, slotValue_r) =
@@ -240,8 +269,18 @@ def $operand_order(opcode, operand_l, operand_h) = (operand_h, operand_l)
 def $operand_order(_, operand_l, operand_h) = (operand_l, operand_h)
   -- otherwise
 
+;; Strict TMP handlers inspect a raw reference or indirect tag. Regular array
+;; entries and CV values compare their dereferenced contents.
+dec $comparison_input(frame, opcode, operand, slotValue) : slotValue
+def $comparison_input(frame, opcode, TMP n, _) = slotValue_raw
+  -- if opcode <- [IS_IDENTICAL, IS_NOT_IDENTICAL, CASE_STRICT]
+  -- if slotValue_raw = frame.SLOTS[n].VALUE
+  -- if $strict_pointer(slotValue_raw)
+def $comparison_input(_, _, _, slotValue) = slotValue -- otherwise
+
 dec $binary_inputs(frame, opcode, operand, operand) : (frame, slotValue, slotValue)
-def $binary_inputs(frame, opcode, operand_a, operand_b) = (frame'', slotValue_l, slotValue_h)
+def $binary_inputs(frame, opcode, operand_a, operand_b) =
+  (frame'', $comparison_input(frame, opcode, operand_l, slotValue_l), $comparison_input(frame', opcode, operand_h, slotValue_h))
   -- if (operand_l, operand_h) = $operand_order(opcode, operand_a, operand_b)
   -- if (frame', slotValue_l) = $read_operand(frame, operand_l)
   -- if (frame'', slotValue_h) = $read_operand(frame', operand_h)
@@ -257,10 +296,14 @@ def $binary_kind(opcode) = COMPARISON
 def $binary_kind(_) = eps
   -- otherwise
 
-dec $operate(binaryKind, opcode, slotValue, slotValue, bytes) : numericResult
+dec $operate(binaryKind, opcode, slotValue, slotValue, frame) : numericResult
 def $operate(ARITHMETIC, opcode, slotValue_l, slotValue_h, _) = $numeric_binary(opcode, slotValue_l, slotValue_h)
 def $operate(BITWISE, opcode, slotValue_l, slotValue_h, _) = $bitwise(opcode, slotValue_l, slotValue_h)
-def $operate(COMPARISON, opcode, slotValue_l, slotValue_h, bytes_script) = $numeric_compare(opcode, slotValue_l, slotValue_h, bytes_script)
+def $operate(COMPARISON, opcode, slotValue_l, slotValue_h, frame) =
+  $comparison_result(opcode, $deref_order(comparisonMode, slotValue_l, slotValue_h))
+  -- if comparisonMode = { STRICT (opcode <- [IS_IDENTICAL, IS_NOT_IDENTICAL]),
+      EQUALITY (opcode <- [IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL]),
+      SCRIPT frame.SCRIPT, CELLS frame.CELLS, TABLES frame.BORROWED, ACTIVE eps }
 
 dec $binary_operation(frame, bool, opcode, slotValue, slotValue) : (frame, numericResult)
 dec $concat_values(frame, bool, slotValue, slotValue) : (frame, numericResult)
@@ -268,16 +311,16 @@ dec $dim_compound(frame, nat, slotValue, slotValue) : (frame, numericResult)
 dec $compound(frame, operand, operand, operand, nat, slotValue, slotValue) : transition
 dec $array_cast(frame, operand, slotValue) : transition
 
-dec $cast(frame, operand, nat, slotValue) : transition
-def $cast(frame, operand_r, n, slotValue) = $apply_numeric(frame, operand_r, UNUSED, eps, $numeric_cast(n, slotValue))
+dec $cast(frame, operand, operand, nat, slotValue) : transition
+def $cast(frame, operand_r, _, n, slotValue) = $apply_numeric(frame, operand_r, UNUSED, eps, $numeric_cast(n, slotValue))
   -- if n = 4 \/ n = 5
   -- if $known_value(slotValue) /\ $truth_known(slotValue)
-def $cast(frame, operand_r, 6, slotValue) =
+def $cast(frame, operand_r, _, 6, slotValue) =
   CONTINUE $write($string_frame(frame, slotValue), operand_r, STRING $scalar_bytes(slotValue))
   -- if $known_value(slotValue)
-def $cast(frame, operand_r, 7, slotValue) = $array_cast(frame, operand_r, slotValue)
+def $cast(frame, operand_r, operand_src, 7, slotValue) = $array_cast(frame, operand_r, $copy_value(frame, operand_src, slotValue))
   -- if $known_value(slotValue)
-def $cast(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+def $cast(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
 ;; TYPE_CHECK tests the raw tag first. Mask bit zero matches an undefined CV
@@ -285,6 +328,8 @@ def $cast(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
 dec $type_operand(frame, operand, slotValue, nat) : (frame, slotValue)
 def $type_operand(frame, CV n, UNDEF, n_mask) = $read_value(frame, CV n, UNDEF)
   -- if $(n_mask \ 2 = 0)
+def $type_operand(frame, CV _, REFERENCE n, n_mask) = (frame, $deref(frame, REFERENCE n))
+  -- if $((n_mask / 1024) \ 2 = 0)
 def $type_operand(frame, _, slotValue, _) = (frame, slotValue)
   -- otherwise
 
@@ -301,13 +346,25 @@ dec $dimension_location_step(frame, opcode, operand, operand, operand, nat) : tr
 dec $location_input(frame, operand) : bool
 dec $defined_dimension_context(frame, operand, operand, nat) : bool
 dec $dimension_write_step(frame, opcode, operand, operand, operand, nat) : transition
+dec $reference_step(frame, opcode, operand, operand, operand, nat) : transition
+dec $foreach_step(frame, opcode, operand, operand, operand, extension?) : transition
+dec $foreach_input(frame, opcode, operand) : bool
 relation DestructureStep: frame; operand; operand; operand ~> transition
   hint(input %0 %1 %2 %3)
 
 dec $step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 def $step(frame, NOP, _, _, _, _, _) = CONTINUE frame
+def $step(frame, COPY_TMP, operand_r, operand_src, _, _, _) =
+  CONTINUE $write(frame, operand_r, $temporary_value(frame, operand_src))
 def $step(frame, JMP, _, TARGET n, _, _, _) = CONTINUE frame[.PC = n]
 def $step(frame, UNSET_CV, _, operand_a, _, _, _) = CONTINUE $write(frame, operand_a, UNDEF)
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) =
+  $reference_step(frame, opcode, operand_r, operand_a, operand_b, $ext_value(extension?))
+  -- if opcode <- [ASSIGN_REF, MAKE_REF, SEPARATE, FETCH_LIST_W]
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) =
+  $foreach_step(frame, opcode, operand_r, operand_a, operand_b, extension?)
+  -- if opcode <- [FE_RESET_R, FE_FETCH_R, FE_RESET_RW, FE_FETCH_RW, FE_FREE]
+  -- if $foreach_input(frame, opcode, operand_a)
 def $step(frame, FETCH_LIST_R, operand_r, operand_a, operand_k, _, _) = transition
   -- DestructureStep: frame; operand_r; operand_a; operand_k ~> transition
 def $step(frame, opcode, operand_r, operand_a, operand_k, extension?, _) =
@@ -323,7 +380,7 @@ def $step(frame, opcode, operand_r, operand_a, TARGET n, _, _) =
   $truth_branch(frame, opcode, operand_r, operand_a, n, $read(frame, operand_a))
   -- if opcode <- [JMPZ, JMPNZ, JMPZ_EX, JMPNZ_EX, JMP_SET]
 def $step(frame, opcode, operand_r, operand_a, TARGET n, extension?, _) =
-  CONTINUE $null_branch(frame, opcode, operand_r, operand_a, n, $ext_value(extension?), $read(frame, operand_a))
+  CONTINUE $null_branch(frame, opcode, operand_r, operand_a, n, $ext_value(extension?), $copy_value(frame, operand_a, $read(frame, operand_a)))
   -- if opcode = COALESCE \/ opcode = JMP_NULL
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?) =
   $dispatch_step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
@@ -336,18 +393,18 @@ def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranc
   -- ArrayReadStep: frame; opcode; operand_r; operand_a; operand_b; extension?; smartbranch? ~> transition
 def $step(frame, ASSIGN, operand_r, operand_dst, operand_src, _, _) = transition
   -- if (frame', slotValue) = $read_operand(frame, operand_src)
-  -- if transition = $unary(frame', ASSIGN, operand_r, operand_dst, UNUSED, slotValue)
+  -- if transition = $unary(frame', ASSIGN, operand_r, operand_dst, operand_src, slotValue)
 ;; Compound assignment fetches its right operand before the read/write destination.
 def $step(frame, ASSIGN_OP, operand_r, operand_dst, operand_src, extension?, _) =
   $compound(frame'', operand_r, operand_dst, operand_src, $ext_value(extension?), slotValue_l, slotValue_h)
   -- if (frame', slotValue_h) = $read_operand(frame, operand_src)
   -- if (frame'', slotValue_l) = $read_operand(frame', operand_dst)
 def $step(frame, opcode, operand_r, operand_a, operand_b, _, _) = transition
-  -- if opcode <- [PRE_INC, PRE_DEC, POST_INC, POST_DEC, BW_NOT, QM_ASSIGN, COPY_TMP, FREE, CHECK_VAR,
+  -- if opcode <- [PRE_INC, PRE_DEC, POST_INC, POST_DEC, BW_NOT, QM_ASSIGN, FREE, CHECK_VAR,
                    ECHO, RETURN, BOOL, BOOL_NOT, GET_TYPE, STRLEN]
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
   -- if transition = $unary(frame', opcode, operand_r, operand_a, operand_b, slotValue)
-def $step(frame, CAST, operand_r, operand_a, _, extension?, _) = $cast(frame', operand_r, $ext_value(extension?), slotValue)
+def $step(frame, CAST, operand_r, operand_a, _, extension?, _) = $cast(frame', operand_r, operand_a, $ext_value(extension?), slotValue)
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
 def $step(frame, BOOL_XOR, operand_r, operand_a, operand_b, _, _) = $xor(frame', operand_r, slotValue_l, slotValue_h)
   -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, BOOL_XOR, operand_a, operand_b)
@@ -358,7 +415,7 @@ def $step(frame, opcode, operand_r, operand_a, operand_b, _, smartbranch?) =
   -- if (frame'', numericResult) = $binary_operation(frame', operand_r = operand_a, opcode, slotValue_l, slotValue_h)
 def $step(frame, TYPE_CHECK, operand_r, operand_a, _, extension?, smartbranch?) =
   CONTINUE $comparison(frame', operand_r, smartbranch?, $type_check(slotValue', n_mask))
-  -- if slotValue = $read(frame, operand_a)
+  -- if slotValue = $raw_read(frame, operand_a)
   -- if n_mask = $ext_value(extension?)
   -- if (frame', slotValue') = $type_operand(frame, operand_a, slotValue, n_mask)
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) = transition
@@ -367,6 +424,27 @@ def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) = trans
 def $step(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
+dec $observes_host(frame, opcode, operand, operand) : bool
+dec $host_operand(frame, operand) : bool
+def $host_operand(frame, CV n) = $host_offset($read(frame, CV n))
+def $host_operand(frame, TMP n) = $host_offset($read(frame, TMP n))
+def $host_operand(frame, VAR n) = $host_offset($read(frame, VAR n))
+def $host_operand(_, _) = false -- otherwise
+
+;; Copying or rebinding a captured host bucket does not inspect its inherited value.
+dec $host_transfer(opcode) : bool
+def $host_transfer(opcode) = opcode <- [ASSIGN, ASSIGN_REF, MAKE_REF, SEPARATE, COPY_TMP, QM_ASSIGN, FREE, FE_FREE,
+  CHECK_VAR, UNSET_CV, RETURN, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT]
+def $observes_host(frame, opcode, operand_a, operand_b) = ~$host_transfer(opcode) /\
+  ($host_operand(frame, operand_a) \/ (~(opcode <- [FE_FETCH_R, FE_FETCH_RW]) /\ $host_operand(frame, operand_b)))
+
+dec $checked_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
+def $checked_step(frame, opcode, _, operand_a, operand_b, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- if $observes_host(frame, opcode, operand_a, operand_b)
+def $checked_step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?) =
+  $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
+  -- if ~$observes_host(frame, opcode, operand_a, operand_b)
+
 dec $run(frame) : outcome
 dec $resume(transition) : outcome
 dec $release_inputs(transition, opcode, operand, operand, operand) : transition
@@ -374,7 +452,7 @@ def $resume(CONTINUE frame) = $run(frame)
 def $resume(FINISH outcome) = outcome
 def $run(frame) = $resume($release_inputs(transition, opcode, operand_r, operand_a, operand_b))
   -- if OPLINE opcode operand_r operand_a operand_b n extension? _ _ _ smartbranch? _ = frame.CODE[frame.PC]
-  -- if transition = $step(frame[.PC = $(frame.PC + 1)][.LINE = n], opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
+  -- if transition = $checked_step(frame[.PC = $(frame.PC + 1)][.LINE = n], opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
 
 ;; Conditional and anonymous classes have a NUL in their table key. Loading
 ;; members can already emit diagnostics before the declaration opline runs.
@@ -388,7 +466,7 @@ def $dormant_class(_) = false
 dec $execute(unit, bytes, bytes) : outcome
 def $execute(UNIT bytes_file _ eps (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) _ classDecl*, _, bytes_script)
   = $run({ CODE instruction*, POOL poolentry*, PC 0, SLOTS ($owned(slotValue))*, ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
-           FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps })
+           CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps })
   -- if ~(false <- ($dormant_class(classDecl))*)
   -- if slotValue* = ($initial_local(bytes_cv, bytes_script))* ++ $empty_slots(n)
 def $execute(_, _, _) = UNSUPPORTED eps eps

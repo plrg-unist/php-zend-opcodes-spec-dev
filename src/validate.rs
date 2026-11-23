@@ -28,7 +28,13 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
                     let [temps, _, locals, statics] = fields(arena, frame, "FRAME")?;
                     if let Some(table) = get::opt(arena, &statics)? {
-                        let [entries, _, _, _] = fields(arena, table, "ARRAY")?;
+                        let [entries, _, _, layout] = fields(arena, table, "ARRAY")?;
+                        if let Some(layout) = get::opt(arena, &layout)?
+                            && let ("MIXED_TABLE", &[_, holes]) = case_fields(arena, layout)?
+                            && !get::list(arena, &holes)?.is_empty()
+                        {
+                            return Err(Error::new("static variable table contains gaps"));
+                        }
                         for &entry in get::list(arena, &entries)? {
                             let [key, _] = fields(arena, entry, "ENTRY")?;
                             if case_fields(arena, key)?.0 != "KEY" {
@@ -708,26 +714,47 @@ fn check_array(
     cursor: Value,
     layout: Value,
 ) -> Result<()> {
-    let packed_capacity = match get::opt(arena, &layout)?
+    let entries = get::list(arena, &entries)?;
+    let (capacity, packed) = match get::opt(arena, &layout)?
         .map(|v| case_fields(arena, v))
         .transpose()?
     {
-        None | Some(("MIXED_LITERAL", [])) => None,
-        Some(("PACKED_LITERAL", &[n])) => {
-            let capacity = index(arena, n)?;
-            // HT_MIN_SIZE and HT_MAX_SIZE on the pinned 64-bit Zend build.
-            if !(8..=1 << 30).contains(&capacity) || !capacity.is_power_of_two() {
-                return Err(Error::new("invalid packed array capacity"));
+        None | Some(("MIXED_LITERAL", [])) => (None, false),
+        Some(("PACKED_LITERAL", &[n])) => (Some(array_capacity(arena, n, "packed")?), true),
+        Some(("MIXED_TABLE", &[n, holes])) => {
+            let capacity = array_capacity(arena, n, "mixed")?;
+            let holes = get::list(arena, &holes)?;
+            let used = entries.len() + holes.len();
+            if used > capacity {
+                return Err(Error::new("invalid mixed array holes"));
             }
-            Some(capacity as i64)
+            let mut previous = None;
+            for &hole in holes {
+                let position = index(arena, hole)?;
+                if position >= used || previous.is_some_and(|p| p >= position) {
+                    return Err(Error::new("invalid mixed array holes"));
+                }
+                previous = Some(position);
+            }
+            (Some(capacity), false)
         }
         _ => return Err(Error::new("invalid array literal layout")),
     };
-    let entries = get::list(arena, &entries)?;
-    if let Some(cursor) = get::opt(arena, &cursor)?
-        && index(arena, cursor)? > entries.len()
-    {
-        return Err(Error::new("array cursor exceeds entry count"));
+    if let Some(cursor) = get::opt(arena, &cursor)? {
+        match case_fields(arena, cursor)? {
+            ("ORDINAL_CURSOR", &[n]) => {
+                if index(arena, n)? > entries.len() {
+                    return Err(Error::new("array cursor exceeds entry count"));
+                }
+            }
+            ("PHYSICAL_CURSOR", &[n]) => {
+                let position = index(arena, n)?;
+                if capacity.is_none_or(|capacity| position > capacity) {
+                    return Err(Error::new("invalid physical array cursor"));
+                }
+            }
+            _ => return Err(Error::new("invalid array cursor")),
+        }
     }
     let mut keys = HashSet::new();
     let mut next_index = i64::MIN;
@@ -736,13 +763,12 @@ fn check_array(
         match case_fields(arena, key)? {
             ("INDEX", &[n]) => {
                 let n = signed_index(arena, n)?;
-                if packed_capacity.is_some_and(|capacity| n < 0 || n < next_index || n >= capacity)
-                {
+                if packed && (n < 0 || n < next_index || capacity.is_some_and(|c| n >= c as i64)) {
                     return Err(Error::new("invalid key for packed array layout"));
                 }
                 next_index = next_index.max(n.saturating_add(1));
             }
-            ("KEY", [_]) if packed_capacity.is_some() => {
+            ("KEY", [_]) if packed => {
                 return Err(Error::new("invalid key for packed array layout"));
             }
             ("KEY", [_]) => {}
@@ -763,6 +789,15 @@ fn check_array(
         ));
     }
     Ok(())
+}
+
+fn array_capacity(arena: &Arena, value: Value, kind: &str) -> Result<usize> {
+    let capacity = index(arena, value)?;
+    // HT_MIN_SIZE and HT_MAX_SIZE on the pinned 64-bit Zend build.
+    if !(8..=1 << 30).contains(&capacity) || !capacity.is_power_of_two() {
+        return Err(Error::new(format!("invalid {kind} array capacity")));
+    }
+    Ok(capacity)
 }
 
 fn check_jump_table(

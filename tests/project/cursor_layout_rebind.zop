@@ -1,0 +1,51 @@
+zend-opcodes
+file "cursor_layout_rebind.php"
+main
+body - {
+  lines 1 1
+  frame 9 cache 0
+  locals 4 ["b", "a", "v", "key"]
+  size 24 literals 13 children 0
+  lit[0] = array#10(mixed=8; holes=[1,3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
+  lit[1] = array#11(mixed=8; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; cursor=6)
+  lit[2] = array#12(mixed=8; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=7)
+  lit[3] = array(0 => array-ref(10), 1 => array-ref(11), 2 => array-ref(12))
+  lit[4] = "x"
+  lit[5] = int(9)
+  lit[6] = "y"
+  lit[7] = int(10)
+  lit[8] = array(0 => int(0))
+  lit[9] = int(0)
+  lit[10] = "|"
+  lit[11] = "\x0a"
+  lit[12] = int(1)
+  ranges 2
+  live T4 kind 1 @1 @21
+  live T8 kind 1 @8 @17
+  code
+    0: T4 = FE_RESET_R lit[3], @21
+    1: FE_FETCH_R T4, CV0 | ext=@21
+    2: ASSIGN_DIM CV0, lit[4]
+    3: OP_DATA lit[5]
+    4: ASSIGN_DIM CV0, lit[6]
+    5: OP_DATA lit[7]
+    6: ASSIGN CV1, lit[8]
+    7: V8 = FE_RESET_RW CV1, @17
+    8: T9 = FE_FETCH_RW V8, CV2 | ext=@17
+    9: ASSIGN CV3, T9
+    10: T11 = IS_IDENTICAL CV2, lit[9] | smart=JMPZ
+    11: JMPZ T11, @15
+    12: ASSIGN CV1, CV0
+    13: UNSET_CV CV0
+    14: JMP @16
+    15: ECHO CV3
+    16: JMP @8
+    17: FE_FREE V8
+    18: UNSET_CV CV2
+    19: ECHO lit[10]
+    20: JMP @1
+    21: FE_FREE T4
+    22: ECHO lit[11]
+    23: RETURN lit[12]
+}
+end

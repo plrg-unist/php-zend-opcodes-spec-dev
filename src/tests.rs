@@ -70,7 +70,7 @@ body - {
   lines 1 1
   frame 0 cache 0
   size 1 literals 2 children 0
-  lit[0] = array#42(mixed; 0 => array#7(packed=16; 0 => int(9)), 1 => array-ref(7))
+  lit[0] = array#42(mixed=16; holes=[0, 2]; 0 => array#7(packed=16; 0 => int(9); position=4), 1 => array-ref(7); next=5; cursor=1)
   lit[1] = array-ref(42)
   code
     0: RETURN lit[1] | line=1
@@ -179,6 +179,11 @@ fn literal_layout_bounds_and_keys() {
         "array(mixed;)",
         "array(mixed; cursor=0)",
         r#"array(mixed; 0 => true, "0" => false, -1 => null; cursor=1)"#,
+        "array(mixed=8;)",
+        "array(mixed=8; holes=[0, 1]; position=8)",
+        "array(mixed=16; holes=[0, 2]; 0 => true, 1 => false; next=4; position=2)",
+        "array(mixed=1073741824; next=3; position=1073741824)",
+        "array(packed=8; 7 => true; position=6)",
     ] {
         let listing = BYTES_AND_LITERAL.replace("int(-7)", literal);
         let unit = parse_zop(&mut arena, &listing).unwrap();
@@ -194,6 +199,17 @@ fn literal_layout_bounds_and_keys() {
         "array(packed=8; 1 => true, 0 => false)",
         "array(packed=8; 0 => true, 0 => false)",
         r#"array(packed=8; "0" => true)"#,
+        "array(mixed=4;)",
+        "array(mixed=12;)",
+        "array(mixed=2147483648;)",
+        "array(mixed=8; holes=[0, 0];)",
+        "array(mixed=8; holes=[1, 0];)",
+        "array(mixed=8; holes=[2]; 0 => true)",
+        "array(mixed=8; holes=[0, 1, 2, 3, 4, 5, 6, 7]; 0 => true)",
+        "array(mixed=8; position=9)",
+        "array(packed=8; position=9)",
+        "array(mixed; position=0)",
+        "array(; position=0)",
     ] {
         let listing = BYTES_AND_LITERAL.replace("int(-7)", literal);
         let unit = parse_zop(&mut arena, &listing).unwrap();
@@ -203,9 +219,20 @@ fn literal_layout_bounds_and_keys() {
         "array(mixed)",
         "array(mixed;; next=4)",
         "array(packed=8; mixed;)",
+        "array(mixed; holes=[0];)",
+        "array(packed=8; holes=[0];)",
+        "array(mixed=8; holes=[0,];)",
+        "array(mixed=8; holes=[0])",
+        "array(mixed=8; cursor=0; position=0)",
     ] {
         let listing = BYTES_AND_LITERAL.replace("int(-7)", literal);
         assert!(parse_zop(&mut arena, &listing).is_err(), "{literal}");
+    }
+    let mut runner = test_spec::runner(&mut arena);
+    for name in ["bad_table_hole", "bad_physical_cursor"] {
+        let unit = runner.eval_func(&mut arena, name, &[], &[]).result.unwrap();
+        test_spec::check_unit(&mut runner, &mut arena, unit).unwrap();
+        assert!(validate_unit(&arena, &unit).is_err());
     }
 }
 
@@ -848,6 +875,22 @@ fn trailing_switch_cleanup_must_be_unreachable() {
             assert!(validate(&invalid).is_err(), "{invalid}");
         }
     }
+}
+
+#[test]
+fn only_the_outer_static_table_requires_dense_buckets() {
+    let mut arena = Arena::new();
+    let mut validate = |table: &str| {
+        let listing = BYTES_AND_LITERAL.replace("  size", &format!("  statics {table}\n  size"));
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    let sparse = "array(mixed=8; holes=[0]; \"value\" => true)";
+    assert_eq!(
+        validate(sparse).unwrap_err().to_string(),
+        "static variable table contains gaps"
+    );
+    validate(&format!("array(mixed=8; \"x\" => {sparse})")).unwrap();
 }
 
 #[test]

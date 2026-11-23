@@ -5,7 +5,8 @@ rule StringStep/concat:
   frame; CONCAT; operand_r; operand_l; operand_h; _ ~> transition
   -- if (frame_l, slotValue_l) = $read_operand(frame, operand_l)
   -- if (frame_h, slotValue_h) = $read_operand(frame_l, operand_h)
-  -- if (frame_out, numericResult) = $concat_values(frame_h, operand_r = operand_l /\ operand_l = operand_h, slotValue_l, slotValue_h)
+  -- if b_same = (operand_r = operand_l /\ operand_l = operand_h /\ ~$is_reference($raw_read(frame_h, operand_l)))
+  -- if (frame_out, numericResult) = $concat_values(frame_h, b_same, slotValue_l, slotValue_h)
   -- if transition = $apply_numeric(frame_out, operand_r, UNUSED, eps, numericResult)
 
 relation StringOperand: frame; operand ~> frame; bytes

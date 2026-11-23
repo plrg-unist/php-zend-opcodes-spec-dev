@@ -3,7 +3,7 @@ dec $cli_argv(bytes) : slotValue
 def $cli_argv(bytes_script) =
   ARRAY_VALUE (CLI_ARRAY_ID 1) ([ ITEM (INDEX 0) (STRING bytes_script) ]) eps eps
 
-syntax serverLookup = SERVER_KNOWN slotValue? | SERVER_PRESENT | SERVER_UNKNOWN
+syntax serverLookup = SERVER_KNOWN slotValue? | SERVER_PRESENT | SERVER_UNKNOWN | SERVER_CAPTURED arraykey
 
 ;; The CLI overwrites these environment entries when constructing $_SERVER.
 dec $server_lookup(arraykey, bytes) : serverLookup

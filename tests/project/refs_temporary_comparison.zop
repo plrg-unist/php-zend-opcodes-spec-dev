@@ -1,0 +1,85 @@
+zend-opcodes
+file "refs_temporary_comparison.php"
+main
+body - {
+  lines 1 1
+  frame 4 cache 0
+  locals 1 ["x"]
+  size 63 literals 11 children 0
+  lit[0] = "word"
+  lit[1] = array("word" => true)
+  lit[2] = "\x0a"
+  lit[3] = int(1)
+  lit[4] = false
+  lit[5] = array("0" => true)
+  lit[6] = "01"
+  lit[7] = array("1" => true)
+  lit[8] = array(0 => int(7))
+  lit[9] = int(0)
+  lit[10] = int(7)
+  code
+    0: ASSIGN CV0, lit[0]
+    1: V1 = MAKE_REF CV0
+    2: T2 = COPY_TMP V1
+    3: T3 = IS_IDENTICAL T2, lit[0]
+    4: T4 = CAST T3 | ext=4
+    5: ECHO T4
+    6: T2 = COPY_TMP V1
+    7: T3 = IS_NOT_IDENTICAL lit[0], T2
+    8: T4 = CAST T3 | ext=4
+    9: ECHO T4
+    10: T2 = COPY_TMP V1
+    11: T3 = IS_EQUAL T2, lit[0]
+    12: T4 = CAST T3 | ext=4
+    13: ECHO T4
+    14: T2 = COPY_TMP V1
+    15: T3 = CASE_STRICT T2, lit[0]
+    16: T4 = CAST T3 | ext=4
+    17: ECHO T4
+    18: T3 = CASE T2, lit[0]
+    19: T4 = CAST T3 | ext=4
+    20: ECHO T4
+    21: FREE T2
+    22: T2 = COPY_TMP V1
+    23: T3 = IN_ARRAY T2, lit[1] | ext=1
+    24: T4 = CAST T3 | ext=4
+    25: ECHO T4
+    26: T2 = COPY_TMP V1
+    27: T3 = IN_ARRAY T2, lit[1]
+    28: T4 = CAST T3 | ext=4
+    29: ECHO T4
+    30: T3 = IS_IDENTICAL CV0, lit[0]
+    31: T4 = CAST T3 | ext=4
+    32: ECHO T4
+    33: T3 = IN_ARRAY CV0, lit[1] | ext=1
+    34: T4 = CAST T3 | ext=4
+    35: ECHO T4
+    36: ASSIGN CV0, lit[4]
+    37: T3 = IN_ARRAY lit[4], lit[5]
+    38: T4 = CAST T3 | ext=4
+    39: ECHO T4
+    40: T3 = IN_ARRAY CV0, lit[5]
+    41: T4 = CAST T3 | ext=4
+    42: ECHO T4
+    43: T2 = COPY_TMP V1
+    44: T3 = IN_ARRAY T2, lit[5]
+    45: T4 = CAST T3 | ext=4
+    46: ECHO T4
+    47: ASSIGN CV0, lit[6]
+    48: T3 = IN_ARRAY CV0, lit[7]
+    49: T4 = CAST T3 | ext=4
+    50: ECHO T4
+    51: T2 = COPY_TMP V1
+    52: T3 = IN_ARRAY T2, lit[7]
+    53: T4 = CAST T3 | ext=4
+    54: ECHO T4
+    55: FREE V1
+    56: ASSIGN CV0, lit[8]
+    57: T2 = FETCH_DIM_W CV0, lit[9]
+    58: T3 = IS_IDENTICAL T2, lit[10]
+    59: T4 = CAST T3 | ext=4
+    60: ECHO T4
+    61: ECHO lit[2]
+    62: RETURN lit[3]
+}
+end

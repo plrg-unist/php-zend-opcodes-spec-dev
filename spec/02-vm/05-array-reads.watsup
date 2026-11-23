@@ -23,21 +23,25 @@ def $found_value(eps) = NULL
 dec $isset_empty(frame, operand, nat, smartbranch?, slotValue) : transition
 def $isset_empty(frame, operand_r, 0, smartbranch?, slotValue) =
   CONTINUE $comparison(frame, operand_r, smartbranch?, ~$nullish(slotValue))
+  -- if ~$host_offset(slotValue)
+def $isset_empty(frame, operand_r, 0, smartbranch?, HOST_OFFSET arraykey) =
+  CONTINUE $comparison(frame, operand_r, smartbranch?, true)
+  -- if $server_lookup(arraykey, eps) = SERVER_PRESENT
 def $isset_empty(frame, operand_r, 1, smartbranch?, slotValue) =
   CONTINUE $comparison($truth_frame(frame, slotValue), operand_r, smartbranch?, ~$truth(slotValue))
-  -- if $truth_known(slotValue)
+  -- if ~$host_offset(slotValue) /\ $truth_known(slotValue)
 def $isset_empty(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
 
 dec $lookup_result(frame, opcode, operand, nat, smartbranch?, arraykey, slotValue?) : transition
 def $lookup_result(frame, FETCH_DIM_R, operand_r, _, _, arraykey, eps) =
   CONTINUE $write($missing_array_key(frame, arraykey), operand_r, NULL)
 def $lookup_result(frame, opcode, operand_r, _, _, _, slotValue?) =
-  CONTINUE $write(frame, operand_r, $found_value(slotValue?))
+  CONTINUE $write(frame, operand_r, $deref(frame, $found_value(slotValue?)))
   -- if opcode = FETCH_DIM_IS \/ (opcode = FETCH_DIM_R /\ slotValue? =/= eps)
 def $lookup_result(frame, ARRAY_KEY_EXISTS, operand_r, _, smartbranch?, _, slotValue?) =
   CONTINUE $comparison(frame, operand_r, smartbranch?, slotValue? =/= eps)
 def $lookup_result(frame, ISSET_ISEMPTY_DIM_OBJ, operand_r, n, smartbranch?, _, slotValue?) =
-  $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, $found_value(slotValue?))
+  $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, $deref(frame, $found_value(slotValue?)))
 
 dec $server_result(frame, opcode, operand, nat, smartbranch?, arraykey, serverLookup) : transition
 def $server_result(frame, opcode, operand_r, n, smartbranch?, arraykey, SERVER_KNOWN slotValue?) =
@@ -45,6 +49,8 @@ def $server_result(frame, opcode, operand_r, n, smartbranch?, arraykey, SERVER_K
 def $server_result(frame, opcode, operand_r, n, smartbranch?, _, SERVER_PRESENT) =
   CONTINUE $comparison(frame, operand_r, smartbranch?, true)
   -- if opcode = ARRAY_KEY_EXISTS \/ (opcode = ISSET_ISEMPTY_DIM_OBJ /\ $(n \ 2 = 0))
+def $server_result(frame, opcode, operand_r, n, smartbranch?, arraykey, SERVER_CAPTURED arraykey_source) =
+  $lookup_result(frame, opcode, operand_r, n, smartbranch?, arraykey, HOST_OFFSET arraykey_source)
 def $server_result(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
@@ -91,20 +97,23 @@ rule ArrayQuery/string:
   -- if opcode = ISSET_ISEMPTY_DIM_OBJ \/ $known_value(slotValue_k) \/ slotValue_k = UNDEF
 rule ArrayQuery/array:
   frame; opcode; operand_r; operand_a; operand_k; n; smartbranch?; slotValue_a; slotValue_k ~>
-    $converted_lookup(frame, opcode, operand_r, n, smartbranch?, slotValue_a, $array_key(opcode, operand_k, slotValue_key))
+    $converted_lookup(frame, opcode, operand_r, n, smartbranch?, slotValue_a, $vm_array_key(frame, opcode, operand_k, slotValue_key))
   -- if $is_array_value(slotValue_a)
   -- if $known_value(slotValue_k) \/ (slotValue_k = UNDEF)
   -- if slotValue_key = $dimension_key(opcode, operand_a, operand_k, slotValue_k)
 rule ArrayQuery/scalar:
   frame; opcode; operand_r; _; _; n; smartbranch?; slotValue_a; _ ~>
-    $scalar_query(frame, opcode, operand_r, n, smartbranch?, slotValue_a)
+    $scalar_query(frame, opcode, operand_r, n, smartbranch?, $deref(frame, slotValue_a))
   -- if $simple_value(slotValue_a) \/ (slotValue_a = UNDEF)
+    \/ (opcode = ARRAY_KEY_EXISTS /\ $is_reference(slotValue_a))
     \/ (~$is_array_value(slotValue_a) /\ (opcode = FETCH_DIM_IS \/ opcode = ISSET_ISEMPTY_DIM_OBJ))
   -- if opcode = ARRAY_KEY_EXISTS \/ $scalar_type_bit(slotValue_a) =/= 64
 
 dec $dim_container(frame, opcode, operand) : (frame, slotValue)
 def $dim_container(frame, FETCH_DIM_R, operand) = $read_operand(frame, operand)
-def $dim_container(frame, opcode, operand) = (frame, $read(frame, operand)) -- if opcode =/= FETCH_DIM_R
+def $dim_container(frame, FETCH_DIM_IS, operand) = (frame, $read(frame, operand))
+def $dim_container(frame, ISSET_ISEMPTY_DIM_OBJ, operand) =
+  (frame, $copy_value(frame, operand, $read(frame, operand)))
 
 dec $count_name(nat) : bytes
 def $count_name(0) = [ 99, 111, 117, 110, 116 ]
@@ -121,19 +130,36 @@ def $in_keyset(zval, (KEY bytes)*, 0) = true <- ($scalar_order(zval, STRING byte
   -- if (zval = TRUE) \/ $is_number(zval)
 def $in_keyset(_, _, _) = false -- otherwise
 
-dec $array_builtin(opcode, slotValue, arraykey*, nat) : numericResult
-def $array_builtin(COUNT, ARRAY_VALUE _ runtimeEntry* _ _, _, _) = NUM_VALUE (INT $(|runtimeEntry*|))
+;; A wrapped loose needle reaches the general comparison loop. CV and VAR
+;; obtain a second chance at the string-key fast path after being unwrapped.
+dec $compare_needle(frame, operand, slotValue, nat) : bool
+def $compare_needle(frame, operand, slotValue, n) =
+  n = 0 /\ $is_reference($raw_read(frame, operand)) /\ $simple_value(slotValue)
+    /\ ($scalar_type_bit(slotValue) =/= 64 \/ $is_reference($copy_value(frame, operand, slotValue)))
+
+dec $membership_needle(frame, operand, slotValue, arraykey*, nat) : bool
+def $membership_needle(frame, operand, zval, (KEY bytes)*, 0) = true <- ($scalar_order(zval, STRING bytes) = 0)*
+  -- if $compare_needle(frame, operand, zval, 0)
+def $membership_needle(frame, operand, slotValue, arraykey*, n) =
+  (n = 0 \/ ~$is_reference($copy_value(frame, operand, slotValue))) /\ $in_keyset(slotValue, arraykey*, n)
+  -- if ~$compare_needle(frame, operand, slotValue, n)
+
+dec $array_builtin(frame, opcode, operand, slotValue, arraykey*, nat) : numericResult
+def $array_builtin(frame, COUNT, operand, slotValue, _, _) = NUM_VALUE (INT $(|runtimeEntry*|))
+  -- if ARRAY_VALUE _ runtimeEntry* _ _ = slotValue
+  -- if ~$is_reference($copy_value(frame, operand, slotValue))
 ;; TypeError: count()/sizeof(): Argument #1 ($value) must be of type Countable|array, <type> given
-def $array_builtin(COUNT, slotValue, _, n) = NUM_ERROR ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32 ]
+def $array_builtin(frame, COUNT, operand, slotValue, _, n) = NUM_ERROR ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32 ]
     ++ $count_name(n)
     ++ [ 40, 41, 58, 32, 65, 114, 103, 117, 109, 101, 110, 116, 32, 35, 49, 32, 40, 36, 118, 97, 108,
          117, 101, 41, 32, 109, 117, 115, 116, 32, 98, 101, 32, 111, 102, 32, 116, 121, 112, 101, 32,
          67, 111, 117, 110, 116, 97, 98, 108, 101, 124, 97, 114, 114, 97, 121, 44, 32 ]
     ++ $value_name(slotValue) ++ [ 32, 103, 105, 118, 101, 110 ])
-  -- if $simple_value(slotValue) \/ (slotValue = UNDEF)
-def $array_builtin(IN_ARRAY, slotValue, arraykey*, n) = NUM_VALUE $zend_bool($in_keyset(slotValue, arraykey*, n))
+  -- if $simple_value(slotValue) \/ (slotValue = UNDEF) \/ ($is_array_value(slotValue) /\ $is_reference($copy_value(frame, operand, slotValue)))
+def $array_builtin(frame, IN_ARRAY, operand, slotValue, arraykey*, n) =
+  NUM_VALUE $zend_bool($membership_needle(frame, operand, slotValue, arraykey*, n))
   -- if $known_value(slotValue) \/ (slotValue = UNDEF) \/ (n =/= 0) \/ (arraykey* = eps)
-def $array_builtin(_, _, _, _) = NUM_UNSUPPORTED -- otherwise
+def $array_builtin(_, _, _, _, _, _) = NUM_UNSUPPORTED -- otherwise
 
 rule ArrayReadStep/dimension:
   frame; opcode; operand_r; operand_a; operand_k; extension?; smartbranch? ~> transition
@@ -149,16 +175,16 @@ rule ArrayReadStep/key-exists:
   -- if (frame', _) = $read_value(frame, operand_k, slotValue_k)
   -- if (frame'', slotValue_a) = $read_operand(frame', operand_a)
   -- ArrayQuery: frame''; ARRAY_KEY_EXISTS; operand_r; operand_a; operand_k; 0; smartbranch?;
-       slotValue_a; slotValue_k ~> transition
+       $copy_value(frame'', operand_a, slotValue_a); slotValue_k ~> transition
 rule ArrayReadStep/isset-cv:
   frame; ISSET_ISEMPTY_CV; operand_r; operand_a; _; extension?; smartbranch? ~>
     $isset_empty(frame, operand_r, $($ext_value(extension?) \ 2), smartbranch?, $read(frame, operand_a))
 rule ArrayReadStep/count:
   frame; COUNT; operand_r; operand_a; _; extension?; _ ~>
-    $apply_numeric(frame', operand_r, UNUSED, eps, $array_builtin(COUNT, slotValue, eps, $ext_value(extension?)))
+    $apply_numeric(frame', operand_r, UNUSED, eps, $array_builtin(frame', COUNT, operand_a, slotValue, eps, $ext_value(extension?)))
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
 rule ArrayReadStep/in-array:
   frame; IN_ARRAY; operand_r; operand_a; (LIT n); extension?; smartbranch? ~>
-    $apply_numeric(frame', operand_r, UNUSED, smartbranch?, $array_builtin(IN_ARRAY, slotValue, arraykey*, $ext_value(extension?)))
+    $apply_numeric(frame', operand_r, UNUSED, smartbranch?, $array_builtin(frame', IN_ARRAY, operand_a, slotValue, arraykey*, $ext_value(extension?)))
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
   -- if ARRAY_VALUE _ (ITEM arraykey slotValue_entry)* _ _ = $read(frame', LIT n)

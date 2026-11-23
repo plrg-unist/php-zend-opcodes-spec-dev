@@ -330,11 +330,11 @@ static void print_body(zo_writer *writer, const zend_op_array *body, unsigned in
     print_arguments(out, body);
     zo_put_attributes(writer, body->attributes);
     if (body->static_variables) {
-        if (body->static_variables->nNumUsed != zend_hash_num_elements(body->static_variables)) {
+        if (!HT_IS_WITHOUT_HOLES(body->static_variables)) {
             zo_unsupported("static variable table contains gaps");
         }
         smart_str_appends(out, "  statics ");
-        zo_put_table(writer, body->static_variables);
+        zo_put_table(writer, body->static_variables, NULL, 0);
         smart_str_appendc(out, '\n');
     }
     smart_str_append_printf(out, "  size %u literals %u children %u\n",
@@ -467,6 +467,7 @@ static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
         if (Z_TYPE(statics) != IS_ARRAY || GC_REFCOUNT(Z_ARR(statics)) != 1) {
             zo_fail(r, "expected a plain static variable table");
         }
+        if (!HT_IS_WITHOUT_HOLES(Z_ARRVAL(statics))) zo_fail(r, "static variable table contains gaps");
         zend_string *key;
         ZEND_HASH_FOREACH_STR_KEY(Z_ARRVAL(statics), key) {
             if (!key) zo_fail(r, "invalid static variable name");

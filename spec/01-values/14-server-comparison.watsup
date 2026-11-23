@@ -1,7 +1,7 @@
 ;; Untouched entries belong to the same original CLI array and compare equal.
 ;; Only changed keys can affect the element count or the first difference.
 syntax serverComparison = { MODE comparisonMode, LEFT slotValue, RIGHT slotValue, KEYS arraykey* }
-syntax serverField = FIELD slotValue? | HOST_FIELD nat
+syntax serverField = FIELD slotValue? | HOST_FIELD nat arraykey
 syntax serverPair = FIELDS serverField serverField
 
 dec $except_keys(arraykey*, arraykey*) : arraykey*
@@ -19,21 +19,35 @@ def $actual_tail((ITEM arraykey slotValue) :: runtimeEntry*, arraykey_present*) 
 def $actual_tail((ITEM arraykey FALSE) :: runtimeEntry*, arraykey_present*) = $actual_tail(runtimeEntry*, arraykey_present*)
   -- if arraykey <- arraykey_present*
 
-dec $server_field(serverLookup, arraykey, bool) : serverField
-def $server_field(SERVER_KNOWN slotValue?, _, _) = FIELD slotValue?
-def $server_field(SERVER_UNKNOWN, _, false) = FIELD eps
-def $server_field(SERVER_UNKNOWN, _, true) = HOST_FIELD 64
-def $server_field(SERVER_PRESENT, KEY bytes, _) = HOST_FIELD 16  ;; REQUEST_TIME
-  -- if |bytes| = 12
-def $server_field(SERVER_PRESENT, KEY bytes, _) = HOST_FIELD 32  ;; REQUEST_TIME_FLOAT
-  -- if |bytes| = 18
+dec $inherited_field(arraykey, arraykey*) : serverField
+def $inherited_field(arraykey, _) = HOST_FIELD 16 arraykey
+  -- if KEY bytes = arraykey
+  -- if $server_lookup(arraykey, eps) = SERVER_PRESENT /\ |bytes| = 12
+def $inherited_field(arraykey, _) = HOST_FIELD 32 arraykey
+  -- if KEY bytes = arraykey
+  -- if $server_lookup(arraykey, eps) = SERVER_PRESENT /\ |bytes| = 18
+def $inherited_field(arraykey, arraykey_present*) = HOST_FIELD 64 arraykey
+  -- if $server_lookup(arraykey, eps) = SERVER_UNKNOWN /\ (arraykey <- arraykey_present*)
+def $inherited_field(_, _) = FIELD NULL -- otherwise
+
+dec $server_field(comparisonMode, serverLookup, arraykey, arraykey*) : serverField
+def $server_field(comparisonMode, SERVER_KNOWN slotValue, _, arraykey_present*) = $inherited_field(arraykey, arraykey_present*)
+  -- if HOST_OFFSET arraykey = $compare_deref(comparisonMode, slotValue)
+def $server_field(comparisonMode, SERVER_KNOWN slotValue, _, _) = FIELD slotValue_v
+  -- if slotValue_v = $compare_deref(comparisonMode, slotValue)
+  -- if ~$host_offset(slotValue_v)
+def $server_field(_, SERVER_KNOWN eps, _, _) = FIELD eps
+def $server_field(_, SERVER_UNKNOWN, arraykey, arraykey_present*) = FIELD eps -- if ~(arraykey <- arraykey_present*)
+def $server_field(_, serverLookup, arraykey, arraykey_present*) = $inherited_field(arraykey, arraykey_present*)
+  -- if serverLookup = SERVER_PRESENT \/ (serverLookup = SERVER_UNKNOWN /\ (arraykey <- arraykey_present*))
+def $server_field(_, SERVER_CAPTURED arraykey_source, _, arraykey_present*) = $inherited_field(arraykey_source, arraykey_present*)
 
 dec $server_fields(serverComparison, arraykey*, arraykey) : serverPair
 def $server_fields(serverComparison, arraykey_present*, arraykey) =
-  FIELDS ($server_field($server_entry(serverComparison.LEFT, arraykey, bytes), arraykey, b))
-         ($server_field($server_entry(serverComparison.RIGHT, arraykey, bytes), arraykey, b))
-  -- if bytes = serverComparison.MODE.SCRIPT
-  -- if b = (arraykey <- arraykey_present*)
+  FIELDS ($server_field(comparisonMode, $server_entry(serverComparison.LEFT, arraykey, bytes), arraykey, arraykey_present*))
+         ($server_field(comparisonMode, $server_entry(serverComparison.RIGHT, arraykey, bytes), arraykey, arraykey_present*))
+  -- if comparisonMode = serverComparison.MODE
+  -- if bytes = comparisonMode.SCRIPT
 
 dec $count_difference(serverPair*) : int
 def $count_difference(eps) = 0
@@ -45,10 +59,13 @@ dec $field_order(comparisonMode, serverPair) : valueOrder
 def $field_order(_, FIELDS (FIELD eps) _) = ORDER 0
 def $field_order(_, FIELDS serverField (FIELD eps)) = ORDER 1 -- if serverField =/= FIELD eps
 def $field_order(comparisonMode, FIELDS (FIELD slotValue_l) (FIELD slotValue_r)) = $value_order(comparisonMode, slotValue_l, slotValue_r)
-def $field_order(comparisonMode, FIELDS (FIELD slotValue) (HOST_FIELD n)) = ORDER 1
+def $field_order(comparisonMode, FIELDS (FIELD slotValue) (HOST_FIELD n _)) = ORDER 1
   -- if $is_array_value(slotValue) \/ (comparisonMode.STRICT /\ $scalar_type_bit(slotValue) =/= n)
-def $field_order(comparisonMode, FIELDS (HOST_FIELD n) (FIELD slotValue)) = ORDER (-1)
+def $field_order(comparisonMode, FIELDS (HOST_FIELD n _) (FIELD slotValue)) = ORDER (-1)
   -- if $is_array_value(slotValue) \/ (comparisonMode.STRICT /\ $scalar_type_bit(slotValue) =/= n)
+def $field_order(_, FIELDS (HOST_FIELD n arraykey) (HOST_FIELD n arraykey)) = ORDER 0
+def $field_order(comparisonMode, FIELDS (HOST_FIELD n_l _) (HOST_FIELD n_r _)) = ORDER 1
+  -- if comparisonMode.STRICT /\ n_l =/= n_r
 def $field_order(_, _) = UNKNOWN_ORDER -- otherwise
 
 dec $server_equal(valueOrder*) : valueOrder
@@ -77,25 +94,109 @@ def $tail_equality(_, _, _) = ORDER 1 -- otherwise
 dec $first_order(valueOrder*) : valueOrder
 def $first_order(eps) = ORDER 0
 def $first_order((ORDER 0) :: valueOrder*) = $first_order(valueOrder*)
-def $first_order(valueOrder :: _) = valueOrder -- if valueOrder =/= ORDER 0
+def $first_order(UNKNOWN_ORDER :: valueOrder*) = $unknown_before($first_order(valueOrder*))
+def $first_order(valueOrder :: _) = valueOrder -- if valueOrder =/= ORDER 0 /\ valueOrder =/= UNKNOWN_ORDER
 
 ;; The host can arrange original keys in either order. A single direction of
 ;; change therefore determines the result even when the original order is unknown.
 dec $original_order(valueOrder*) : valueOrder
-def $original_order(valueOrder*) = UNKNOWN_ORDER
-  -- if (UNKNOWN_ORDER <- valueOrder*) \/ ((ORDER 1 <- valueOrder*) /\ (ORDER (-1) <- valueOrder*))
 def $original_order(valueOrder*) = $first_order(valueOrder*)
-  -- if ~(UNKNOWN_ORDER <- valueOrder*) /\ (~(ORDER 1 <- valueOrder*) \/ ~(ORDER (-1) <- valueOrder*))
+  -- if valueOrder_first = $first_order(valueOrder*)
+  -- if ~(false <- (valueOrder = ORDER 0 \/ valueOrder = valueOrder_first)*)
+def $original_order(valueOrder*) = POSSIBLE_RECURSION
+  -- if valueOrder_first = $first_order(valueOrder*)
+  -- if false <- (valueOrder = ORDER 0 \/ valueOrder = valueOrder_first)*
+  -- if true <- ($may_recurse(valueOrder))*
+def $original_order(_) = UNKNOWN_ORDER -- otherwise
 
 dec $server_at(serverComparison, arraykey*, arraykey) : valueOrder
 def $server_at(serverComparison, arraykey_present*, arraykey) =
   $field_order(serverComparison.MODE, $server_fields(serverComparison, arraykey_present*, arraykey))
 
+syntax equalChoices = { SAME bool, DIFFER bool, RECURSE bool }
+dec $equal_choices(valueOrder) : equalChoices
+def $equal_choices(valueOrder) =
+  { SAME (valueOrder <- [ORDER 0, UNKNOWN_ORDER]), DIFFER (~(valueOrder <- [ORDER 0, RECURSIVE_ORDER])), RECURSE $may_recurse(valueOrder) }
+
+dec $unordered_equal(valueOrder*) : equalChoices
+def $unordered_equal(valueOrder*) =
+  { SAME (~(false <- (equalChoices.SAME)*)), DIFFER (true <- (equalChoices.DIFFER)*), RECURSE (true <- (equalChoices.RECURSE)*) }
+  -- if (equalChoices = $equal_choices(valueOrder))*
+
+dec $then_equal(equalChoices, equalChoices) : equalChoices
+def $then_equal(equalChoices_a, equalChoices_b) =
+  { SAME (equalChoices_a.SAME /\ equalChoices_b.SAME), DIFFER (equalChoices_a.DIFFER \/ (equalChoices_a.SAME /\ equalChoices_b.DIFFER)),
+    RECURSE (equalChoices_a.RECURSE \/ (equalChoices_a.SAME /\ equalChoices_b.RECURSE)) }
+
+dec $choices_order(equalChoices) : valueOrder
+def $choices_order({ SAME false, DIFFER true, RECURSE false }) = ORDER 1
+def $choices_order({ SAME false, DIFFER false, RECURSE true }) = RECURSIVE_ORDER
+def $choices_order({ SAME _, DIFFER true, RECURSE true }) = POSSIBLE_RECURSION
+
+dec $ordered_equal(valueOrder*) : equalChoices
+def $ordered_equal(eps) = $equal_choices(ORDER 0)
+def $ordered_equal(valueOrder :: valueOrder_rest*) = $then_equal($equal_choices(valueOrder), $ordered_equal(valueOrder_rest*))
+
+;; An original key on only one side can mismatch an intervening unmodified
+;; host key. To reach the tail, all shared originals have to align first.
+dec $align_tail(serverComparison, arraykey*, arraykey*, arraykey*, arraykey*) : equalChoices
+def $align_tail(serverComparison, arraykey_present*, arraykey :: arraykey_tail*, arraykey_extra*, arraykey_short*) =
+  $then_equal($equal_choices($server_at(serverComparison, arraykey_present*, arraykey)),
+              $align_tail(serverComparison, arraykey_present*, arraykey_tail*, $except_keys(arraykey_extra*, [arraykey]), arraykey_short*))
+  -- if arraykey <- arraykey_extra*
+def $align_tail(serverComparison, arraykey_present*, arraykey :: arraykey_tail*, eps, arraykey :: arraykey_short*) =
+  $then_equal($equal_choices($server_at(serverComparison, arraykey_present*, arraykey)),
+              $align_tail(serverComparison, arraykey_present*, arraykey_tail*, eps, arraykey_short*))
+def $align_tail(_, _, eps, eps, eps) = $equal_choices(ORDER 0)
+def $align_tail(_, _, _, _, _) = { SAME false, DIFFER true, RECURSE false } -- otherwise
+
+dec $strict_rest(serverComparison, arraykey*, arraykey*, arraykey*, arraykey*, arraykey*) : equalChoices
+def $strict_rest(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*, arraykey_exl*, eps) =
+  $align_tail(serverComparison, arraykey_present*, arraykey_r*, arraykey_exl*, arraykey_l*)
+def $strict_rest(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*, eps, arraykey_exr*) =
+  $align_tail(serverComparison, arraykey_present*, arraykey_l*, arraykey_exr*, arraykey_r*)
+  -- if arraykey_exr* =/= eps
+def $strict_rest(_, _, _, _, arraykey_exl*, arraykey_exr*) = { SAME false, DIFFER true, RECURSE false }
+  -- if arraykey_exl* =/= eps /\ arraykey_exr* =/= eps
+
+dec $base_keys(serverComparison, arraykey*, arraykey*, slotValue) : arraykey*
+def $base_keys(_, _, eps, _) = eps
+def $base_keys(serverComparison, arraykey_present*, arraykey :: arraykey_rest*, slotValue) = arraykey :: $base_keys(serverComparison, arraykey_present*, arraykey_rest*, slotValue)
+  -- if $server_field(serverComparison.MODE, $server_entry(slotValue, arraykey, serverComparison.MODE.SCRIPT), arraykey, arraykey_present*) =/= FIELD eps
+def $base_keys(serverComparison, arraykey_present*, arraykey :: arraykey_rest*, slotValue) = $base_keys(serverComparison, arraykey_present*, arraykey_rest*, slotValue)
+  -- if $server_field(serverComparison.MODE, $server_entry(slotValue, arraykey, serverComparison.MODE.SCRIPT), arraykey, arraykey_present*) = FIELD eps
+
+dec $recursive_equality(serverComparison, arraykey*, arraykey*, arraykey*) : valueOrder
+def $recursive_equality(serverComparison, arraykey_present*, arraykey_tail*, _) =
+  $choices_order($then_equal($unordered_equal(valueOrder_base*), $ordered_equal(valueOrder_tail*)))
+  -- if ~serverComparison.MODE.STRICT
+  -- if arraykey_base* = $except_keys(serverComparison.KEYS, arraykey_tail*)
+  -- if valueOrder_base* = ($server_at(serverComparison, arraykey_present*, arraykey_base))*
+  -- if valueOrder_tail* = ($server_at(serverComparison, arraykey_present*, arraykey_tail))*
+def $recursive_equality(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*) =
+  $choices_order($then_equal(equalChoices_base[.DIFFER = (equalChoices_base.DIFFER \/ arraykey_exl* =/= eps \/ arraykey_exr* =/= eps)],
+                             $strict_rest(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*, arraykey_exl*, arraykey_exr*)))
+  -- if serverComparison.MODE.STRICT
+  -- if arraykey_bl* = $base_keys(serverComparison, arraykey_present*, $except_keys(serverComparison.KEYS, arraykey_l*), serverComparison.LEFT)
+  -- if arraykey_br* = $base_keys(serverComparison, arraykey_present*, $except_keys(serverComparison.KEYS, arraykey_r*), serverComparison.RIGHT)
+  -- if arraykey_exl* = $except_keys(arraykey_bl*, arraykey_br*)
+  -- if arraykey_exr* = $except_keys(arraykey_br*, arraykey_bl*)
+  -- if arraykey_common* = $except_keys(arraykey_bl*, arraykey_exl*)
+  -- if equalChoices_base = $unordered_equal(($server_at(serverComparison, arraykey_present*, arraykey_common))*)
+
+dec $equal_server_result(serverComparison, arraykey*, arraykey*, arraykey*, valueOrder*) : valueOrder
+def $equal_server_result(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*, valueOrder*) =
+  $recursive_equality(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*)
+  -- if true <- ($may_recurse(valueOrder))*
+def $equal_server_result(serverComparison, _, arraykey_l*, arraykey_r*, valueOrder*) =
+  $server_equal($tail_equality(serverComparison.MODE.STRICT, arraykey_l*, arraykey_r*) :: valueOrder*)
+  -- if ~(true <- ($may_recurse(valueOrder))*)
+
 dec $server_by_size(serverComparison, arraykey*, int) : valueOrder
 def $server_by_size(serverComparison, _, i) = ORDER 1 -- if i =/= 0 /\ serverComparison.MODE.EQUALITY
 def $server_by_size(serverComparison, _, i) = ORDER $int_order(i, 0) -- if i =/= 0 /\ ~serverComparison.MODE.EQUALITY
 def $server_by_size(serverComparison, arraykey_present*, 0) =
-  $server_equal($tail_equality(serverComparison.MODE.STRICT, arraykey_l*, arraykey_r*) :: valueOrder*)
+  $equal_server_result(serverComparison, arraykey_present*, arraykey_l*, arraykey_r*, valueOrder*)
   -- if serverComparison.MODE.EQUALITY
   -- if arraykey_l* = $actual_tail($server_order(serverComparison.LEFT), arraykey_present*)
   -- if arraykey_r* = $actual_tail($server_order(serverComparison.RIGHT), arraykey_present*)
@@ -111,21 +212,32 @@ def $server_by_size(serverComparison, arraykey_present*, 0) =
 
 dec $agreed_order(valueOrder, valueOrder) : valueOrder
 def $agreed_order(valueOrder, valueOrder) = valueOrder
+def $agreed_order(valueOrder_l, valueOrder_r) = POSSIBLE_RECURSION
+  -- if valueOrder_l =/= valueOrder_r /\ ($may_recurse(valueOrder_l) \/ $may_recurse(valueOrder_r))
 def $agreed_order(_, _) = UNKNOWN_ORDER -- otherwise
 
 ;; An entry with the same overridden value cannot be the first difference in
 ;; a loose comparison. Its original position can still affect strict ordering.
+dec $field_origin(slotValue) : arraykey*
+def $field_origin(HOST_OFFSET arraykey) = [arraykey]
+def $field_origin(_) = eps -- otherwise
+
+dec $host_origins(comparisonMode, runtimeEntry*) : arraykey*
+def $host_origins(_, eps) = eps
+def $host_origins(comparisonMode, (ITEM _ slotValue) :: runtimeEntry*) =
+  $field_origin($compare_deref(comparisonMode, slotValue)) ++ $host_origins(comparisonMode, runtimeEntry*)
+
 dec $presence_matters(serverComparison, arraykey) : bool
 def $presence_matters(serverComparison, arraykey) = ($server_lookup(arraykey, eps) = SERVER_UNKNOWN) /\
-  ((~serverComparison.MODE.EQUALITY /\ $server_at(serverComparison, eps, arraykey) =/= ORDER 0) \/
+  (($server_at(serverComparison, eps, arraykey) =/= ORDER 0) \/
    (serverComparison.MODE.STRICT /\ $server_order(serverComparison.LEFT) =/= $server_order(serverComparison.RIGHT)) \/
+   (arraykey <- $host_origins(serverComparison.MODE, $server_changes(serverComparison.LEFT) ++ $server_changes(serverComparison.RIGHT))) \/
    ($array_find($server_changes(serverComparison.LEFT), arraykey) = eps) \/ ($array_find($server_changes(serverComparison.RIGHT), arraykey) = eps))
 
 dec $server_possibilities(serverComparison, arraykey*, arraykey*) : valueOrder
 dec $also_present(serverComparison, arraykey*, arraykey*, valueOrder) : valueOrder
-def $also_present(_, _, _, UNKNOWN_ORDER) = UNKNOWN_ORDER
-def $also_present(serverComparison, arraykey_rest*, arraykey_present*, ORDER i) =
-  $agreed_order(ORDER i, $server_possibilities(serverComparison, arraykey_rest*, arraykey_present*))
+def $also_present(serverComparison, arraykey_rest*, arraykey_present*, valueOrder) =
+  $agreed_order(valueOrder, $server_possibilities(serverComparison, arraykey_rest*, arraykey_present*))
 def $server_possibilities(serverComparison, eps, arraykey_present*) =
   $server_by_size(serverComparison, arraykey_present*, $count_difference(serverPair*))
   -- if arraykey* = serverComparison.KEYS
@@ -139,7 +251,8 @@ def $server_possibilities(serverComparison, arraykey :: arraykey_rest*, arraykey
   -- if ~$presence_matters(serverComparison, arraykey)
 
 def $server_pair_order(comparisonMode, slotValue_l, slotValue_r) =
-  $server_possibilities(serverComparison, arraykey*, eps)
+  $server_possibilities(serverComparison, arraykey* ++ $except_keys(arraykey_origins*, arraykey*), eps)
+  -- if arraykey_origins* = $host_origins(comparisonMode, $server_changes(slotValue_l) ++ $server_changes(slotValue_r))
   -- if (ITEM arraykey_l _)* = $server_changes(slotValue_l)
   -- if (ITEM arraykey_r _)* = $server_changes(slotValue_r)
   -- if arraykey* = arraykey_l* ++ $except_keys(arraykey_r*, arraykey_l*)

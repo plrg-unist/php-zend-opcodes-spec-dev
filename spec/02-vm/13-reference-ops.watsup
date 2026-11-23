@@ -1,0 +1,62 @@
+;; ASSIGN_REF can rebind a VAR destination only through an indirect address.
+;; MAKE_REF transfers the existing value when given a direct VAR.
+dec $reference_address(frame, operand) : bool
+def $reference_address(_, CV _) = true
+def $reference_address(frame, VAR n) = $captured(frame, VAR n) =/= eps
+
+dec $non_reference_return(frame, operand, nat) : bool
+def $non_reference_return(frame, VAR n, 1) = ~$is_reference($raw_read(frame, VAR n))
+def $non_reference_return(_, _, _) = false -- otherwise
+
+dec $bind_source(frame, operand, operand, operand, bool) : transition
+;; Notice: Only variables should be assigned by reference
+def $bind_source(frame, operand_r, operand_dst, operand_src, true) =
+  $store_result($report(frame, NOTICE,
+    [ 79, 110, 108, 121, 32, 118, 97, 114, 105, 97, 98, 108, 101, 115, 32, 115, 104, 111, 117, 108,
+      100, 32, 98, 101, 32, 97, 115, 115, 105, 103, 110, 101, 100, 32, 98, 121, 32, 114, 101, 102,
+      101, 114, 101, 110, 99, 101 ]), operand_r, operand_dst, $read(frame, operand_src))
+def $bind_source(frame, operand_r, operand_dst, operand_src, false) =
+  CONTINUE $write($bind(frame', operand_dst, slotValue_ref), operand_r, slotValue_ref)
+  -- if (frame', slotValue_ref) = $as_reference(frame, operand_src)
+
+def $reference_step(frame, MAKE_REF, operand_r, operand_a, _, _) =
+  CONTINUE $write(frame', operand_r, slotValue_ref)
+  -- if $reference_address(frame, operand_a)
+  -- if (frame', slotValue_ref) = $as_reference(frame, operand_a)
+def $reference_step(frame, MAKE_REF, operand_r, operand_a, _, _) =
+  CONTINUE $write(frame, operand_r, $raw_read(frame, operand_a))
+  -- if ~$reference_address(frame, operand_a)
+def $reference_step(frame, ASSIGN_REF, operand_r, operand_dst, operand_src, n) =
+  $bind_source(frame, operand_r, operand_dst, operand_src, $non_reference_return(frame, operand_src, n))
+  -- if $reference_address(frame, operand_dst)
+;; Error: Cannot assign by reference to an array dimension of an object
+def $reference_step(frame, ASSIGN_REF, _, operand_dst, _, _) = $raise(frame,
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 97, 115, 115, 105, 103, 110,
+    32, 98, 121, 32, 114, 101, 102, 101, 114, 101, 110, 99, 101, 32, 116, 111, 32, 97, 110, 32, 97,
+    114, 114, 97, 121, 32, 100, 105, 109, 101, 110, 115, 105, 111, 110, 32, 111, 102, 32, 97, 110,
+    32, 111, 98, 106, 101, 99, 116 ])
+  -- if ~$reference_address(frame, operand_dst)
+
+;; SEPARATE examines the VAR itself. A borrowed element stays a borrowed element.
+dec $separate_reference(frame, operand) : frame
+def $separate_reference(frame, VAR n) =
+  $write(frame, VAR n, $read(frame, VAR n))
+  -- if REFERENCE n_ref = frame.SLOTS[n].VALUE
+  -- if ~$shared_reference(frame, n_ref)
+def $separate_reference(frame, _) = frame
+  -- otherwise
+def $reference_step(frame, SEPARATE, _, operand_a, _, _) =
+  CONTINUE $separate_reference(frame, operand_a)
+
+;; Writable list fetches use the reference context for string-offset errors.
+def $reference_step(frame, FETCH_LIST_W, operand_r, operand_a, operand_k, _) =
+  $step(frame, FETCH_DIM_W, operand_r, operand_a, operand_k, (EXT_VALUE 1), eps)
+  -- if $reference_address(frame, operand_a) \/ $is_reference($raw_read(frame, operand_a))
+;; Notice: Attempting to set reference to non referenceable value
+def $reference_step(frame, FETCH_LIST_W, operand_r, operand_a, operand_k, _) =
+  $step($report(frame, NOTICE,
+    [ 65, 116, 116, 101, 109, 112, 116, 105, 110, 103, 32, 116, 111, 32, 115, 101, 116, 32, 114, 101,
+      102, 101, 114, 101, 110, 99, 101, 32, 116, 111, 32, 110, 111, 110, 32, 114, 101, 102, 101,
+      114, 101, 110, 99, 101, 97, 98, 108, 101, 32, 118, 97, 108, 117, 101 ]),
+    FETCH_LIST_R, operand_r, operand_a, operand_k, eps, eps)
+  -- if ~$reference_address(frame, operand_a) /\ ~$is_reference($raw_read(frame, operand_a))

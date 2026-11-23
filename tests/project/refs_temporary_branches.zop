@@ -1,0 +1,52 @@
+zend-opcodes
+file "refs_temporary_branches.php"
+main
+body - {
+  lines 1 1
+  frame 4 cache 0
+  locals 2 ["x", "alias"]
+  size 34 literals 7 children 0
+  lit[0] = int(5)
+  lit[1] = "\x0a"
+  lit[2] = null
+  lit[3] = "wrong"
+  lit[4] = "L"
+  lit[5] = int(9)
+  lit[6] = int(0)
+  code
+    0: ASSIGN CV0, lit[0]
+    1: ASSIGN_REF CV1, CV0
+    2: CV0 = POST_INC CV0
+    3: ECHO CV0
+    4: ECHO CV1
+    5: ECHO lit[1]
+    6: ASSIGN CV0, lit[2]
+    7: V2 = MAKE_REF CV0
+    8: T3 = COPY_TMP V2
+    9: T4 = COALESCE T3, @11
+    10: ECHO lit[3]
+    11: T5 = TYPE_CHECK T4 | ext=1024
+    12: ECHO T5
+    13: T3 = COPY_TMP V2
+    14: T4 = JMP_NULL T3, @17
+    15: ECHO lit[4]
+    16: FREE T3
+    17: T3 = COPY_TMP V2
+    18: T4 = GET_TYPE T3
+    19: ECHO T4
+    20: ASSIGN CV0, lit[0]
+    21: T3 = COPY_TMP V2
+    22: T4 = JMP_SET T3, @24
+    23: ECHO lit[3]
+    24: T5 = TYPE_CHECK T4 | ext=1024
+    25: ECHO T5
+    26: T3 = COPY_TMP V2
+    27: T4 = CAST T3 | ext=7
+    28: ASSIGN CV0, lit[5]
+    29: T5 = FETCH_DIM_R T4, lit[6]
+    30: ECHO T5
+    31: FREE V2
+    32: ECHO lit[1]
+    33: RETURN lit[0]
+}
+end

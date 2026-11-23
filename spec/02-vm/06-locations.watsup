@@ -11,12 +11,6 @@ def $table_snapshot(borrowedTable*, n, _) = slotValue
 def $table_snapshot(borrowedTable*, n, slotValue) = slotValue
   -- if n = |borrowedTable*|
 
-dec $table_contents(borrowedTable*, slotValue) : slotValue
-def $table_contents(borrowedTable*, ARRAY_VALUE arrayId (ITEM arraykey slotValue)* arrayIndex? n?) =
-  ARRAY_VALUE arrayId (ITEM arraykey $current(borrowedTable*, slotValue))* arrayIndex? n?
-def $table_contents(borrowedTable*, CLI_UPDATED arrayId (ITEM arraykey slotValue)* serverHistory) =
-  CLI_UPDATED arrayId (ITEM arraykey $current(borrowedTable*, slotValue))* serverHistory
-
 dec $stored_table(slotValue) : arrayId?
 def $stored_table(ARRAY_VALUE arrayId _ _ _) = arrayId
 def $stored_table(CLI_UPDATED arrayId _ _) = arrayId
@@ -27,21 +21,42 @@ dec $stored_entries(slotValue) : runtimeEntry*
 def $stored_entries(ARRAY_VALUE _ runtimeEntry* _ _) = runtimeEntry*
 def $stored_entries(CLI_UPDATED _ runtimeEntry* _) = runtimeEntry*
 
+dec $table_children(slotValue) : slotValue*
+def $table_children(slotValue) = slotValue_child*
+  -- if (ITEM _ slotValue_child)* = $stored_entries(slotValue)
+
+;; A bucket may directly contain its own table when the RHS uses another
+;; variable bound to the same array. Resolve only the table being inspected.
 def $current(borrowedTable*, ELEMENT_LOCATION n arraykey) = $current(borrowedTable*, slotValue)
   -- if TABLE _ slotValue_table = borrowedTable*[n]
   -- if slotValue = $found_value($array_find($stored_entries(slotValue_table), arraykey))
 def $current(borrowedTable*, slotValue) =
-  $table_contents(borrowedTable*, $table_snapshot(borrowedTable*, $table_position(borrowedTable*, arrayId), slotValue))
+  $table_snapshot(borrowedTable*, $table_position(borrowedTable*, arrayId), slotValue)
   -- if $(|borrowedTable*| > 0)
   -- if arrayId = $stored_table(slotValue)
 def $current(_, slotValue) = slotValue
   -- otherwise
+
+dec $contains_table(borrowedTable*, slotValue, arrayId, arrayId*) : bool
+def $contains_table(_, slotValue, arrayId, _) = true
+  -- if arrayId = $stored_table(slotValue)
+def $contains_table(borrowedTable*, slotValue, arrayId, arrayId_seen*) =
+  true <- ($contains_table(borrowedTable*, slotValue_child, arrayId, (FRESH_ARRAY n) :: arrayId_seen*))*
+  -- if FRESH_ARRAY n = $stored_table(slotValue)
+  -- if FRESH_ARRAY n =/= arrayId /\ ~(FRESH_ARRAY n <- arrayId_seen*)
+  -- if slotValue_child* = $table_children($current(borrowedTable*, slotValue))
+def $contains_table(_, _, _, _) = false -- otherwise
 
 dec $publish(frame, slotValue) : frame
 def $publish(frame, slotValue) = frame[.BORROWED[n_at] = TABLE arrayId slotValue]
   -- if arrayId = $stored_table(slotValue)
   -- if n_at = $table_position(frame.BORROWED, arrayId)
   -- if $(n_at < |frame.BORROWED|)
+def $publish(frame, slotValue) = frame[.BORROWED = frame.BORROWED ++ [TABLE (FRESH_ARRAY n) slotValue]]
+  -- if FRESH_ARRAY n = $stored_table(slotValue)
+  -- if $table_position(frame.BORROWED, FRESH_ARRAY n) = |frame.BORROWED|
+  -- if slotValue_child* = $table_children(slotValue)
+  -- if true <- ($contains_table(frame.BORROWED, slotValue_child, FRESH_ARRAY n, eps))*
 def $publish(frame, _) = frame
   -- otherwise
 
@@ -58,68 +73,36 @@ def $store_bucket(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, sl
 def $store_bucket(CLI_UPDATED arrayId runtimeEntry* serverHistory, arraykey, slotValue) =
   $server_changed(CLI_UPDATED arrayId runtimeEntry* serverHistory, arrayId, arraykey, slotValue)
 
-def $assign(frame, UNUSED, _) = frame
-def $assign(frame, operand, slotValue) = frame'[.BORROWED[n_table] = TABLE arrayId slotValue_new]
+def $bind(frame, operand, slotValue) = frame'[.BORROWED[n_table] = TABLE arrayId slotValue_new]
   -- if BUCKET n_table arraykey = $captured(frame, operand)
   -- if frame' = $publish(frame, slotValue)
   -- if TABLE arrayId slotValue_old = frame'.BORROWED[n_table]
   -- if slotValue_new = $store_bucket(slotValue_old, arraykey, slotValue)
-def $assign(frame, operand, slotValue) = $write($publish(frame, slotValue), operand, slotValue)
-  -- if operand =/= UNUSED
+def $bind(frame, operand, slotValue) = $write($publish(frame, slotValue), operand, slotValue)
   -- if $captured(frame, operand) = eps
+
+def $assign_array(frame, operand, slotValue) =
+  $assign($iterator_update(frame, $read(frame, operand), slotValue), operand, slotValue)
 
 ;; Saving a postincrement result can overwrite the VAR holding the address.
 ;; Zend has already captured that address before storing the old value.
 dec $post_value(transition, operand, slotValue) : transition
 def $post_value(CONTINUE frame, operand_r, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
 def $post_value(FINISH outcome, _, _) = FINISH outcome
+dec $indirect_target(frame, operand) : bool
+def $indirect_target(frame, operand) = ($captured(frame, operand) =/= eps) \/ $is_reference($raw_read(frame, operand))
 def $post_incdec(frame, operand_r, operand_dst, slotValue, numericResult) =
   $post_value($apply_numeric(frame, UNUSED, operand_dst, eps, numericResult), operand_r, slotValue)
-  -- if $captured(frame, operand_dst) =/= eps
+  -- if $indirect_target(frame, operand_dst)
 def $post_incdec(frame, operand_r, operand_dst, slotValue, numericResult) =
   $apply_numeric($write(frame, operand_r, slotValue), UNUSED, operand_dst, eps, numericResult)
-  -- if $captured(frame, operand_dst) = eps
-
-;; Count owning edges to one table. Two owners of a parent table still share
-;; a single edge from its bucket to a child. An element location owns neither.
-syntax arrayOwners = { SEEN arrayId*, COUNT nat }
-dec $count_values(slotValue*, arrayId, arrayOwners) : arrayOwners
-dec $count_value(slotValue, arrayId, arrayOwners) : arrayOwners
-def $count_values(slotValue :: slotValue_rest*, arrayId, arrayOwners) =
-  $count_values(slotValue_rest*, arrayId, $count_value(slotValue, arrayId, arrayOwners))
-  -- if $(arrayOwners.COUNT < 2)
-def $count_values(_, _, arrayOwners) = arrayOwners
-  -- otherwise
-def $count_value(slotValue, arrayId, arrayOwners) =
-  arrayOwners[.COUNT = $(arrayOwners.COUNT + 1)]
-  -- if arrayId = $stored_table(slotValue)
-def $count_value(slotValue_row, arrayId, arrayOwners) =
-  $count_values(slotValue*, arrayId, arrayOwners[.SEEN = arrayId_row :: arrayOwners.SEEN])
-  -- if arrayId_row = $stored_table(slotValue_row)
-  -- if arrayId_row =/= arrayId
-  -- if ~(arrayId_row <- arrayOwners.SEEN)
-  -- if (ITEM _ slotValue)* = $stored_entries(slotValue_row)
-def $count_value(_, _, arrayOwners) = arrayOwners
-  -- otherwise
-
-dec $owned_value(borrowedTable*, frameSlot) : slotValue
-def $owned_value(borrowedTable*, { VALUE slotValue, OWNS true }) = $current(borrowedTable*, slotValue)
-  -- if $stored_table(slotValue) =/= eps
-def $owned_value(_, _) = NULL
-  -- otherwise
-
-def $shared_array(frame, slotValue_a) = $(arrayOwners.COUNT > 1)
-  -- if FRESH_ARRAY n = $stored_table(slotValue_a)
-  -- if frameSlot* = frame.SLOTS
-  -- if slotValue* = ($owned_value(frame.BORROWED, frameSlot))*
-  -- if arrayOwners = $count_values(slotValue*, FRESH_ARRAY n, { SEEN eps, COUNT 0 })
-def $shared_array(_, _) = true
-  -- otherwise
+  -- if ~$indirect_target(frame, operand_dst)
 
 dec $separated(frame, operand, slotValue, bool) : (frame, slotValue)
 def $separated(frame, operand, slotValue, true) =
-  ($assign(frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand, slotValue_new), slotValue_new)
-  -- if slotValue_new = $array_copy(slotValue, FRESH_ARRAY frame.NEXTARRAY)
+  ($assign(frame'[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand, slotValue_new), slotValue_new)
+  -- if slotValue_new = $dup_array(frame, slotValue, FRESH_ARRAY frame.NEXTARRAY)
+  -- if frame' = $iterator_update(frame, slotValue, slotValue_new)
 def $separated(frame, _, slotValue, false) = (frame, slotValue)
 def $separate_array(frame, operand, slotValue) =
   $separated(frame, operand, slotValue, $shared_array(frame, slotValue))
@@ -135,11 +118,13 @@ def $release(frame, TMP n, operand_r) = $release_slot(frame, n, operand_r)
 def $release(frame, VAR n, operand_r) = $release_slot(frame, n, operand_r)
 def $release(frame, _, _) = frame
   -- otherwise
+def $release_inputs(CONTINUE frame, opcode, _, _, _) = CONTINUE frame
+  -- if opcode <- [FE_FETCH_R, FE_FETCH_RW]
 def $release_inputs(CONTINUE frame, opcode, operand_r, _, operand_b) = CONTINUE $release(frame, operand_b, operand_r)
-  -- if opcode <- [COPY_TMP, FETCH_LIST_R, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL]
+  -- if opcode <- [COPY_TMP, SEPARATE, FETCH_LIST_R, FETCH_LIST_W, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL]
 def $release_inputs(CONTINUE frame, opcode, operand_r, operand_a, operand_b) =
   CONTINUE $release($release(frame, operand_a, operand_r), operand_b, operand_r)
-  -- if ~(opcode <- [COPY_TMP, FETCH_LIST_R, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL])
+  -- if ~(opcode <- [FE_FETCH_R, FE_FETCH_RW, COPY_TMP, SEPARATE, FETCH_LIST_R, FETCH_LIST_W, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL])
 def $release_inputs(FINISH outcome, _, _, _, _) = FINISH outcome
 
 dec $false_array_frame(frame, slotValue) : frame
@@ -153,8 +138,15 @@ def $borrow(frame, n, _, _) = frame
   -- if $(n < |frame.BORROWED|)
 
 dec $capture(frame, operand, operand, slotValue, arraykey) : transition
+dec $consumes_container(frame) : bool
+def $consumes_container(frame) = opcode =/= FETCH_LIST_W
+  -- if n_pc = $(frame.PC - 1)
+  -- if OPLINE opcode _ _ _ _ _ _ _ _ _ _ = frame.CODE[n_pc]
 dec $temporary_container(frame, operand) : bool
-def $temporary_container(frame, VAR n) = $stored_table(frame.SLOTS[n].VALUE) =/= eps
+def $temporary_container(frame, VAR n) = $consumes_container(frame) /\ ~$shared_reference(frame, n_ref)
+  -- if REFERENCE n_ref = frame.SLOTS[n].VALUE
+def $temporary_container(frame, VAR n) = $consumes_container(frame) /\ ($stored_table(frame.SLOTS[n].VALUE) =/= eps)
+  -- if ~$is_reference(frame.SLOTS[n].VALUE)
 def $temporary_container(_, _) = false
   -- otherwise
 def $capture(frame, operand_r, operand_a, slotValue, arraykey) =
@@ -168,7 +160,7 @@ def $capture(frame, operand_r, operand_a, slotValue, arraykey) =
 
 dec $capture_insert(frame, operand, operand, arraykey, numericResult) : transition
 def $capture_insert(frame, operand_r, operand_a, arraykey, NUM_VALUE slotValue) =
-  $capture($assign(frame, operand_a, slotValue), operand_r, operand_a, slotValue, arraykey)
+  $capture($assign_array(frame, operand_a, slotValue), operand_r, operand_a, slotValue, arraykey)
 def $capture_insert(frame, _, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
 
 dec $fetch_bucket(frame, opcode, operand, operand, slotValue, arraykey, slotValue?) : transition
@@ -188,6 +180,11 @@ def $server_capture(frame, _, operand_r, operand_a, slotValue, arraykey, SERVER_
   $capture_insert(frame, operand_r, operand_a, arraykey, NUM_VALUE $store_bucket(slotValue, arraykey, slotValue_old))
 def $server_capture(frame, opcode, operand_r, operand_a, slotValue, arraykey, SERVER_KNOWN eps) =
   $fetch_bucket(frame, opcode, operand_r, operand_a, slotValue, arraykey, eps)
+def $server_capture(frame, opcode, operand_r, operand_a, slotValue, arraykey, serverLookup) =
+  $capture_insert(frame, operand_r, operand_a, arraykey, NUM_VALUE $store_bucket(slotValue, arraykey, HOST_OFFSET arraykey))
+  -- if serverLookup = SERVER_PRESENT \/ (serverLookup = SERVER_UNKNOWN /\ opcode = FETCH_DIM_W)
+def $server_capture(frame, _, operand_r, operand_a, slotValue, arraykey, SERVER_CAPTURED _) =
+  $capture(frame, operand_r, operand_a, slotValue, arraykey)
 def $server_capture(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
@@ -217,8 +214,9 @@ dec $capture_server_append(frame, operand, operand, slotValue, serverLookup) : t
 def $capture_server_append(frame, operand_r, operand_a, slotValue, SERVER_KNOWN eps) =
   $capture_insert(frame, operand_r, operand_a, INDEX 9223372036854775807,
     NUM_VALUE $store_bucket(slotValue, INDEX 9223372036854775807, NULL))
-def $capture_server_append(frame, operand_r, operand_a, _, SERVER_KNOWN slotValue) =
+def $capture_server_append(frame, operand_r, operand_a, _, serverLookup) =
   $capture_insert(frame, operand_r, operand_a, INDEX 9223372036854775807, $append_error())
+  -- if serverLookup =/= SERVER_KNOWN eps /\ serverLookup =/= SERVER_UNKNOWN
 def $capture_server_append(frame, _, _, _, SERVER_UNKNOWN) = FINISH (UNSUPPORTED frame.STDOUT eps)
 def $fetch_owned(frame, _, operand_r, operand_a, UNUSED, ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?) =
   $capture_insert(frame, operand_r, operand_a, INDEX i, $array_insert(slotValue, eps, NULL))
@@ -234,6 +232,11 @@ def $fetch_owned(frame, opcode, operand_r, operand_a, operand_k, slotValue) =
   -- if (frame', _) = $read_value(frame, operand_k, slotValue_k)
 
 dec $fetch_container(frame, opcode, operand, operand, operand, nat, slotValue) : transition
+dec $fetch_false_frame(frame, operand, slotValue) : frame
+def $fetch_false_frame(frame, operand, slotValue) = frame
+  -- if $is_reference($raw_read(frame, operand))
+def $fetch_false_frame(frame, operand, slotValue) = $false_array_frame(frame, slotValue)
+  -- if ~$is_reference($raw_read(frame, operand))
 def $fetch_container(frame, opcode, operand_r, operand_a, operand_k, _, ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?) =
   $fetch_owned(frame', opcode, operand_r, operand_a, operand_k, slotValue_new)
   -- if (frame', slotValue_new) = $separate_array(frame, operand_a, ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?)
@@ -245,12 +248,12 @@ def $fetch_container(frame, opcode, operand_r, operand_a, operand_k, _, slotValu
   $fetch_owned($assign(frame'[.NEXTARRAY = $(frame'.NEXTARRAY + 1)], operand_a, slotValue_new), opcode, operand_r, operand_a, operand_k, slotValue_new)
   -- if opcode =/= FETCH_DIM_UNSET
   -- if slotValue <- [UNDEF, NULL, FALSE]
-  -- if frame' = $false_array_frame(frame, slotValue)
+  -- if frame' = $fetch_false_frame(frame, operand_a, slotValue)
   -- if slotValue_new = ARRAY_VALUE (FRESH_ARRAY frame'.NEXTARRAY) eps eps eps
-def $fetch_container(frame, FETCH_DIM_UNSET, operand_r, _, operand_k, _, slotValue) =
+def $fetch_container(frame, FETCH_DIM_UNSET, operand_r, operand_a, operand_k, _, slotValue) =
   CONTINUE $write(frame', operand_r, NULL)
   -- if slotValue <- [UNDEF, NULL, FALSE]
-  -- if (frame', _) = $read_operand($false_array_frame(frame, slotValue), operand_k)
+  -- if (frame', _) = $read_operand($fetch_false_frame(frame, operand_a, slotValue), operand_k)
 def $fetch_container(frame, opcode, _, _, operand_k, n, STRING _) =
   $string_dimension_fetch(frame, opcode, operand_k, n)
 def $fetch_container(frame, FETCH_DIM_UNSET, _, _, _, _, slotValue) = $raise(frame,

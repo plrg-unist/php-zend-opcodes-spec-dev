@@ -1,0 +1,19 @@
+zend-opcodes
+file "refs_temporary_strlen.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  locals 1 ["x"]
+  size 6 literals 2 children 0
+  lit[0] = "abc"
+  lit[1] = int(1)
+  code
+    0: ASSIGN CV0, lit[0]
+    1: V1 = MAKE_REF CV0
+    2: T2 = COPY_TMP V1
+    3: FREE V1
+    4: T1 = STRLEN T2
+    5: RETURN lit[1]
+}
+end

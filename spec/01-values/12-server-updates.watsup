@@ -7,11 +7,17 @@ def $server_changes(CLI_UPDATED _ runtimeEntry* _) = runtimeEntry*
 def $server_id(CLI_ARRAY) = CLI_ARRAY_ID 2
 def $server_id(CLI_UPDATED arrayId _ _) = arrayId
 
+;; A writable lookup can establish a bucket without reading the inherited value.
+dec $host_offset(slotValue) : bool
+def $host_offset(HOST_OFFSET _) = true
+def $host_offset(_) = false -- otherwise
+
 dec $server_entry_at(slotValue?, arraykey, bytes) : serverLookup
 def $server_entry_at(eps, arraykey, bytes) = $server_lookup(arraykey, bytes)
 def $server_entry_at(UNDEF, _, _) = SERVER_KNOWN eps
+def $server_entry_at(HOST_OFFSET arraykey, _, _) = SERVER_CAPTURED arraykey
 def $server_entry_at(slotValue, _, _) = SERVER_KNOWN slotValue
-  -- if slotValue =/= UNDEF
+  -- if slotValue =/= UNDEF /\ ~$host_offset(slotValue)
 
 dec $server_entry(slotValue, arraykey, bytes) : serverLookup
 def $server_entry(slotValue, arraykey, bytes) =

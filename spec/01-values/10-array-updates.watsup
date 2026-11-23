@@ -1,5 +1,3 @@
-;; A packed insertion can reset the automatic integer key after a deletion.
-;; Its capacity controls which sparse integer insertions retain that behavior.
 dec $array_capacity(nat, nat) : nat
 def $array_capacity(n, n_capacity) = n_capacity
   -- if $(n <= n_capacity)
@@ -7,78 +5,104 @@ def $array_capacity(n, n_capacity) = $array_capacity(n, $(2 * n_capacity))
   -- if $(n > n_capacity)
 
 dec $initial_array_index(nat) : arrayIndex
-def $initial_array_index(n) = STORAGE (-9223372036854775808) MIXED
+def $initial_array_index(n) = STORAGE (-9223372036854775808) (MIXED ($array_capacity($(n / 4), 8)) eps)
   -- if $((n / 2) \ 2 = 1)
 def $initial_array_index(n) = STORAGE (-9223372036854775808) (VACANT ($array_capacity($(n / 4), 8)))
   -- if $((n / 2) \ 2 = 0)
 
-dec $literal_index(int, literalLayout?) : arrayIndex
-def $literal_index(i, eps) = NEXT_INDEX i
-def $literal_index(i, PACKED_LITERAL n_capacity) = STORAGE i (PACKED n_capacity)
-def $literal_index(i, MIXED_LITERAL) = STORAGE i MIXED
+dec $mixed_layout(arrayLayout) : bool
+def $mixed_layout(MIXED _ _) = true
+def $mixed_layout(_) = false -- otherwise
 
-;; The first integer key must fit the initial capacity. Later keys can grow a
-;; packed array by one doubling when more than half its capacity is occupied.
-dec $layout_for_key(arrayLayout, int, nat, arraykey) : arrayLayout
-def $layout_for_key(PACKED n_capacity, i_last, _, INDEX i) = PACKED n_capacity
-  -- if $(i_last < i) /\ $(i < n_capacity)
-def $layout_for_key(PACKED n_capacity, i_last, n_live, INDEX i) = PACKED $(2 * n_capacity)
-  -- if $(i_last < i) /\ $(n_capacity <= i) /\ $(i < 2 * n_capacity)
-  -- if $(n_capacity < 2 * n_live)
-def $layout_for_key(_, _, _, _) = MIXED
-  -- otherwise
+;; Inserting a sparse integer outside a full packed allocation doubles its
+;; capacity before converting to mixed, even if compaction then removes holes.
+dec $wide_index(arraykey, nat) : bool
+def $wide_index(INDEX i, n_capacity) = $(i < 0) \/ $(i >= n_capacity)
+def $wide_index(KEY _, _) = false
 
-;; An ordinary listing reconstructs its literal by inserting its entries in order.
-dec $inferred_layout(arrayLayout, int, nat, runtimeEntry*) : arrayLayout
-def $inferred_layout(PACKED n_capacity, i_last, n_live, (ITEM (INDEX i) _) :: runtimeEntry*) =
-  $inferred_layout($layout_for_key(PACKED n_capacity, i_last, n_live, INDEX i), i, $(n_live + 1), runtimeEntry*)
-def $inferred_layout(arrayLayout, _, _, eps) = arrayLayout
-def $inferred_layout(_, _, _, _) = MIXED
-  -- otherwise
+dec $converted_capacity(nat, nat, nat, arraykey) : nat
+def $converted_capacity(n_capacity, n_used, n_live, arraykey) = $(2 * n_capacity)
+  -- if (n_capacity = n_live) \/ ((n_used = n_capacity) /\ $wide_index(arraykey, n_capacity))
+def $converted_capacity(n_capacity, _, _, _) = n_capacity -- otherwise
 
-dec $plain_array_layout(runtimeEntry*) : arrayLayout
-def $plain_array_layout(eps) = VACANT 8
-def $plain_array_layout(runtimeEntry*) = $inferred_layout(PACKED 8, -1, 0, runtimeEntry*)
-  -- if $(|runtimeEntry*| > 0)
+dec $packed_fit(nat, nat, nat, arraykey) : nat?
+def $packed_fit(n_capacity, n_used, _, INDEX i) = n_capacity
+  -- if $(n_used <= i) /\ $(i < n_capacity)
+def $packed_fit(n_capacity, _, n_live, INDEX i) = $(2 * n_capacity)
+  -- if $(n_capacity <= i) /\ $(i < 2 * n_capacity) /\ $(n_capacity < 2 * n_live)
+def $packed_fit(_, _, _, _) = eps -- otherwise
+
+dec $layout_for_key(arrayLayout, nat, nat, arraykey) : arrayLayout
+def $layout_for_key(VACANT n_capacity, n_used, n_live, arraykey) =
+  $layout_for_key(PACKED n_capacity, n_used, n_live, arraykey)
+def $layout_for_key(PACKED n_capacity, n_used, n_live, arraykey) = PACKED n_new
+  -- if n_new = $packed_fit(n_capacity, n_used, n_live, arraykey)
+def $layout_for_key(PACKED n_capacity, n_used, n_live, arraykey) =
+  MIXED ($converted_capacity(n_capacity, n_used, n_live, arraykey)) eps
+  -- if $packed_fit(n_capacity, n_used, n_live, arraykey) = eps
+def $layout_for_key(MIXED n_capacity n_hole*, n_used, _, _) = MIXED n_capacity n_hole*
+  -- if $(n_used < n_capacity)
+def $layout_for_key(MIXED n_capacity _, n_capacity, n_live, _) = MIXED n_capacity eps
+  -- if $(n_capacity > n_live + n_live / 32)
+def $layout_for_key(MIXED n_capacity _, n_capacity, n_live, _) = MIXED $(2 * n_capacity) eps
+  -- if $(n_capacity <= n_live + n_live / 32)
+
+dec $used_after_insert(arrayLayout, nat, arraykey) : nat
+def $used_after_insert(PACKED _, _, INDEX i) = n -- if n = $(i + 1)
+def $used_after_insert(MIXED _ n_hole*, n_live, _) = $(n_live + |n_hole*| + 1)
+
+dec $replay_layout(arrayLayout, nat, nat, runtimeEntry*) : arrayLayout
+def $replay_layout(arrayLayout, _, _, eps) = arrayLayout
+def $replay_layout(arrayLayout, n_used, n_live, (ITEM arraykey _) :: runtimeEntry*) =
+  $replay_layout(arrayLayout', $used_after_insert(arrayLayout', n_live, arraykey), $(n_live + 1), runtimeEntry*)
+  -- if arrayLayout' = $layout_for_key(arrayLayout, n_used, n_live, arraykey)
+
+dec $literal_layout(runtimeEntry*, literalLayout?) : arrayLayout
+def $literal_layout(runtimeEntry*, eps) = $replay_layout(VACANT 8, 0, 0, runtimeEntry*)
+def $literal_layout(_, PACKED_LITERAL n_capacity) = PACKED n_capacity
+def $literal_layout(runtimeEntry*, MIXED_LITERAL) = MIXED ($array_capacity(|runtimeEntry*|, 8)) eps
+def $literal_layout(_, MIXED_TABLE n_capacity n_hole*) = MIXED n_capacity n_hole*
 
 dec $array_layout(runtimeEntry*, arrayIndex?) : arrayLayout
 def $array_layout(_, STORAGE _ arrayLayout) = arrayLayout
-def $array_layout(runtimeEntry*, NEXT_INDEX _) = $plain_array_layout(runtimeEntry*)
-def $array_layout(runtimeEntry*, eps) = $plain_array_layout(runtimeEntry*)
+def $array_layout(runtimeEntry*, eps) = $literal_layout(runtimeEntry*, eps)
 
 dec $next_index(runtimeEntry*, arrayIndex?) : int
 def $next_index(_, STORAGE i _) = i
-def $next_index(_, NEXT_INDEX i) = i
 def $next_index(runtimeEntry*, eps) = $array_next(runtimeEntry*, eps)
 
-dec $layout_after_insert(arrayLayout, runtimeEntry*, arraykey) : arrayLayout
-def $layout_after_insert(MIXED, _, _) = MIXED
-def $layout_after_insert(VACANT n_capacity, _, arraykey) =
-  $layout_for_key(PACKED n_capacity, -1, 0, arraykey)
-def $layout_after_insert(PACKED n_capacity, eps, arraykey) =
-  $layout_for_key(PACKED n_capacity, -1, 0, arraykey)
-def $layout_after_insert(PACKED n_capacity, runtimeEntry*, arraykey) =
-  $layout_for_key(PACKED n_capacity, i_last, |runtimeEntry*|, arraykey)
-  -- if $(|runtimeEntry*| > 0)
-  -- if n_last = $(|runtimeEntry*| - 1)
-  -- if ITEM (INDEX i_last) _ = runtimeEntry*[n_last]
+dec $table_used(arrayLayout, runtimeEntry*) : nat
+dec $bucket_at(arrayLayout, runtimeEntry*, nat) : nat
+dec $compact_pointer(arrayLayout, runtimeEntry*, nat) : nat
+dec $raw_pointer(nat?) : nat
 
 dec $inserted_index(arrayLayout, int, arraykey) : arrayIndex
 def $inserted_index(PACKED n_capacity, _, INDEX i) = STORAGE $(i + 1) (PACKED n_capacity)
-def $inserted_index(MIXED, i, arraykey) = STORAGE ($next_after_key(i, arraykey)) MIXED
+def $inserted_index(MIXED n_capacity n_hole*, i, arraykey) = STORAGE ($next_after_key(i, arraykey)) (MIXED n_capacity n_hole*)
 
-dec $index_at_insert(runtimeEntry*, arrayIndex?, arraykey, nat) : arrayIndex?
-def $index_at_insert(runtimeEntry*, arrayIndex?, _, n_at) = arrayIndex?
-  -- if $(n_at < |runtimeEntry*|)
-def $index_at_insert(runtimeEntry*, arrayIndex?, arraykey, n_at) =
-  $inserted_index(arrayLayout, $next_index(runtimeEntry*, arrayIndex?), arraykey)
-  -- if n_at = |runtimeEntry*|
-  -- if arrayLayout = $layout_after_insert($array_layout(runtimeEntry*, arrayIndex?), runtimeEntry*, arraykey)
+dec $rehashes(arrayLayout, arrayLayout, nat) : bool
+def $rehashes(PACKED _, MIXED _ _, _) = true
+def $rehashes(MIXED n_capacity _, _, n_capacity) = true
+def $rehashes(_, _, _) = false -- otherwise
+
+dec $insert_cursor(arrayLayout, arrayLayout, runtimeEntry*, nat, nat?) : nat?
+def $insert_cursor(arrayLayout, arrayLayout', runtimeEntry*, n_used, n?) =
+  $compact_pointer(arrayLayout, runtimeEntry*, $raw_pointer(n?))
+  -- if $rehashes(arrayLayout, arrayLayout', n_used)
+def $insert_cursor(_, _, _, _, n?) = n? -- otherwise
 
 dec $insert_at_position(slotValue, arraykey, slotValue, nat) : numericResult
 def $insert_at_position(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, slotValue, n_at) =
-  NUM_VALUE (ARRAY_VALUE arrayId ($put_entry(runtimeEntry*, n_at, ITEM arraykey slotValue))
-    ($index_at_insert(runtimeEntry*, arrayIndex?, arraykey, n_at)) n?)
+  NUM_VALUE (ARRAY_VALUE arrayId ($put_entry(runtimeEntry*, n_at, ITEM arraykey slotValue)) arrayIndex? n?)
+  -- if $(n_at < |runtimeEntry*|)
+def $insert_at_position(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, slotValue, n_at) =
+  NUM_VALUE (ARRAY_VALUE arrayId (runtimeEntry* ++ [ITEM arraykey slotValue])
+    ($inserted_index(arrayLayout', $next_index(runtimeEntry*, arrayIndex?), arraykey))
+    ($insert_cursor(arrayLayout, arrayLayout', runtimeEntry*, n_used, n?)))
+  -- if n_at = |runtimeEntry*|
+  -- if arrayLayout = $array_layout(runtimeEntry*, arrayIndex?)
+  -- if n_used = $table_used(arrayLayout, runtimeEntry*)
+  -- if arrayLayout' = $layout_for_key(arrayLayout, n_used, n_at, arraykey)
 
 dec $append_entry(slotValue, runtimeEntry*, int, slotValue) : numericResult
 def $array_insert(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, slotValue) =
@@ -116,7 +140,7 @@ def $packed_used(runtimeEntry*) = n_used
 dec $packed_capacity(arrayLayout) : nat?
 def $packed_capacity(VACANT n_capacity) = n_capacity
 def $packed_capacity(PACKED n_capacity) = n_capacity
-def $packed_capacity(MIXED) = eps
+def $packed_capacity(MIXED _ _) = eps
 
 dec $unpack_reserve(runtimeEntry*, arrayIndex?, runtimeEntry*, arrayIndex?) : arrayIndex?
 def $unpack_reserve(runtimeEntry_l*, arrayIndex_l?, runtimeEntry_r*, arrayIndex_r?) =
@@ -134,47 +158,88 @@ def $unpack_destination(ARRAY_VALUE arrayId runtimeEntry* _ _, arrayIndex) =
   ARRAY_VALUE arrayId runtimeEntry* arrayIndex eps
 def $unpack_destination(slotValue, eps) = slotValue
 
-def $array_unpack(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? n?, ARRAY_VALUE _ runtimeEntry_r* arrayIndex_r? _) =
-  $unpack_entries(NUM_VALUE ($unpack_destination(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? n?, arrayIndex_new?)), runtimeEntry_r*)
+dec $unpack_start(slotValue, slotValue) : slotValue
+def $unpack_start(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? n?, ARRAY_VALUE _ runtimeEntry_r* arrayIndex_r? _) =
+  $unpack_destination(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? n?, arrayIndex_new?)
   -- if arrayIndex_new? = $unpack_reserve(runtimeEntry_l*, arrayIndex_l?, runtimeEntry_r*, arrayIndex_r?)
 
-;; The cursor counts live entries before the current one. Removing the current
-;; entry leaves that ordinal pointing at its successor (or at the end).
-dec $cursor_after_remove(nat?, nat) : nat?
-def $cursor_after_remove(n, n_at) = n_previous
-  -- if $(n_at < n)
+dec $count_before(nat*, nat) : nat
+def $count_before(n_i*, n_pos) = $prefix_end(b*, 0, |b*|)
+  -- if b* = ($(n_i < n_pos))*
+
+dec $mark_hole(arrayLayout, nat) : arrayLayout
+def $mark_hole(MIXED n_capacity n_hole*, n_pos) =
+  MIXED n_capacity (n_hole*[0 : n] ++ [n_pos] ++ n_hole*[n : n_rest])
+  -- if n = $count_before(n_hole*, n_pos)
+  -- if n_rest = $(|n_hole*| - n)
+def $mark_hole(arrayLayout, _) = arrayLayout -- otherwise
+
+dec $trim_holes(arrayLayout, nat) : arrayLayout
+def $trim_holes(MIXED n_capacity n_hole*, n_used) = MIXED n_capacity n_hole*[0 : n]
+  -- if n = $count_before(n_hole*, n_used)
+def $trim_holes(arrayLayout, _) = arrayLayout -- otherwise
+
+dec $previous_end(arrayLayout, runtimeEntry*, nat) : nat
+def $previous_end(_, _, 0) = 0
+def $previous_end(arrayLayout, runtimeEntry*, n) = $(1 + $bucket_at(arrayLayout, runtimeEntry*, n_previous))
+  -- if $(n > 0)
   -- if n_previous = $(n - 1)
-def $cursor_after_remove(n?, _) = n?
-  -- otherwise
+
+;; Deleting the last occupied bucket also trims adjoining holes and clamps
+;; the internal cursor. An interior deletion leaves physical positions intact.
+dec $removed_bucket(arrayLayout, runtimeEntry*, nat, nat?, nat, nat) : (arrayLayout, nat?)
+def $removed_bucket(arrayLayout, _, _, n?, n_pos, n_used) = ($mark_hole(arrayLayout, n_pos), n?)
+  -- if $(n_pos + 1 < n_used)
+def $removed_bucket(arrayLayout, runtimeEntry*, n_at, n?, n_pos, n_used) =
+  ($trim_holes(arrayLayout, n_new), $min_nat([$raw_pointer(n?), n_new]))
+  -- if $(n_pos + 1 = n_used)
+  -- if n_new = $previous_end(arrayLayout, runtimeEntry*, n_at)
 
 dec $array_remove(slotValue, arraykey) : slotValue
 def $array_remove(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey) =
   ARRAY_VALUE arrayId (runtimeEntry*[0 : n_at] ++ runtimeEntry*[n_after : n_count])
-    (STORAGE ($next_index(runtimeEntry*, arrayIndex?)) ($array_layout(runtimeEntry*, arrayIndex?)))
-    ($cursor_after_remove(n?, n_at))
+    (STORAGE ($next_index(runtimeEntry*, arrayIndex?)) arrayLayout') n'?
   -- if n_at = $array_position(runtimeEntry*, arraykey)
   -- if $(n_at < |runtimeEntry*|)
   -- if n_after = $(n_at + 1)
   -- if n_count = $(|runtimeEntry*| - n_after)
-def $array_remove(slotValue, _) = slotValue
-  -- otherwise
+  -- if arrayLayout = $array_layout(runtimeEntry*, arrayIndex?)
+  -- if (arrayLayout', n'?) = $removed_bucket(arrayLayout, runtimeEntry*, n_at, n?,
+      $bucket_at(arrayLayout, runtimeEntry*, n_at), $table_used(arrayLayout, runtimeEntry*))
+def $array_remove(slotValue, _) = slotValue -- otherwise
 
-;; A shallow copy keeps all element identities. An empty copy starts with the
-;; minimum capacity, even when its source previously contained more entries.
-dec $copy_cursor(arrayId, nat, nat?) : nat?
+;; A bound table and its unlabelled children can be frozen together only
+;; when the binding contains no deferred constant expression.
+dec $freezable_literal(zval) : bool
+def $freezable_literal(DEFERRED _) = false
+def $freezable_literal(ARRAY (ENTRY _ zval)* _ _ _) = ~(false <- ($freezable_literal(zval))*)
+def $freezable_literal(SHARED_ARRAY _ zval) = $freezable_literal(zval)
+def $freezable_literal(_) = true -- otherwise
+
 dec $frozen_literal(arrayId) : bool
-def $frozen_literal(LITERAL_ARRAY (SHARED_LITERAL _) _) = true
-def $frozen_literal(_) = false
-  -- otherwise
+def $frozen_literal(LITERAL_ARRAY (SHARED_LITERAL _ b) _) = b
+def $frozen_literal(_) = false -- otherwise
 
+dec $mutable_pointer(nat, nat) : nat
+def $mutable_pointer(n, n_used) = n -- if $(n < n_used)
+def $mutable_pointer(_, _) = 0 -- otherwise
+
+dec $copied_storage(arrayLayout, runtimeEntry*, nat) : (arrayLayout, nat)
+def $copied_storage(MIXED n_capacity n_hole*, runtimeEntry*, n) =
+  (MIXED n_capacity eps, $compact_pointer(MIXED n_capacity n_hole*, runtimeEntry*, n))
+def $copied_storage(PACKED n_capacity, _, n) = (PACKED n_capacity, n)
+
+;; PHP duplicates a nonempty immutable literal verbatim. Mutable mixed tables
+;; are compacted, and an exhausted mutable source cursor restarts at zero.
 dec $array_copy(slotValue, arrayId) : slotValue
 def $array_copy(ARRAY_VALUE _ eps arrayIndex? _, arrayId) =
   ARRAY_VALUE arrayId eps (STORAGE ($next_index(eps, arrayIndex?)) (VACANT 8)) eps
 def $array_copy(ARRAY_VALUE arrayId_src runtimeEntry* arrayIndex? n?, arrayId) =
-  ARRAY_VALUE arrayId runtimeEntry* arrayIndex? ($copy_cursor(arrayId_src, |runtimeEntry*|, n?))
-  -- if $(|runtimeEntry*| > 0)
-
-def $copy_cursor(arrayId, n, n) = eps
-  -- if ~$frozen_literal(arrayId)
-def $copy_cursor(_, _, n?) = n?
-  -- otherwise
+  ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?
+  -- if $(|runtimeEntry*| > 0) /\ $frozen_literal(arrayId_src)
+def $array_copy(ARRAY_VALUE arrayId_src runtimeEntry* arrayIndex? n?, arrayId) =
+  ARRAY_VALUE arrayId runtimeEntry* (STORAGE ($next_index(runtimeEntry*, arrayIndex?)) arrayLayout') n_new
+  -- if $(|runtimeEntry*| > 0) /\ ~$frozen_literal(arrayId_src)
+  -- if arrayLayout = $array_layout(runtimeEntry*, arrayIndex?)
+  -- if (arrayLayout', n_new) = $copied_storage(arrayLayout, runtimeEntry*,
+      $mutable_pointer($raw_pointer(n?), $table_used(arrayLayout, runtimeEntry*)))

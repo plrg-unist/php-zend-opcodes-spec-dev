@@ -1,0 +1,13 @@
+zend-opcodes
+file "cursor_layout_static_holes.php"
+main
+body - {
+  lines 1 1
+  frame 0 cache 0
+  statics array(mixed=8; holes=[0]; "v" => int(7))
+  size 1 literals 1 children 0
+  lit[0] = int(1)
+  code
+    0: RETURN lit[0]
+}
+end

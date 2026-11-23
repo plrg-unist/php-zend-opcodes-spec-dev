@@ -1,0 +1,50 @@
+zend-opcodes
+file "ref_server_nested_order.php"
+main
+body - {
+  lines 1 6
+  frame 14 cache 0
+  locals 5 ["l", "_SERVER", "r", "a", "b"]
+  size 25 literals 14 children 0
+  lit[0] = "argc"
+  lit[1] = "argc"
+  lit[2] = "argv"
+  lit[3] = int(1)
+  lit[4] = "argv"
+  lit[5] = int(2)
+  lit[6] = "inner.x"
+  lit[7] = "inner.x"
+  lit[8] = "later.x"
+  lit[9] = int(1)
+  lit[10] = "later.x"
+  lit[11] = int(2)
+  lit[12] = "N"
+  lit[13] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN CV2, CV1 | line=2
+    2: V7 = FETCH_DIM_W CV0, lit[0] | line=2 ext=1
+    3: ASSIGN_REF V7, CV0 | line=2
+    4: V8 = FETCH_DIM_W CV2, lit[1] | line=2 ext=1
+    5: ASSIGN_REF V8, CV2 | line=2
+    6: ASSIGN_DIM CV0, lit[2] | line=3
+    7: OP_DATA lit[3] | line=3
+    8: ASSIGN_DIM CV2, lit[4] | line=3
+    9: OP_DATA lit[5] | line=3
+    10: ASSIGN CV3, CV1 | line=4
+    11: ASSIGN CV4, CV1 | line=4
+    12: V13 = FETCH_DIM_W CV3, lit[6] | line=4 ext=1
+    13: ASSIGN_REF V13, CV0 | line=4
+    14: V14 = FETCH_DIM_W CV4, lit[7] | line=4 ext=1
+    15: ASSIGN_REF V14, CV2 | line=4
+    16: ASSIGN_DIM CV3, lit[8] | line=5
+    17: OP_DATA lit[9] | line=5
+    18: ASSIGN_DIM CV4, lit[10] | line=5
+    19: OP_DATA lit[11] | line=5
+    20: ECHO lit[12] | line=5
+    21: T17 = IS_EQUAL CV3, CV4 | line=5
+    22: T18 = CAST T17 | line=5 ext=4
+    23: ECHO T18 | line=5
+    24: RETURN lit[13] | line=6 ext=4294967295
+}
+end

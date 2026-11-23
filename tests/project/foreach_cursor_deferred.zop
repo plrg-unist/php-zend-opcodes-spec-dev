@@ -1,0 +1,43 @@
+zend-opcodes
+file "foreach_cursor_deferred.php"
+main
+body - {
+  lines 1 12
+  frame 10 cache 0
+  locals 5 ["b", "a", "first", "v", "key"]
+  size 20 literals 10 children 0
+  lit[0] = array#10(mixed=8; holes=[1, 3]; "a" => array#11(0 => ast(constant(0 1 "NAME"))), "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
+  lit[1] = "x"
+  lit[2] = true
+  lit[3] = "y"
+  lit[4] = true
+  lit[5] = array(0 => int(0))
+  lit[6] = true
+  lit[7] = false
+  lit[8] = "\x0a"
+  lit[9] = int(1)
+  ranges 1
+  live T10 kind 1 @8 @17
+  code
+    0: ASSIGN CV0, lit[0] | line=2
+    1: ASSIGN_DIM CV0, lit[1] | line=3
+    2: OP_DATA lit[2] | line=3
+    3: ASSIGN_DIM CV0, lit[3] | line=4
+    4: OP_DATA lit[4] | line=4
+    5: ASSIGN CV1, lit[5] | line=5
+    6: ASSIGN CV2, lit[6] | line=6
+    7: V10 = FE_RESET_RW CV1, @17 | line=7
+    8: T11 = FE_FETCH_RW V10, CV3 | line=7 ext=@17
+    9: ASSIGN CV4, T11 | line=7
+    10: JMPZ CV2, @15 | line=8
+    11: ASSIGN CV2, lit[7] | line=8
+    12: ASSIGN CV1, CV0 | line=8
+    13: UNSET_CV CV0 | line=8
+    14: JMP @16 | line=8
+    15: ECHO CV4 | line=9
+    16: JMP @8 | line=7
+    17: FE_FREE V10 | line=7
+    18: ECHO lit[8] | line=11
+    19: RETURN lit[9] | line=12 ext=4294967295
+}
+end

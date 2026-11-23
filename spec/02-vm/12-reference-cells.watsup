@@ -1,0 +1,101 @@
+;; A variable or array bucket can own a reference. The cell contains its zval.
+;; Ordinary reads dereference only the outer cell, so recursive arrays stay finite.
+def $cell_value(borrowedTable*, slotValue_cell*, REFERENCE n) = $current(borrowedTable*, slotValue_cell*[n])
+def $cell_value(borrowedTable*, _, slotValue) = $current(borrowedTable*, slotValue)
+  -- if ~$is_reference(slotValue)
+
+def $deref(frame, slotValue) = $cell_value(frame.BORROWED, frame.CELLS, $current(frame.BORROWED, slotValue))
+
+def $new_reference(frame, slotValue) =
+  (frame[.CELLS = frame.CELLS ++ [slotValue]], REFERENCE $(|frame.CELLS|))
+def $set_cell(frame, n, slotValue) = frame'[.CELLS[n] = slotValue]
+  -- if frame' = $publish(frame, slotValue)
+
+dec $reference_initial(slotValue) : slotValue
+def $reference_initial(UNDEF) = NULL
+def $reference_initial(slotValue) = slotValue -- otherwise
+
+def $as_reference(frame, operand) = (frame, slotValue)
+  -- if slotValue = $raw_read(frame, operand)
+  -- if $is_reference(slotValue)
+def $as_reference(frame, operand) = ($bind(frame', operand, slotValue_ref), slotValue_ref)
+  -- if slotValue = $raw_read(frame, operand)
+  -- if ~$is_reference(slotValue)
+  -- if (frame', slotValue_ref) = $new_reference(frame, $reference_initial(slotValue))
+
+def $assign(frame, UNUSED, _) = frame
+def $assign(frame, operand, slotValue) = $set_cell(frame, n, slotValue)
+  -- if operand =/= UNUSED
+  -- if REFERENCE n = $raw_read(frame, operand)
+def $assign(frame, operand, slotValue) = $bind(frame, operand, slotValue)
+  -- if operand =/= UNUSED
+  -- if ~$is_reference($raw_read(frame, operand))
+
+;; Count owning edges, visiting each referenced cell and backing table once.
+;; Non-owning element locations can still read the table but do not keep it alive.
+syntax owner = CELL_OWNER nat | TABLE_OWNER arrayId
+syntax owners = { SEEN owner*, COUNT nat }
+
+dec $owned_value(frameSlot) : slotValue
+def $owned_value({ VALUE slotValue, OWNS true }) = slotValue
+def $owned_value({ VALUE _, OWNS false }) = NULL
+
+dec $count_edge(owner, owner, owners) : owners
+def $count_edge(owner, owner, owners) = owners[.COUNT = $(owners.COUNT + 1)]
+def $count_edge(_, _, owners) = owners -- otherwise
+
+dec $visit_edges(frame, slotValue*, owner, owners) : owners
+dec $visit_value(frame, slotValue, owner, owners) : owners
+dec $visit_owner(frame, owner, slotValue*, owner, owners) : owners
+def $visit_edges(frame, slotValue :: slotValue_rest*, owner, owners) =
+  $visit_edges(frame, slotValue_rest*, owner, $visit_value(frame, slotValue, owner, owners))
+  -- if $(owners.COUNT < 2)
+def $visit_edges(_, _, _, owners) = owners -- otherwise
+
+def $visit_value(frame, REFERENCE n, owner, owners) =
+  $visit_owner(frame, CELL_OWNER n, [ frame.CELLS[n] ], owner, owners)
+;; Literal and initial CLI tables contain no runtime-allocated cells or tables.
+def $visit_value(frame, slotValue, owner, owners) =
+  $visit_owner(frame, TABLE_OWNER (FRESH_ARRAY n), slotValue_item*, owner, owners)
+  -- if FRESH_ARRAY n = $stored_table(slotValue)
+  -- if slotValue_table = $current(frame.BORROWED, slotValue)
+  -- if slotValue_item* = $table_children(slotValue_table)
+def $visit_value(_, _, _, owners) = owners -- otherwise
+
+def $visit_owner(frame, owner_row, slotValue*, owner, owners) =
+  $visit_edges(frame, slotValue*, owner, owners'[.SEEN = owner_row :: owners.SEEN])
+  -- if ~(owner_row <- owners.SEEN)
+  -- if owners' = $count_edge(owner_row, owner, owners)
+def $visit_owner(_, owner_row, _, owner, owners) = $count_edge(owner_row, owner, owners)
+  -- if owner_row <- owners.SEEN
+
+;; An unreachable cycle still contributes edges in the unbounded collector
+;; buffer. Seed only its outgoing edges, without adding an artificial owner.
+dec $retained_edges(frame, nat, owner, owners) : owners
+dec $visit_cycle(frame, owner, slotValue*, owner, owners) : owners
+def $visit_cycle(frame, owner_node, slotValue*, owner, owners) =
+  $visit_edges(frame, slotValue*, owner, owners[.SEEN = owner_node :: owners.SEEN])
+  -- if ~(owner_node <- owners.SEEN)
+  -- if $visit_edges(frame, slotValue*, owner_node, { SEEN eps, COUNT 0 }).COUNT =/= 0
+def $visit_cycle(_, _, _, _, owners) = owners -- otherwise
+def $retained_edges(frame, n, owner, owners) =
+  $retained_edges(frame, $(n + 1), owner, $visit_cycle(frame, CELL_OWNER n, [frame.CELLS[n]], owner, owners))
+  -- if $(owners.COUNT < 2) /\ $(n < |frame.CELLS|)
+def $retained_edges(frame, n, owner, owners) =
+  $retained_edges(frame, $(n + 1), owner, $visit_cycle(frame, TABLE_OWNER arrayId, $table_children(slotValue), owner, owners))
+  -- if $(owners.COUNT < 2) /\ $(n >= |frame.CELLS|) /\ $(n < |frame.CELLS| + |frame.BORROWED|)
+  -- if n_table = $(n - |frame.CELLS|)
+  -- if TABLE arrayId slotValue = frame.BORROWED[n_table]
+def $retained_edges(_, _, _, owners) = owners -- otherwise
+
+dec $shared_owner(frame, owner) : bool
+def $shared_owner(frame, owner) = $(owners'.COUNT > 1)
+  -- if frameSlot* = frame.SLOTS
+  -- if owners = $visit_edges(frame, ($owned_value(frameSlot))*, owner, { SEEN eps, COUNT 0 })
+  -- if owners' = $retained_edges(frame, 0, owner, owners)
+
+def $shared_array(frame, slotValue) = $shared_owner(frame, TABLE_OWNER (FRESH_ARRAY n))
+  -- if FRESH_ARRAY n = $stored_table(slotValue)
+def $shared_array(_, _) = true -- otherwise
+
+def $shared_reference(frame, n) = $shared_owner(frame, CELL_OWNER n)

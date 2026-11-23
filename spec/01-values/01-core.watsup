@@ -3,15 +3,22 @@ var i : int
 var b : bool
 
 ;; Shared arrays compare equal immediately, even when an element is NaN.
-syntax literalRoot = POOL_LITERAL nat | SHARED_LITERAL nat
+syntax literalRoot = POOL_LITERAL nat | SHARED_LITERAL nat bool
 syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat
 syntax slotValue
 syntax runtimeEntry = ITEM arraykey slotValue
 syntax serverHistory = { TAIL runtimeEntry*, SATURATED bool }
-syntax arrayLayout = VACANT nat | PACKED nat | MIXED
-syntax arrayIndex = NEXT_INDEX int | STORAGE int arrayLayout
+syntax arrayLayout = VACANT nat | PACKED nat | MIXED nat nat*
+syntax arrayIndex = STORAGE int arrayLayout
 syntax slotValue = zval | CLI_ARRAY | CLI_UPDATED arrayId runtimeEntry* serverHistory | ARRAY_VALUE arrayId runtimeEntry* arrayIndex? nat?
-                 | ELEMENT_LOCATION nat arraykey
+                 | ELEMENT_LOCATION nat arraykey | REFERENCE nat | HOST_OFFSET arraykey
+syntax borrowedTable = TABLE arrayId slotValue
+
+dec $current(borrowedTable*, slotValue) : slotValue
+dec $cell_value(borrowedTable*, slotValue*, slotValue) : slotValue
+dec $is_reference(slotValue) : bool
+def $is_reference(REFERENCE _) = true
+def $is_reference(_) = false -- otherwise
 
 ;; Conversions can emit several diagnostics before producing a value or raising an error.
 syntax numericResult =
@@ -57,6 +64,7 @@ def $known_value(slotValue) = $simple_value(slotValue) \/ $is_array_value(slotVa
 dec $type_check(slotValue, nat) : bool
 def $type_check(UNDEF, n_mask) = $(n_mask \ 2 = 1)
 def $type_check(DEFERRED _, n_mask) = $((n_mask / 2048) \ 2 = 1)
+def $type_check(REFERENCE _, n_mask) = $((n_mask / 1024) \ 2 = 1)
 def $type_check(slotValue, n_mask) = $((n_mask / 128) \ 2 = 1)
   -- if $is_array_value(slotValue)
 def $type_check(slotValue, n_mask) = $((n_mask / n_bit) \ 2 = 1)

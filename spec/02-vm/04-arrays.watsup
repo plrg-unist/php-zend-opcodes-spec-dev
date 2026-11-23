@@ -1,4 +1,9 @@
 ;; Preserve a key conversion's diagnostics before inserting the element.
+dec $dimension_diagnostics(frame, numericResult) : (frame, numericResult)
+dec $array_build_result(frame, operand, numericResult) : transition
+def $array_build_result(frame, operand_r, NUM_VALUE slotValue) = CONTINUE $assign_array(frame, operand_r, slotValue)
+def $array_build_result(frame, _, NUM_ERROR bytes) = $raise(frame, bytes)
+
 dec $array_insert_at(slotValue, slotValue, numericResult) : numericResult
 def $array_insert_at(slotValue_dst, slotValue_value, NUM_VALUE slotValue_key) =
   $array_insert(slotValue_dst, $array_key_tag(slotValue_key), slotValue_value)
@@ -9,48 +14,61 @@ def $array_insert_at(slotValue_dst, slotValue_value, NUM_DEPRECATED bytes numeri
 def $array_insert_at(_, _, numericResult) = numericResult
   -- otherwise
 
-dec $write_array_element(frame, operand, operand, slotValue?) : transition
+;; These handlers unwrap a reference key only in CV and VAR operands.
+dec $vm_array_key(frame, opcode, operand, slotValue) : numericResult
+def $vm_array_key(frame, opcode, operand, slotValue) = $illegal_key(opcode, $operand_type_name(slotValue))
+  -- if opcode <- [ADD_ARRAY_ELEMENT, ISSET_ISEMPTY_DIM_OBJ, UNSET_DIM]
+  -- if $is_reference($copy_value(frame, operand, slotValue))
+def $vm_array_key(frame, opcode, operand, slotValue) = $array_key(opcode, operand, slotValue)
+  -- if ~(opcode <- [ADD_ARRAY_ELEMENT, ISSET_ISEMPTY_DIM_OBJ, UNSET_DIM]) \/ ~$is_reference($copy_value(frame, operand, slotValue))
+
+dec $write_array_element(frame, operand, operand, slotValue) : transition
 def $write_array_element(frame, operand_r, UNUSED, slotValue_value) =
-  $apply_numeric(frame, operand_r, UNUSED, eps, $array_insert($read(frame, operand_r), eps, slotValue_value))
+  $array_build_result(frame, operand_r, $array_insert($read(frame, operand_r), eps, slotValue_value))
 def $write_array_element(frame, operand_r, operand_key, slotValue_value) =
-  $apply_numeric(frame', operand_r, UNUSED, eps,
-    $array_insert_at($read(frame', operand_r), slotValue_value, $array_key(ADD_ARRAY_ELEMENT, operand_key, slotValue_key)))
+  $array_build_result(frame'', operand_r, numericResult)
   -- if operand_key =/= UNUSED
   -- if slotValue_key = $read(frame, operand_key)
   -- if $known_value(slotValue_key) \/ (slotValue_key = UNDEF)
   -- if (frame', _) = $read_value(frame, operand_key, slotValue_key)
+  -- if (frame'', numericResult) = $dimension_diagnostics(frame',
+       $array_insert_at($read(frame', operand_r), slotValue_value, $vm_array_key(frame', ADD_ARRAY_ELEMENT, operand_key, slotValue_key)))
 def $write_array_element(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
 ;; Zend fetches the value before its key. The reference flag applies only to VAR and CV.
-dec $array_element_source(frame, operand, nat) : (frame, slotValue?)
-def $array_element_source(frame, operand_v, n) = (frame', slotValue)
+dec $array_element_source(frame, operand, nat) : (frame, slotValue)
+def $array_element_source(frame, operand_v, n) = (frame', $copy_value(frame', operand_v, slotValue))
   -- if $(n \ 2 = 0) \/ $($operand_rank(operand_v) < 4)
   -- if (frame', slotValue) = $read_operand(frame, operand_v)
-def $array_element_source(frame, _, _) = (frame, eps)
-  -- otherwise
+def $array_element_source(frame, operand_v, n) = $as_reference(frame, operand_v)
+  -- if $(n \ 2 = 1) /\ $($operand_rank(operand_v) >= 4)
 
 dec $add_array_element(frame, operand, operand, operand, nat) : transition
 def $add_array_element(frame, operand_r, operand_v, operand_key, n) =
-  $write_array_element(frame', operand_r, operand_key, slotValue?)
-  -- if (frame', slotValue?) = $array_element_source(frame, operand_v, n)
+  $write_array_element(frame', operand_r, operand_key, slotValue)
+  -- if (frame', slotValue) = $array_element_source(frame, operand_v, n)
 
 dec $new_array(frame, operand, nat) : frame
 def $new_array(frame, operand_r, n) =
   $write(frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand_r,
     ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) eps ($initial_array_index(n)) eps)
 
-dec $unpack_source(slotValue, slotValue) : numericResult
-def $unpack_source(slotValue_dst, slotValue_src) = $array_unpack(slotValue_dst, slotValue_src)
-  -- if $is_array_value(slotValue_src) /\ ~$server_array(slotValue_src)
+dec $copy_array_entry(frame, arrayId?, slotValue) : slotValue
+dec $unpack_entries(frame, operand, runtimeEntry*) : transition
+dec $unpack_source(frame, operand, slotValue) : transition
+def $unpack_source(frame, operand_r, slotValue_src) =
+  $unpack_entries($assign_array(frame, operand_r, $unpack_start($read(frame, operand_r), slotValue_src)),
+                  operand_r, runtimeEntry*)
+  -- if ARRAY_VALUE _ runtimeEntry* _ _ = slotValue_src
 ;; Error: Only arrays and Traversables can be unpacked, <type> given
-def $unpack_source(_, slotValue) = NUM_ERROR
+def $unpack_source(frame, _, slotValue) = $raise(frame,
   ([ 69, 114, 114, 111, 114, 58, 32, 79, 110, 108, 121, 32, 97, 114, 114, 97, 121, 115, 32,
      97, 110, 100, 32, 84, 114, 97, 118, 101, 114, 115, 97, 98, 108, 101, 115, 32, 99, 97, 110,
      32, 98, 101, 32, 117, 110, 112, 97, 99, 107, 101, 100, 44, 32 ] ++ $value_name(slotValue)
-     ++ [ 32, 103, 105, 118, 101, 110 ])
+     ++ [ 32, 103, 105, 118, 101, 110 ]))
   -- if $simple_value(slotValue) \/ (slotValue = UNDEF)
-def $unpack_source(_, _) = NUM_UNSUPPORTED
+def $unpack_source(frame, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
 def $array_build_step(frame, INIT_ARRAY, operand_r, UNUSED, _, _) = CONTINUE $new_array(frame, operand_r, 0)
@@ -60,5 +78,5 @@ def $array_build_step(frame, INIT_ARRAY, operand_r, operand_v, operand_k, n) =
 def $array_build_step(frame, ADD_ARRAY_ELEMENT, operand_r, operand_v, operand_k, n) =
   $add_array_element(frame, operand_r, operand_v, operand_k, n)
 def $array_build_step(frame, ADD_ARRAY_UNPACK, operand_r, operand_v, _, _) =
-  $apply_numeric(frame', operand_r, UNUSED, eps, $unpack_source($read(frame', operand_r), slotValue))
+  $unpack_source(frame', operand_r, slotValue)
   -- if (frame', slotValue) = $read_operand(frame, operand_v)

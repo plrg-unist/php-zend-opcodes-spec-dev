@@ -1,0 +1,44 @@
+zend-opcodes
+file "foreach_empty_positions.php"
+main
+body - {
+  lines 1 8
+  frame 7 cache 0
+  locals 3 ["a", "v", "k"]
+  size 21 literals 9 children 0
+  lit[0] = array(; cursor=0)
+  lit[1] = "!"
+  lit[2] = "old"
+  lit[3] = int(0)
+  lit[4] = "key"
+  lit[5] = "value"
+  lit[6] = "="
+  lit[7] = "\x0a"
+  lit[8] = int(1)
+  ranges 2
+  live T4 kind 1 @2 @5
+  live T7 kind 1 @12 @19
+  code
+    0: ASSIGN CV0, lit[0] | line=2
+    1: T4 = FE_RESET_R CV0, @5 | line=3
+    2: FE_FETCH_R T4, CV1 | line=3 ext=@5
+    3: ECHO lit[1] | line=3
+    4: JMP @2 | line=3
+    5: FE_FREE T4 | line=3
+    6: ASSIGN_DIM CV0 | line=4
+    7: OP_DATA lit[2] | line=4
+    8: UNSET_DIM CV0, lit[3] | line=5
+    9: ASSIGN_DIM CV0, lit[4] | line=6
+    10: OP_DATA lit[5] | line=6
+    11: T7 = FE_RESET_R CV0, @19 | line=7
+    12: T8 = FE_FETCH_R T7, CV1 | line=7 ext=@19
+    13: ASSIGN CV2, T8 | line=7
+    14: ECHO CV2 | line=7
+    15: ECHO lit[6] | line=7
+    16: ECHO CV1 | line=7
+    17: ECHO lit[7] | line=7
+    18: JMP @12 | line=7
+    19: FE_FREE T7 | line=7
+    20: RETURN lit[8] | line=8 ext=4294967295
+}
+end

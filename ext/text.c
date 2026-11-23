@@ -222,38 +222,76 @@ static double read_float(zo_reader *r)
 static void put_value(zo_writer *writer, const zval *value, unsigned depth);
 static bool get_value(zo_reader *r, zval *value, unsigned depth);
 
-/* Replay the key decisions of zend_hash_index_add on a fresh table. Zero means mixed. */
-static uint32_t plain_packed_capacity(const HashTable *table)
+/* Replay the listed keys on a new table to omit reconstructible layout. */
+static uint32_t plain_array_capacity(const HashTable *table, bool *packed)
 {
     uint32_t capacity = HT_MIN_SIZE, count = 0;
     zend_ulong index, previous = 0;
     zend_string *key;
+    *packed = true;
     ZEND_HASH_FOREACH_KEY(table, index, key) {
-        if (key || (count && index <= previous)) return 0;
-        if (index >= capacity) {
-            if ((index >> 1) >= capacity || count <= capacity / 2) return 0;
-            capacity *= 2;
+        if (*packed && (key || (count && index <= previous))) {
+            *packed = false;
+        } else if (*packed && index >= capacity) {
+            if ((index >> 1) < capacity && count > capacity / 2) {
+                capacity *= 2;
+            } else {
+                if (count && previous == capacity - 1) capacity *= 2;
+                *packed = false;
+            }
         }
+        if (!*packed && count == capacity) capacity *= 2;
         previous = index;
         ++count;
     } ZEND_HASH_FOREACH_END();
     return capacity;
 }
 
-static bool print_array_layout(smart_str *out, const HashTable *table)
+/* cursor= counts live entries, with zero leaving the original raw position at zero. */
+static bool needs_raw_position(const HashTable *table)
 {
+    uint32_t pos = table->nInternalPointer;
+    if (pos == 0) return false;
+    if (pos >= table->nNumUsed) return pos > table->nNumUsed || !table->nNumOfElements;
+    return zend_hash_get_current_pos(table) != pos || zend_hash_get_current_pos_ex(table, 0) == pos;
+}
+
+static bool print_array_layout(smart_str *out, const HashTable *table, bool raw_cursor)
+{
+    if (!HT_IS_INITIALIZED(table) && !HT_IS_PACKED(table)) return false;
+    bool packed;
+    uint32_t capacity = plain_array_capacity(table, &packed);
     if (HT_IS_PACKED(table)) {
-        if (table->nNumOfElements && plain_packed_capacity(table) == table->nTableSize) return false;
+        if (table->nNumOfElements && packed && capacity == table->nTableSize && !raw_cursor) return false;
         smart_str_append_printf(out, "packed=%u;", table->nTableSize);
-    } else if (HT_IS_INITIALIZED(table) && plain_packed_capacity(table)) {
-        smart_str_appends(out, "mixed;");
     } else {
-        return false;
+        bool holes = table->nNumUsed != table->nNumOfElements;
+        bool default_size = packed
+            ? table->nTableSize == HT_MIN_SIZE || table->nNumOfElements > table->nTableSize / 2
+            : table->nTableSize == capacity;
+        if (!holes && !raw_cursor && default_size) {
+            if (!packed) return false;
+            smart_str_appends(out, "mixed;");
+        } else {
+            smart_str_append_printf(out, "mixed=%u;", table->nTableSize);
+        }
+        if (holes) {
+            smart_str_appends(out, " holes=[");
+            bool first = true;
+            for (uint32_t i = 0; i < table->nNumUsed; ++i) {
+                if (Z_TYPE(table->arData[i].val) != IS_UNDEF) continue;
+                if (!first) smart_str_appends(out, ", ");
+                smart_str_append_unsigned(out, i);
+                first = false;
+            }
+            smart_str_appends(out, "];");
+        }
     }
     return true;
 }
 
-static void print_array(zo_writer *writer, const HashTable *table, unsigned depth)
+static void print_array(zo_writer *writer, const HashTable *table, unsigned depth,
+                        const zend_op_array *body, uint32_t owner)
 {
     smart_str *out = writer->out;
     zend_ulong index;
@@ -262,8 +300,9 @@ static void print_array(zo_writer *writer, const HashTable *table, unsigned dept
     uint32_t count = 0, cursor = zend_hash_num_elements(table);
     const zval *current = zend_hash_get_current_data(table);
     zend_long next = ZEND_LONG_MIN;
+    bool raw_cursor = needs_raw_position(table);
     smart_str_appends(out, "array(");
-    bool has_layout = print_array_layout(out, table);
+    bool has_layout = print_array_layout(out, table, raw_cursor);
     ZEND_HASH_FOREACH_KEY_VAL(table, index, key, entry) {
         if (entry == current) cursor = count;
         if (count++) smart_str_appends(out, ", ");
@@ -276,7 +315,12 @@ static void print_array(zo_writer *writer, const HashTable *table, unsigned dept
             if (n >= next) next = n == ZEND_LONG_MAX ? n : n + 1;
         }
         smart_str_appends(out, " => ");
-        put_value(writer, entry, depth + 1);
+        if (body) {
+            if (Z_TYPE_P(entry) != IS_LONG) zo_unsupported("non-integer switch target");
+            smart_str_append_printf(out, "int(%u)", zo_absolute_target(body, owner, Z_LVAL_P(entry)));
+        } else {
+            put_value(writer, entry, depth + 1);
+        }
     } ZEND_HASH_FOREACH_END();
     bool empty_layout = has_layout && !count;
     if (next != table->nNextFreeElement) {
@@ -284,16 +328,26 @@ static void print_array(zo_writer *writer, const HashTable *table, unsigned dept
         smart_str_append_long(out, table->nNextFreeElement);
         empty_layout = false;
     }
-    if (cursor != 0) {
-        smart_str_appends(out, empty_layout ? " cursor=" : "; cursor=");
-        smart_str_append_unsigned(out, cursor);
+    if (raw_cursor || cursor != 0) {
+        smart_str_appends(out, empty_layout ? " " : "; ");
+        smart_str_appends(out, raw_cursor ? "position=" : "cursor=");
+        smart_str_append_unsigned(out, raw_cursor ? table->nInternalPointer : cursor);
     }
     smart_str_appendc(out, ')');
 }
 
-void zo_put_table(zo_writer *writer, const HashTable *table)
+void zo_put_table(zo_writer *writer, const HashTable *table, const zend_op_array *body, uint32_t owner)
 {
-    print_array(writer, table, 0);
+    print_array(writer, table, 0, body, owner);
+}
+
+static zval *array_label(zo_writer *writer, zend_ulong offset)
+{
+    zval *label = zend_hash_index_find(writer->array_labels, offset);
+    if (label) return label;
+    zval id;
+    ZVAL_LONG(&id, zend_hash_num_elements(writer->array_labels));
+    return zend_hash_index_add_new(writer->array_labels, offset, &id);
 }
 
 static void put_array_value(zo_writer *writer, const HashTable *table, unsigned depth)
@@ -303,19 +357,20 @@ static void put_array_value(zo_writer *writer, const HashTable *table, unsigned 
     if (first) {
         if (Z_TYPE_P(first) != IS_LONG) zo_unsupported("recursive literal array");
         zend_ulong offset = Z_LVAL_P(first);
-        zval *label = zend_hash_index_find(writer->array_labels, offset);
-        if (!label) {
-            zval id;
-            ZVAL_LONG(&id, zend_hash_num_elements(writer->array_labels));
-            label = zend_hash_index_add_new(writer->array_labels, offset, &id);
-        }
+        zval *label = array_label(writer, offset);
         smart_str_append_printf(writer->out, "array-ref(" ZEND_LONG_FMT ")", Z_LVAL_P(label));
         return;
     }
     zval position;
     ZVAL_LONG(&position, smart_str_get_len(writer->out) + sizeof("array") - 1);
     zend_hash_index_add_empty_element(writer->array_offsets, pointer);
-    print_array(writer, table, depth);
+    if ((GC_FLAGS(table) & IS_ARRAY_IMMUTABLE) && table->nNumOfElements &&
+            ((!HT_IS_PACKED(table) && !HT_IS_WITHOUT_HOLES(table)) ||
+             table->nInternalPointer >= table->nNumUsed)) {
+        /* A single-use binding preserves Zend's immutable duplication, including holes. */
+        array_label(writer, Z_LVAL(position));
+    }
+    print_array(writer, table, depth, NULL, 0);
     zend_hash_index_update(writer->array_offsets, pointer, &position);
 }
 
@@ -326,7 +381,7 @@ void zo_insert_array_labels(zo_writer *writer)
     zend_string *original = writer->out->s;
     size_t copied = 0;
     zval *first;
-    /* First occurrences are in output order. Insert only the labels used by a later value. */
+    /* First occurrences are in output order. */
     ZEND_HASH_FOREACH_VAL(writer->array_offsets, first) {
         size_t offset = (size_t)Z_LVAL_P(first);
         zval *label = zend_hash_index_find(writer->array_labels, offset);
@@ -342,9 +397,10 @@ void zo_insert_array_labels(zo_writer *writer)
     *writer->out = labeled;
 }
 
-static void read_array_tail(zo_reader *r, HashTable *table, bool after_layout)
+static uint32_t read_array_tail(zo_reader *r, HashTable *table, bool after_layout,
+                                uint32_t capacity, bool *raw)
 {
-    if (zo_take(r, ")")) return;
+    if (zo_take(r, ")")) return 0;
     if (!after_layout) zo_expect(r, ";");
     if (zo_take(r, "next=")) {
         zend_long next = zo_long(r);
@@ -352,37 +408,74 @@ static void read_array_tail(zo_reader *r, HashTable *table, bool after_layout)
             zo_fail(r, "next array index precedes an existing integer key");
         }
         table->nNextFreeElement = next;
-        if (zo_take(r, ")")) return;
+        if (zo_take(r, ")")) return 0;
         zo_expect(r, ";");
     }
-    zo_expect(r, "cursor=");
+    *raw = zo_take(r, "position=");
+    if (!*raw) zo_expect(r, "cursor=");
     uint32_t cursor = zo_u32(r);
-    if (cursor > zend_hash_num_elements(table)) {
-        zo_fail(r, "array cursor is outside the entries");
-    }
-    for (uint32_t i = 0; i < cursor; ++i) {
-        zend_hash_move_forward(table);
-    }
+    if (*raw && (!capacity || cursor > capacity)) zo_fail(r, "invalid physical array cursor");
+    if (!*raw && cursor > zend_hash_num_elements(table)) zo_fail(r, "array cursor is outside the entries");
     zo_expect(r, ")");
+    return cursor;
+}
+
+/* Rebuild the bucket positions after all declared bounds and entries were checked. */
+static void restore_mixed_layout(HashTable *table, uint32_t capacity, uint32_t count, zo_reader *holes)
+{
+    zend_hash_extend(table, capacity, false);
+    if (!count) return;
+    Bucket *buckets = table->arData;
+    Bucket *src = buckets + count;
+    memmove(src, buckets, table->nNumUsed * sizeof(Bucket));
+    table->nNumUsed += count;
+    HT_HASH_RESET(table);
+    uint32_t hole = zo_u32(holes);
+    for (uint32_t i = 0; i < table->nNumUsed; ++i) {
+        Bucket *dest = buckets + i;
+        if (i == hole) {
+            ZVAL_UNDEF(&dest->val);
+            dest->key = NULL;
+            hole = zo_take(holes, ",") ? zo_u32(holes) : UINT32_MAX;
+        } else {
+            *dest = *src++;
+            uint32_t hash = dest->h | table->nTableMask;
+            Z_NEXT(dest->val) = HT_HASH(table, hash);
+            HT_HASH(table, hash) = HT_IDX_TO_HASH(i);
+        }
+    }
 }
 
 /* The result tells a shared binding whether it can also serve as an immutable partial argument. */
 static bool read_array(zo_reader *r, zval *result, unsigned depth)
 {
-    uint32_t packed_capacity = 0;
-    bool mixed = false;
-    if (zo_take(r, "packed=")) {
-        packed_capacity = zo_u32(r);
-        if (packed_capacity < HT_MIN_SIZE || packed_capacity > HT_MAX_SIZE ||
-                (packed_capacity & (packed_capacity - 1))) {
-            zo_fail(r, "invalid packed array capacity");
+    bool packed = zo_take(r, "packed=");
+    bool reserved_mixed = !packed && zo_take(r, "mixed=");
+    bool mixed = reserved_mixed || (!packed && zo_take(r, "mixed"));
+    uint32_t capacity = 0, n_holes = 0, last_hole = 0;
+    zo_reader holes = *r;
+    if (packed || reserved_mixed) {
+        capacity = zo_u32(r);
+        if (capacity < HT_MIN_SIZE || capacity > HT_MAX_SIZE || (capacity & (capacity - 1))) {
+            zo_fail(r, packed ? "invalid packed array capacity" : "invalid mixed array capacity");
+        }
+    }
+    if (packed || mixed) zo_expect(r, ";");
+    if (capacity && mixed && zo_take(r, "holes=")) {
+        zo_expect(r, "[");
+        holes = *r;
+        if (!zo_take(r, "]")) {
+            do {
+                uint32_t pos = zo_u32(r);
+                if (pos >= capacity || (n_holes && pos <= last_hole)) zo_fail(r, "invalid mixed array holes");
+                last_hole = pos;
+                ++n_holes;
+            } while (zo_take(r, ","));
+            zo_expect(r, "]");
         }
         zo_expect(r, ";");
-    } else if (zo_take(r, "mixed")) {
-        mixed = true;
-        zo_expect(r, ";");
     }
-    array_init_size(result, packed_capacity);
+    array_init_size(result, packed ? capacity : 0);
     HashTable *table = Z_ARRVAL_P(result);
     if (mixed) zend_hash_real_init_mixed(table);
     bool freezable = true;
@@ -398,24 +491,32 @@ static bool read_array(zo_reader *r, zval *result, unsigned depth)
             } else {
                 index = zo_long(r);
             }
-            if (packed_capacity && (key || (zend_ulong)index >= packed_capacity ||
-                    (zend_ulong)index < table->nNumUsed)) {
+            if (packed && (key || (zend_ulong)index >= capacity || (zend_ulong)index < table->nNumUsed)) {
                 zo_fail(r, "invalid key for packed array layout");
+            }
+            if (mixed && capacity && table->nNumOfElements >= capacity - n_holes) {
+                zo_fail(r, "invalid mixed array holes");
             }
             zo_expect(r, "=>");
             zval item;
             if (!get_value(r, &item, depth + 1)) freezable = false;
-            if (Z_ISUNDEF(item)) {
-                zo_fail(r, "undef cannot be an array element");
-            }
+            if (Z_ISUNDEF(item)) zo_fail(r, "undef cannot be an array element");
             zval *added = key ? zend_hash_add(table, key, &item)
                               : zend_hash_index_add(table, (zend_ulong)index, &item);
             if (key) zend_string_release(key);
             if (!added) zo_fail(r, "duplicate array key");
         } while (zo_take(r, ","));
     }
-    read_array_tail(r, table, !entries && (packed_capacity || mixed));
-    if (packed_capacity && !entries) zend_hash_real_init_packed(table);
+    if (n_holes && last_hole >= table->nNumOfElements + n_holes) zo_fail(r, "invalid mixed array holes");
+    bool raw = false;
+    uint32_t cursor = read_array_tail(r, table, !entries && (packed || mixed), capacity, &raw);
+    if (packed && !entries) zend_hash_real_init_packed(table);
+    if (mixed && capacity) restore_mixed_layout(table, capacity, n_holes, &holes);
+    if (raw) {
+        table->nInternalPointer = cursor;
+    } else {
+        for (uint32_t i = 0; i < cursor; ++i) zend_hash_move_forward(table);
+    }
     return freezable;
 }
 

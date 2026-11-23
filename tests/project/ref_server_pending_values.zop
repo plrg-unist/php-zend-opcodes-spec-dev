@@ -1,0 +1,74 @@
+zend-opcodes
+file "ref_server_pending_values.php"
+main
+body - {
+  lines 1 8
+  frame 25 cache 0
+  locals 8 ["s", "_SERVER", "clock", "maybe", "t", "a", "other", "fr"]
+  size 43 literals 18 children 0
+  lit[0] = "REQUEST_TIME"
+  lit[1] = "REQUEST_TIME"
+  lit[2] = "ZEND_UNREAD_VALUE"
+  lit[3] = "d.x"
+  lit[4] = int(1)
+  lit[5] = "d.x"
+  lit[6] = int(1)
+  lit[7] = int(0)
+  lit[8] = "A"
+  lit[9] = "ZEND_UNREAD_VALUE"
+  lit[10] = "left.x"
+  lit[11] = "same.x"
+  lit[12] = int(1)
+  lit[13] = "same.x"
+  lit[14] = int(1)
+  lit[15] = "REQUEST_TIME_FLOAT"
+  lit[16] = "left.x"
+  lit[17] = int(1)
+  ranges 1
+  live T18 kind 0 @18 @19
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: V9 = FETCH_DIM_W CV0, lit[0] | line=2 ext=1
+    2: ASSIGN_REF CV2, V9 | line=2
+    3: T10 = ISSET_ISEMPTY_CV CV2 | line=2
+    4: ECHO T10 | line=2
+    5: T11 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[1] | line=2
+    6: ECHO T11 | line=2
+    7: V12 = FETCH_DIM_W CV0, lit[2] | line=3 ext=1
+    8: ASSIGN_REF CV3, V12 | line=3
+    9: ASSIGN CV4, CV0 | line=3
+    10: ASSIGN_DIM CV4, lit[3] | line=3
+    11: OP_DATA lit[4] | line=3
+    12: ASSIGN_DIM CV0, lit[5] | line=3
+    13: OP_DATA lit[6] | line=3
+    14: T16 = IS_IDENTICAL CV4, CV0 | line=3
+    15: T17 = CAST T16 | line=3 ext=4
+    16: ECHO T17 | line=3
+    17: T18 = INIT_ARRAY CV3 | line=3 ext=9
+    18: T18 = ADD_ARRAY_ELEMENT CV3 | line=3
+    19: ASSIGN CV5, T18 | line=3
+    20: ASSIGN_DIM CV5, lit[7] | line=3
+    21: OP_DATA lit[8] | line=3
+    22: T21 = FETCH_DIM_R CV0, lit[9] | line=3
+    23: ECHO T21 | line=3
+    24: ASSIGN CV6, CV2 | line=4
+    25: ASSIGN_DIM CV0, lit[10] | line=4
+    26: OP_DATA CV6 | line=4
+    27: ASSIGN CV4, CV0 | line=4
+    28: ASSIGN_DIM CV0, lit[11] | line=4
+    29: OP_DATA lit[12] | line=4
+    30: ASSIGN_DIM CV4, lit[13] | line=4
+    31: OP_DATA lit[14] | line=4
+    32: T27 = IS_IDENTICAL CV0, CV4 | line=5
+    33: T28 = CAST T27 | line=5 ext=4
+    34: ECHO T28 | line=5
+    35: V29 = FETCH_DIM_W CV4, lit[15] | line=6 ext=1
+    36: ASSIGN_REF CV7, V29 | line=6
+    37: ASSIGN_DIM CV4, lit[16] | line=6
+    38: OP_DATA CV7 | line=6
+    39: T31 = IS_IDENTICAL CV0, CV4 | line=7
+    40: T32 = CAST T31 | line=7 ext=4
+    41: ECHO T32 | line=7
+    42: RETURN lit[17] | line=8 ext=4294967295
+}
+end

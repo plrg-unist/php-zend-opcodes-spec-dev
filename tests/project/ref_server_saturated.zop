@@ -1,0 +1,21 @@
+zend-opcodes
+file "ref_server_saturated.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  locals 2 ["_SERVER", "s"]
+  size 7 literals 3 children 0
+  lit[0] = int(9223372036854775807)
+  lit[1] = int(1)
+  lit[2] = "A"
+  code
+    0: ASSIGN CV1, CV0 | line=1
+    1: V2 = FETCH_DIM_W CV1, lit[0] | line=1
+    2: ECHO lit[2] | line=2
+    3: ASSIGN_DIM CV1 | line=3
+    4: OP_DATA lit[1] | line=3
+    5: FREE V2 | line=3
+    6: RETURN lit[1] | line=3
+}
+end

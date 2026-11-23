@@ -142,11 +142,3 @@ dec $array_insert(slotValue, arraykey?, slotValue) : numericResult
 dec $unpack_key(arraykey) : arraykey?
 def $unpack_key(KEY bytes) = KEY bytes
 def $unpack_key(INDEX _) = eps
-
-dec $unpack_entries(numericResult, runtimeEntry*) : numericResult
-def $unpack_entries(NUM_VALUE slotValue_dst, (ITEM arraykey slotValue) :: runtimeEntry*) =
-  $unpack_entries($array_insert(slotValue_dst, $unpack_key(arraykey), slotValue), runtimeEntry*)
-def $unpack_entries(numericResult, _) = numericResult
-  -- otherwise
-
-dec $array_unpack(slotValue, slotValue) : numericResult

@@ -1,0 +1,156 @@
+dec $iteration_register(operand) : nat
+def $iteration_register(TMP n) = n
+def $iteration_register(VAR n) = n
+
+dec $iterator_register(foreachIterator) : nat
+def $iterator_register(SNAPSHOT n _) = n
+def $iterator_register(LIVE n _ _) = n
+
+dec $iterator_row(foreachIterator*, nat) : nat
+def $iterator_row(foreachIterator*, n) = $prefix_end(b*, 0, |b*|)
+  -- if b* = ($iterator_register(foreachIterator) =/= n)*
+
+dec $iteration_signature(foreachIterator) : (opcode, nat)
+def $iteration_signature(SNAPSHOT n _) = (FE_FETCH_R, n)
+def $iteration_signature(LIVE n _ _) = (FE_FETCH_RW, n)
+
+def $foreach_input(_, FE_FREE, _) = true
+def $foreach_input(frame, opcode, operand) = $location_input(frame, operand)
+  -- if opcode <- [FE_RESET_R, FE_RESET_RW]
+def $foreach_input(frame, opcode, operand) =
+  ((opcode, $iteration_register(operand)) <- ($iteration_signature(foreachIterator))*) /\
+  $location_input(frame, operand) /\ (opcode = FE_FETCH_RW \/ $is_array_value($read(frame, operand)))
+  -- if opcode <- [FE_FETCH_R, FE_FETCH_RW]
+  -- if foreachIterator* = frame.ITERATORS
+
+dec $end_iteration(frame, operand) : frame
+def $end_iteration(frame, operand) = frame[.ITERATORS = foreachIterator*[0 : n_at] ++ foreachIterator*[n_tail : n_length]]
+  -- if foreachIterator* = frame.ITERATORS
+  -- if n_at = $iterator_row(foreachIterator*, $iteration_register(operand))
+  -- if $(n_at < |foreachIterator*|)
+  -- if n_tail = $(n_at + 1)
+  -- if n_length = $(|foreachIterator*| - n_tail)
+def $end_iteration(frame, _) = frame -- otherwise
+
+dec $foreach_key(arraykey) : slotValue
+def $foreach_key(INDEX i) = INT i
+def $foreach_key(KEY bytes) = STRING bytes
+
+dec $iteration_table(slotValue) : arrayId
+def $iteration_table(ARRAY_VALUE arrayId _ _ _) = arrayId
+def $iteration_table(slotValue) = $server_id(slotValue) -- if $server_array(slotValue)
+
+dec $iteration_separate(frame, operand, slotValue) : (frame, slotValue)
+def $iteration_separate(frame, operand, slotValue) = $server_separate(frame, operand, slotValue)
+  -- if $server_array(slotValue)
+def $iteration_separate(frame, operand, slotValue) = $separate_array(frame, operand, slotValue)
+  -- if ~$server_array(slotValue)
+
+;; A writable source keeps the same cell as the loop register. A temporary
+;; transfers its array to a new cell and ceases to be a second owner.
+dec $iteration_reference(frame, operand, slotValue) : (frame, slotValue)
+def $iteration_reference(frame, operand, _) = $as_reference(frame, operand)
+  -- if $($operand_rank(operand) >= 4)
+def $iteration_reference(frame, operand, slotValue) = $new_reference(frame, slotValue)
+  -- if $($operand_rank(operand) < 4)
+
+;; Warning: foreach() argument must be of type array|object, <type> given
+dec $foreach_warning(frame, slotValue) : frame
+def $foreach_warning(frame, slotValue) = $report(frame, WARNING,
+    [102,111,114,101,97,99,104,40,41,32,97,114,103,117,109,101,110,116,32,109,117,115,116,
+     32,98,101,32,111,102,32,116,121,112,101,32,97,114,114,97,121,124,111,98,106,101,99,116,44,32]
+    ++ $value_name(slotValue) ++ [32,103,105,118,101,110])
+
+dec $reset_foreach(frame, opcode, operand, operand, nat, slotValue) : transition
+def $reset_foreach(frame, FE_RESET_R, operand_r, _, _, slotValue) =
+  CONTINUE frame'[.ITERATORS = SNAPSHOT ($iteration_register(operand_r)) 0 :: frame'.ITERATORS]
+  -- if $is_array_value(slotValue)
+  -- if frame' = $write(frame, operand_r, slotValue)
+def $reset_foreach(frame, FE_RESET_RW, operand_r, operand_a, _, slotValue) =
+  CONTINUE frame_out[.ITERATORS = LIVE ($iteration_register(operand_r)) (ITER_AT ($iteration_table(slotValue_array)) 0) eps :: frame_out.ITERATORS]
+  -- if $is_array_value(slotValue)
+  -- if (frame', slotValue_ref) = $iteration_reference(frame, operand_a, slotValue)
+  -- if frame'' = $release($write(frame', operand_r, slotValue_ref), operand_a, operand_r)
+  -- if (frame_out, slotValue_array) = $iteration_separate(frame'', operand_r, slotValue)
+def $reset_foreach(frame, _, operand_r, _, n_exit, slotValue) =
+  CONTINUE $write($foreach_warning(frame[.PC = n_exit], slotValue), operand_r, UNDEF)
+  -- if $simple_value(slotValue) \/ slotValue = UNDEF
+
+dec $foreach_output(frame, operand, slotValue) : frame
+def $foreach_output(frame, CV n, slotValue) = $assign(frame, CV n, slotValue)
+def $foreach_output(frame, operand, slotValue) = $write(frame, operand, slotValue)
+  -- if $($operand_rank(operand) < 8)
+
+dec $snapshot_entry(frame, operand, operand, nat, nat, nat, (nat, runtimeEntry)?) : transition
+def $snapshot_entry(frame, _, _, _, _, n_exit, eps) = CONTINUE frame[.PC = n_exit]
+def $snapshot_entry(frame, operand_r, operand_dst, n_row, n_reg, _, (n, ITEM arraykey slotValue)) =
+  CONTINUE $foreach_output(frame'', operand_dst, $deref(frame'', slotValue))
+  -- if frame' = frame[.ITERATORS[n_row] = SNAPSHOT n_reg n]
+  -- if frame'' = $write(frame', operand_r, $foreach_key(arraykey))
+
+dec $iterator_position(arrayId, iteratorPosition*) : nat?
+dec $select_iteration(frame, operand, nat, slotValue) : (frame, slotValue, nat)
+def $select_iteration(frame, _, n_row, slotValue) = (frame, slotValue, n)
+  -- if LIVE _ (ITER_AT arrayId n) _ = frame.ITERATORS[n_row]
+  -- if arrayId = $iteration_table(slotValue)
+def $select_iteration(frame, _, n_row, slotValue) =
+  (frame[.ITERATORS[n_row] = LIVE n_reg (ITER_AT arrayId n) eps], slotValue, n)
+  -- if LIVE n_reg (ITER_AT arrayId_old _) iteratorPosition* = frame.ITERATORS[n_row]
+  -- if arrayId = $iteration_table(slotValue)
+  -- if arrayId =/= arrayId_old
+  -- if n = $iterator_position(arrayId, iteratorPosition*)
+def $select_iteration(frame, operand_a, n_row, slotValue) =
+  (frame''[.ITERATORS[n_row] = LIVE n_reg (ITER_AT ($iteration_table(slotValue_new)) n) eps], slotValue_new, n)
+  -- if LIVE n_reg iteratorPosition_primary iteratorPosition* = frame.ITERATORS[n_row]
+  -- if arrayId = $iteration_table(slotValue)
+  -- if $iterator_position(arrayId, iteratorPosition_primary :: iteratorPosition*) = eps
+  -- if frame' = frame[.ITERATORS[n_row] = LIVE n_reg iteratorPosition_primary eps]
+  -- if (frame'', slotValue_new) = $separate_array(frame', operand_a, slotValue)
+  -- if n = $iterator_start(slotValue_new)
+
+;; Turning an existing bucket into a reference is seen by every owner of the
+;; table, including a copy made after the loop started.
+dec $foreach_element_ref(frame, operand, slotValue, arraykey, slotValue) : (frame, slotValue)
+def $foreach_element_ref(frame, _, _, _, REFERENCE n) = (frame, REFERENCE n)
+def $foreach_element_ref(frame, operand_a, slotValue_array, arraykey, slotValue) =
+  ($assign(frame'', operand_a, $store_bucket(slotValue_array, arraykey, slotValue_ref)), slotValue_ref)
+  -- if ~$is_reference(slotValue)
+  -- if (frame', slotValue_ref) = $new_reference(frame, slotValue)
+  -- if arrayId = $iteration_table(slotValue_array)
+  -- if frame'' = $borrow(frame', $table_position(frame'.BORROWED, arrayId), arrayId, slotValue_array)
+
+dec $live_entry(frame, operand, operand, operand, nat, nat, slotValue, (nat, runtimeEntry)?) : transition
+def $live_entry(frame, _, _, _, _, n_exit, _, eps) = CONTINUE frame[.PC = n_exit]
+def $live_entry(frame, operand_r, operand_a, operand_dst, n_row, _, slotValue_array, (n, ITEM arraykey slotValue)) =
+  CONTINUE $write(frame_out, operand_dst, slotValue_ref)
+  -- if LIVE n_reg (ITER_AT arrayId _) iteratorPosition* = frame.ITERATORS[n_row]
+  -- if frame' = frame[.ITERATORS[n_row] = LIVE n_reg (ITER_AT arrayId n) iteratorPosition*]
+  -- if frame'' = $write(frame', operand_r, $foreach_key(arraykey))
+  -- if (frame_out, slotValue_ref) = $foreach_element_ref(frame'', operand_a, slotValue_array, arraykey, slotValue)
+
+dec $fetch_foreach(frame, opcode, operand, operand, operand, nat, slotValue) : transition
+def $fetch_foreach(frame, FE_FETCH_R, operand_r, operand_a, operand_dst, n_exit, slotValue) =
+  $snapshot_entry(frame, operand_r, operand_dst, n_row, n_reg, n_exit, $iterator_next(slotValue, n))
+  -- if ~$server_array(slotValue)
+  -- if n_reg = $iteration_register(operand_a)
+  -- if n_row = $iterator_row(frame.ITERATORS, n_reg)
+  -- if SNAPSHOT n_reg n = frame.ITERATORS[n_row]
+def $fetch_foreach(frame, FE_FETCH_RW, operand_r, operand_a, operand_dst, n_exit, slotValue) =
+  $live_entry(frame', operand_r, operand_a, operand_dst, n_row, n_exit, slotValue_new, $iterator_next(slotValue_new, n))
+  -- if $is_array_value(slotValue) /\ ~$server_array(slotValue)
+  -- if n_row = $iterator_row(frame.ITERATORS, $iteration_register(operand_a))
+  -- if (frame', slotValue_new, n) = $select_iteration(frame, operand_a, n_row, slotValue)
+def $fetch_foreach(frame, FE_FETCH_RW, _, _, _, n_exit, slotValue) =
+  CONTINUE $foreach_warning(frame[.PC = n_exit], slotValue)
+  -- if $simple_value(slotValue) \/ slotValue = UNDEF
+def $fetch_foreach(frame, _, _, _, _, _, slotValue) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- if $server_array(slotValue)
+
+def $foreach_step(frame, opcode, operand_r, operand_a, TARGET n, _) =
+  $reset_foreach(frame', opcode, operand_r, operand_a, n, slotValue)
+  -- if opcode <- [FE_RESET_R, FE_RESET_RW]
+  -- if (frame', slotValue) = $read_operand(frame, operand_a)
+def $foreach_step(frame, opcode, operand_r, operand_a, operand_b, EXT_TARGET n) =
+  $fetch_foreach(frame, opcode, operand_r, operand_a, operand_b, n, $read(frame, operand_a))
+  -- if opcode <- [FE_FETCH_R, FE_FETCH_RW]
+def $foreach_step(frame, FE_FREE, _, operand_a, _, _) = CONTINUE $end_iteration(frame, operand_a)

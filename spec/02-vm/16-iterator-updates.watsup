@@ -1,0 +1,35 @@
+def $iterator_position(_, eps) = eps
+def $iterator_position(arrayId, (ITER_AT arrayId n) :: iteratorPosition*) = n
+def $iterator_position(arrayId, (ITER_AT arrayId_other _) :: iteratorPosition*) =
+  $iterator_position(arrayId, iteratorPosition*)
+  -- if arrayId =/= arrayId_other
+
+dec $move_iterator_position(slotValue, slotValue, arrayId, iteratorPosition) : iteratorPosition
+def $move_iterator_position(slotValue_old, slotValue_new, arrayId, ITER_AT arrayId n) =
+  ITER_AT arrayId ($iterator_relocate(slotValue_old, slotValue_new, n))
+def $move_iterator_position(_, _, _, iteratorPosition) = iteratorPosition
+  -- otherwise
+
+;; A live iterator follows each COW copy independently until FETCH selects one of them.
+dec $update_array_iterator(slotValue, slotValue, arrayId, arrayId, foreachIterator) : foreachIterator
+def $update_array_iterator(slotValue_old, slotValue_new, arrayId, arrayId,
+    LIVE n iteratorPosition iteratorPosition_copy*) =
+  LIVE n ($move_iterator_position(slotValue_old, slotValue_new, arrayId, iteratorPosition))
+    ($move_iterator_position(slotValue_old, slotValue_new, arrayId, iteratorPosition_copy))*
+def $update_array_iterator(slotValue_old, slotValue_new, arrayId_old, arrayId_new,
+    LIVE n iteratorPosition iteratorPosition_copy*) =
+  LIVE n iteratorPosition ((ITER_AT arrayId_new ($iterator_relocate(slotValue_old, slotValue_new, n_pos))) :: iteratorPosition_copy*)
+  -- if arrayId_old =/= arrayId_new
+  -- if n_pos = $iterator_position(arrayId_old, iteratorPosition :: iteratorPosition_copy*)
+def $update_array_iterator(_, _, _, _, foreachIterator) = foreachIterator
+  -- otherwise
+
+def $iterator_update(frame, slotValue_old, slotValue_new) =
+  frame[.ITERATORS = ($update_array_iterator(slotValue_old, slotValue_new, arrayId_old, arrayId_new, foreachIterator))*]
+  -- if foreachIterator* = frame.ITERATORS
+  -- if $(|foreachIterator*| > 0)
+  -- if ARRAY_VALUE arrayId_old _ _ _ = slotValue_old
+  -- if ARRAY_VALUE arrayId_new _ _ _ = slotValue_new
+  -- if arrayId_old = arrayId_new \/ $iterator_copies(slotValue_old)
+def $iterator_update(frame, _, _) = frame
+  -- otherwise

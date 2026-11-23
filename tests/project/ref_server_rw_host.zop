@@ -1,0 +1,21 @@
+zend-opcodes
+file "ref_server_rw_host.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  locals 2 ["_SERVER", "s"]
+  size 7 literals 3 children 0
+  lit[0] = "ZEND_TEST_RW_NUMBER"
+  lit[1] = int(1)
+  lit[2] = "R"
+  code
+    0: ASSIGN CV1, CV0 | line=1
+    1: ECHO lit[2] | line=1
+    2: V2 = FETCH_DIM_RW CV1, lit[0] | line=2
+    3: PRE_INC V2 | line=2
+    4: T2 = FETCH_DIM_R CV1, lit[0] | line=3
+    5: ECHO T2 | line=3
+    6: RETURN lit[1] | line=3
+}
+end

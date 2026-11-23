@@ -225,7 +225,7 @@ static void print_operand(smart_str *out, zo_operand operand)
     if (operand.kind == ZO_LITERAL) smart_str_appendc(out, ']');
 }
 
-static uint32_t absolute_target(const zend_op_array *body, uint32_t index, zend_long offset)
+uint32_t zo_absolute_target(const zend_op_array *body, uint32_t index, zend_long offset)
 {
     if (offset < INT32_MIN || offset > UINT32_MAX) {
         zo_unsupported("jump offset outside the engine's range in instruction %u", index);
@@ -245,19 +245,7 @@ void zo_print_literal(zo_writer *writer, const zend_op_array *body, uint32_t ind
         for (uint32_t i = 0; i < body->last; ++i) {
             const zend_op *op = &body->opcodes[i];
             if (!dispatch_table(op->opcode) || RT_CONSTANT(op, op->op2) != literal) continue;
-            if (!zend_hash_num_elements(Z_ARR_P(literal))) {
-                zo_put_table(writer, Z_ARR_P(literal));
-                return;
-            }
-            zval table;
-            ZVAL_ARR(&table, zend_array_dup(Z_ARR_P(literal)));
-            zval *value;
-            ZEND_HASH_FOREACH_VAL(Z_ARR(table), value) {
-                if (Z_TYPE_P(value) != IS_LONG) zo_unsupported("non-integer switch target");
-                ZVAL_LONG(value, absolute_target(body, i, Z_LVAL_P(value)));
-            } ZEND_HASH_FOREACH_END();
-            zo_put_table(writer, Z_ARR(table));
-            zval_ptr_dtor(&table);
+            zo_put_table(writer, Z_ARR_P(literal), body, i);
             return;
         }
     }
@@ -295,7 +283,7 @@ void zo_print_instructions(smart_str *out, const zend_op_array *body)
             smart_str_appends(out, " builtin=");
             zo_put_string(out, ZEND_FLF_FUNC(op)->common.function_name);
         } else if ((zend_get_opcode_flags(op->opcode) & ZEND_VM_EXT_MASK) == ZEND_VM_EXT_JMP_ADDR) {
-            smart_str_append_printf(out, " ext=@%u", absolute_target(body, i, op->extended_value));
+            smart_str_append_printf(out, " ext=@%u", zo_absolute_target(body, i, op->extended_value));
         } else if (ext) {
             smart_str_append_printf(out, " ext=%u", ext);
         }

@@ -8,15 +8,15 @@ def $uses_dispatch_table(_, _) = false
 
 dec $ordinary_array(zval, nat, nat, nat) : slotValue
 def $ordinary_array(zval, n_lit, n_end, n_end) = $runtime_value(zval, POOL_LITERAL n_lit, eps)
-def $ordinary_array(ARRAY (ENTRY arraykey (INT i_target))* i_next? n_cursor? literalLayout?, n_lit, n_owner, n_end) =
-  $runtime_value(ARRAY (ENTRY arraykey (INT $((i_target - n_owner) * 32)))* i_next? n_cursor? literalLayout?, POOL_LITERAL n_lit, eps)
+def $ordinary_array(ARRAY (ENTRY arraykey (INT i_target))* i_next? literalCursor? literalLayout?, n_lit, n_owner, n_end) =
+  $runtime_value(ARRAY (ENTRY arraykey (INT $((i_target - n_owner) * 32)))* i_next? literalCursor? literalLayout?, POOL_LITERAL n_lit, eps)
   -- if $(n_owner < n_end)
 
-def $literal_value(ARRAY arrayentry* i? n? literalLayout?, n_lit, instruction*) =
-  $ordinary_array(ARRAY arrayentry* i? n? literalLayout?, n_lit, n_owner, |instruction*|)
+def $literal_value(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, instruction*) =
+  $ordinary_array(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, n_owner, |instruction*|)
   -- if b* = (~$uses_dispatch_table(n_lit, instruction))*
   -- if n_owner = $prefix_end(b*, 0, |instruction*|)
-def $literal_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITERAL n, eps)
+def $literal_value(SHARED_ARRAY n zval, n_lit, _) = $runtime_value(SHARED_ARRAY n zval, POOL_LITERAL n_lit, eps)
 def $literal_value(zval, _, _) = zval
   -- otherwise
 
@@ -57,7 +57,7 @@ def $case_comparison(CASE_STRICT) = IS_IDENTICAL
 
 def $dispatch_step(frame, opcode, operand_r, operand_l, operand_h, _, smartbranch?) =
   $apply_numeric(frame', operand_r, UNUSED, smartbranch?,
-                 $numeric_compare($case_comparison(opcode), slotValue_l, slotValue_h, frame.SCRIPT))
+                 $operate(COMPARISON, $case_comparison(opcode), slotValue_l, slotValue_h, frame'))
   -- if opcode = CASE \/ opcode = CASE_STRICT
   -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, opcode, operand_l, operand_h)
 def $dispatch_step(frame, opcode, _, operand_subject, operand_table, EXT_TARGET n_default, _) =

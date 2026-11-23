@@ -56,15 +56,17 @@ syntax expr
 syntax body
 
 ;; FLOAT holds the 64 bits of a binary64 value. ARRAY preserves entry order,
-;; the next integer key, logical cursor and layout when supplied.
+;; the next integer key, cursor and layout when supplied.
 ;; All uses of one shared literal carry the same unit-wide id and ARRAY payload.
 syntax arraykey = INDEX int | KEY bytes
 syntax arrayentry = ENTRY arraykey zval
-syntax literalLayout = PACKED_LITERAL nat | MIXED_LITERAL
+syntax literalCursor = ORDINAL_CURSOR nat | PHYSICAL_CURSOR nat
+;; MIXED_TABLE records capacity and deleted bucket indices in increasing order.
+syntax literalLayout = PACKED_LITERAL nat | MIXED_LITERAL | MIXED_TABLE nat nat*
 syntax zval =
   | UNDEF | NULL | FALSE | TRUE
   | INT int | FLOAT nat | STRING bytes
-  | ARRAY arrayentry* int? nat? literalLayout?
+  | ARRAY arrayentry* int? literalCursor? literalLayout?
   | SHARED_ARRAY nat zval
   | DEFERRED expr
 

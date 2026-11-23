@@ -1,0 +1,106 @@
+;; A packed array's integer keys are its physical positions. A mixed table
+;; places new entries after all used buckets, including deleted positions.
+def $table_used(VACANT _, _) = 0
+def $table_used(PACKED _, runtimeEntry*) = $packed_used(runtimeEntry*)
+def $table_used(MIXED _ n_hole*, runtimeEntry*) = $(|runtimeEntry*| + |n_hole*|)
+
+def $raw_pointer(eps) = 0
+def $raw_pointer(n) = n
+
+dec $skip_holes(nat, nat*) : nat
+def $skip_holes(n, n_hole :: n_rest*) = $skip_holes($(n + 1), n_rest*)
+  -- if $(n_hole <= n)
+def $skip_holes(n, _) = n -- otherwise
+
+def $bucket_at(arrayLayout, runtimeEntry*, n) = $table_used(arrayLayout, runtimeEntry*)
+  -- if n = |runtimeEntry*|
+def $bucket_at(PACKED _, runtimeEntry*, n) = n_key
+  -- if $(n < |runtimeEntry*|)
+  -- if ITEM (INDEX n_key) _ = runtimeEntry*[n]
+def $bucket_at(MIXED _ n_hole*, runtimeEntry*, n) = $skip_holes(n, n_hole*)
+  -- if $(n < |runtimeEntry*|)
+
+dec $bucket_rank(arrayLayout, runtimeEntry*, nat) : nat
+def $bucket_rank(VACANT _, _, _) = 0
+def $bucket_rank(PACKED _, (ITEM (INDEX i) _)*, n_pos) = $prefix_end(b*, 0, |b*|)
+  -- if b* = ($(i < n_pos))*
+def $bucket_rank(MIXED _ n_hole*, runtimeEntry*, n_pos) =
+  $min_nat([n, |runtimeEntry*|])
+  -- if n = $(n_pos - $count_before(n_hole*, n_pos))
+
+;; Rehash relocates an internal pointer when a later live bucket passes it.
+;; An exhausted pointer can stay beyond the new used length.
+def $compact_pointer(_, eps, _) = 0
+def $compact_pointer(arrayLayout, runtimeEntry*, n) = n_at
+  -- if n_at = $bucket_rank(arrayLayout, runtimeEntry*, n)
+  -- if $(n_at < |runtimeEntry*|)
+def $compact_pointer(_, _, n) = n -- otherwise
+
+dec $literal_pointer(arrayLayout, runtimeEntry*, literalCursor?) : nat?
+def $literal_pointer(_, _, eps) = eps
+def $literal_pointer(_, _, ORDINAL_CURSOR 0) = eps
+def $literal_pointer(arrayLayout, runtimeEntry*, ORDINAL_CURSOR n) = $bucket_at(arrayLayout, runtimeEntry*, n)
+  -- if $(n > 0)
+def $literal_pointer(_, _, PHYSICAL_CURSOR n) = n
+
+dec $iterator_next(slotValue, nat) : (nat, runtimeEntry)?
+def $iterator_next(ARRAY_VALUE _ runtimeEntry* arrayIndex? _, n) = ($(n_pos + 1), runtimeEntry*[n_at])
+  -- if arrayLayout = $array_layout(runtimeEntry*, arrayIndex?)
+  -- if n_at = $bucket_rank(arrayLayout, runtimeEntry*, n)
+  -- if $(n_at < |runtimeEntry*|)
+  -- if n_pos = $bucket_at(arrayLayout, runtimeEntry*, n_at)
+def $iterator_next(_, _) = eps -- otherwise
+
+dec $iterator_start(slotValue) : nat
+def $iterator_start(ARRAY_VALUE _ runtimeEntry* arrayIndex? n?) = n_raw
+  -- if n_raw = $raw_pointer(n?)
+  -- if $(n_raw >= $table_used($array_layout(runtimeEntry*, arrayIndex?), runtimeEntry*))
+def $iterator_start(ARRAY_VALUE _ runtimeEntry* arrayIndex? n?) =
+  $bucket_at(arrayLayout, runtimeEntry*, $bucket_rank(arrayLayout, runtimeEntry*, n_raw))
+  -- if n_raw = $raw_pointer(n?)
+  -- if arrayLayout = $array_layout(runtimeEntry*, arrayIndex?)
+  -- if $(n_raw < $table_used(arrayLayout, runtimeEntry*))
+
+dec $iterator_copies(slotValue) : bool
+def $iterator_copies(ARRAY_VALUE arrayId runtimeEntry* _ _) = $(|runtimeEntry*| > 0) /\ ~$frozen_literal(arrayId)
+
+;; Registered iterators at the old end move to the new end on compaction.
+;; Rehash starts adjusting positions after the first hole; at that first
+;; hole the new ordinal of its successor already equals the old position.
+dec $compact_iterator(arrayLayout, runtimeEntry*, nat) : nat
+def $compact_iterator(arrayLayout, runtimeEntry*, n) = |runtimeEntry*|
+  -- if n = $table_used(arrayLayout, runtimeEntry*)
+def $compact_iterator(arrayLayout, runtimeEntry*, n) = $compact_pointer(arrayLayout, runtimeEntry*, n)
+  -- if n =/= $table_used(arrayLayout, runtimeEntry*)
+
+dec $iteration_insert(arrayLayout, arrayLayout, runtimeEntry*, nat, nat) : nat
+dec $iteration_appends(arrayLayout, runtimeEntry*, runtimeEntry*, nat) : nat
+def $iteration_appends(_, _, eps, n) = n
+def $iteration_appends(arrayLayout, runtimeEntry*, (ITEM arraykey slotValue) :: runtimeEntry_tail*, n) =
+  $iteration_appends(arrayLayout', runtimeEntry* ++ [ITEM arraykey slotValue], runtimeEntry_tail*, n_new)
+  -- if n_used = $table_used(arrayLayout, runtimeEntry*)
+  -- if arrayLayout' = $layout_for_key(arrayLayout, n_used, |runtimeEntry*|, arraykey)
+  -- if n_new = $iteration_insert(arrayLayout, arrayLayout', runtimeEntry*, n_used, n)
+
+def $iteration_insert(arrayLayout, arrayLayout', runtimeEntry*, n_used, n) = $compact_iterator(arrayLayout, runtimeEntry*, n)
+  -- if $rehashes(arrayLayout, arrayLayout', n_used)
+def $iteration_insert(_, _, _, _, n) = n -- otherwise
+
+dec $iterator_relocate(slotValue, slotValue, nat) : nat
+def $iterator_relocate(ARRAY_VALUE arrayId_src runtimeEntry* arrayIndex? _, ARRAY_VALUE arrayId_dst _ _ _, n) =
+  $compact_iterator(arrayLayout, runtimeEntry*, n)
+  -- if arrayId_src =/= arrayId_dst
+  -- if arrayLayout = $array_layout(runtimeEntry*, arrayIndex?)
+  -- if $mixed_layout(arrayLayout)
+def $iterator_relocate(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? _, ARRAY_VALUE arrayId runtimeEntry_r* arrayIndex_r? _, n) =
+  $min_nat([n, n_used_r])
+  -- if $(|runtimeEntry_r*| < |runtimeEntry_l*|)
+  -- if n_used_r = $table_used($array_layout(runtimeEntry_r*, arrayIndex_r?), runtimeEntry_r*)
+  -- if $(n_used_r < $table_used($array_layout(runtimeEntry_l*, arrayIndex_l?), runtimeEntry_l*))
+def $iterator_relocate(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? _, ARRAY_VALUE arrayId runtimeEntry_r* arrayIndex_r? _, n) =
+  $iteration_appends($array_layout(runtimeEntry_l*, arrayIndex_l?), runtimeEntry_l*, runtimeEntry_r*[n_l : n_added], n)
+  -- if n_l = |runtimeEntry_l*|
+  -- if $(|runtimeEntry_r*| > n_l)
+  -- if $mixed_layout($array_layout(runtimeEntry_r*, arrayIndex_r?))
+  -- if n_added = $(|runtimeEntry_r*| - n_l)
+def $iterator_relocate(_, _, n) = n -- otherwise

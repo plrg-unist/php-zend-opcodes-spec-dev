@@ -1,0 +1,91 @@
+zend-opcodes
+file "ref_server_recursive_layouts.php"
+main
+body - {
+  lines 1 9
+  frame 27 cache 0
+  locals 3 ["l", "_SERVER", "r"]
+  size 54 literals 26 children 0
+  lit[0] = "d.x"
+  lit[1] = int(1)
+  lit[2] = "e.x"
+  lit[3] = int(1)
+  lit[4] = "c.x"
+  lit[5] = "c.x"
+  lit[6] = "argc"
+  lit[7] = "argv"
+  lit[8] = "argc"
+  lit[9] = int(1)
+  lit[10] = "argv"
+  lit[11] = array()
+  lit[12] = "c.x"
+  lit[13] = "c.x"
+  lit[14] = "argc"
+  lit[15] = "argc"
+  lit[16] = int(1)
+  lit[17] = "argv"
+  lit[18] = "argv"
+  lit[19] = "d.x"
+  lit[20] = int(1)
+  lit[21] = "d.x"
+  lit[22] = int(2)
+  lit[23] = "c.x"
+  lit[24] = "c.x"
+  lit[25] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN CV2, CV1 | line=2
+    2: ASSIGN_DIM CV0, lit[0] | line=2
+    3: OP_DATA lit[1] | line=2
+    4: ASSIGN_DIM CV2, lit[2] | line=2
+    5: OP_DATA lit[3] | line=2
+    6: V7 = FETCH_DIM_W CV0, lit[4] | line=3 ext=1
+    7: ASSIGN_REF V7, CV0 | line=3
+    8: V8 = FETCH_DIM_W CV2, lit[5] | line=3 ext=1
+    9: ASSIGN_REF V8, CV2 | line=3
+    10: T9 = IS_IDENTICAL CV0, CV2 | line=3
+    11: T10 = CAST T9 | line=3 ext=4
+    12: ECHO T10 | line=3
+    13: UNSET_CV CV0 | line=3
+    14: UNSET_CV CV2 | line=3
+    15: ASSIGN CV0, CV1 | line=4
+    16: ASSIGN CV2, CV1 | line=4
+    17: UNSET_DIM CV0, lit[6] | line=4
+    18: UNSET_DIM CV2, lit[7] | line=4
+    19: ASSIGN_DIM CV0, lit[8] | line=4
+    20: OP_DATA lit[9] | line=4
+    21: ASSIGN_DIM CV2, lit[10] | line=4
+    22: OP_DATA lit[11] | line=4
+    23: V15 = FETCH_DIM_W CV0, lit[12] | line=5 ext=1
+    24: ASSIGN_REF V15, CV0 | line=5
+    25: V16 = FETCH_DIM_W CV2, lit[13] | line=5 ext=1
+    26: ASSIGN_REF V16, CV2 | line=5
+    27: T17 = IS_IDENTICAL CV0, CV2 | line=5
+    28: T18 = CAST T17 | line=5 ext=4
+    29: ECHO T18 | line=5
+    30: UNSET_CV CV0 | line=5
+    31: UNSET_CV CV2 | line=5
+    32: ASSIGN CV0, CV1 | line=6
+    33: ASSIGN CV2, CV1 | line=6
+    34: UNSET_DIM CV0, lit[14] | line=6
+    35: ASSIGN_DIM CV0, lit[15] | line=6
+    36: OP_DATA lit[16] | line=6
+    37: UNSET_DIM CV0, lit[17] | line=7
+    38: UNSET_DIM CV2, lit[18] | line=7
+    39: ASSIGN_DIM CV0, lit[19] | line=7
+    40: OP_DATA lit[20] | line=7
+    41: ASSIGN_DIM CV2, lit[21] | line=7
+    42: OP_DATA lit[22] | line=7
+    43: V24 = FETCH_DIM_W CV0, lit[23] | line=8 ext=1
+    44: ASSIGN_REF V24, CV0 | line=8
+    45: V25 = FETCH_DIM_W CV2, lit[24] | line=8 ext=1
+    46: ASSIGN_REF V25, CV2 | line=8
+    47: T26 = IS_IDENTICAL CV0, CV2 | line=8
+    48: T27 = CAST T26 | line=8 ext=4
+    49: ECHO T27 | line=8
+    50: T28 = IS_IDENTICAL CV2, CV0 | line=8
+    51: T29 = CAST T28 | line=8 ext=4
+    52: ECHO T29 | line=8
+    53: RETURN lit[25] | line=9 ext=4294967295
+}
+end

@@ -69,18 +69,43 @@ impl Parser<'_> {
         Err(self.error("expected a PHP literal"))
     }
 
-    fn read_array(&mut self) -> Result<Value> {
+    fn read_literal_layout(&mut self) -> Result<Option<Value>> {
         let layout = if self.take("packed=") {
             let capacity = self.number()?;
-            Some(self.case("literalLayout", "PACKED_LITERAL", [capacity])?)
-        } else if self.take("mixed") {
-            Some(self.case("literalLayout", "MIXED_LITERAL", [])?)
-        } else {
-            None
-        };
-        let mut has_metadata = if layout.is_some() {
             self.expect(";")?;
-            self.peek("next=") || self.peek("cursor=")
+            self.case("literalLayout", "PACKED_LITERAL", [capacity])?
+        } else if self.take("mixed=") {
+            let capacity = self.number()?;
+            self.expect(";")?;
+            let mut holes = Vec::new();
+            if self.take("holes=") {
+                self.expect("[")?;
+                if !self.peek("]") {
+                    loop {
+                        holes.push(self.number()?);
+                        if !self.take(",") {
+                            break;
+                        }
+                    }
+                }
+                self.expect("]")?;
+                self.expect(";")?;
+            }
+            let holes = self.list("nat", holes)?;
+            self.case("literalLayout", "MIXED_TABLE", [capacity, holes])?
+        } else if self.take("mixed") {
+            self.expect(";")?;
+            self.case("literalLayout", "MIXED_LITERAL", [])?
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(layout))
+    }
+
+    fn read_array(&mut self) -> Result<Value> {
+        let layout = self.read_literal_layout()?;
+        let mut has_metadata = if layout.is_some() {
+            self.peek("next=") || self.peek("cursor=") || self.peek("position=")
         } else {
             self.take(";")
         };
@@ -106,23 +131,25 @@ impl Parser<'_> {
         }
         let mut next = None;
         let mut cursor = None;
+        if has_metadata && self.take("next=") {
+            let n = self.i64()?;
+            next = Some(self.int(n)?);
+            has_metadata = self.take(";");
+        }
         if has_metadata {
-            if self.take("next=") {
-                let n = self.i64()?;
-                next = Some(self.int(n)?);
-                if self.take(";") {
-                    self.expect("cursor=")?;
-                    cursor = Some(self.number()?);
-                }
+            let tag = if self.take("position=") {
+                "PHYSICAL_CURSOR"
             } else {
                 self.expect("cursor=")?;
-                cursor = Some(self.number()?);
-            }
+                "ORDINAL_CURSOR"
+            };
+            let position = self.number()?;
+            cursor = Some(self.case("literalCursor", tag, [position])?);
         }
         self.expect(")")?;
         let entries = self.list("arrayentry", entries)?;
         let next = self.opt("int", next)?;
-        let cursor = self.opt("nat", cursor)?;
+        let cursor = self.opt("literalCursor", cursor)?;
         let layout = self.opt("literalLayout", layout)?;
         self.case("zval", "ARRAY", [entries, next, cursor, layout])
     }
@@ -253,6 +280,20 @@ impl Printer<'_> {
                     write!(self.out, "packed={};", self.u32(capacity)?)?
                 }
                 ("MIXED_LITERAL", []) => self.out.push_str("mixed;"),
+                ("MIXED_TABLE", &[capacity, holes]) => {
+                    write!(self.out, "mixed={};", self.u32(capacity)?)?;
+                    let holes = self.list(holes)?;
+                    if !holes.is_empty() {
+                        self.out.push_str(" holes=[");
+                        for (index, &hole) in holes.iter().enumerate() {
+                            if index != 0 {
+                                self.out.push_str(", ");
+                            }
+                            write!(self.out, "{}", self.u32(hole)?)?;
+                        }
+                        self.out.push_str("];");
+                    }
+                }
                 _ => return Err(Error::new("invalid array literal layout")),
             }
             if entries.is_empty() {
@@ -278,8 +319,13 @@ impl Printer<'_> {
             write!(self.out, "{separator}next={}", self.int(value)?)?;
             separator = "; ";
         }
-        if let Some(value) = self.opt(cursor)? {
-            write!(self.out, "{separator}cursor={}", self.u32(value)?)?;
+        if let Some(cursor) = self.opt(cursor)? {
+            let (field, value) = match self.case(cursor)? {
+                ("ORDINAL_CURSOR", &[value]) => ("cursor", value),
+                ("PHYSICAL_CURSOR", &[value]) => ("position", value),
+                _ => return Err(Error::new("invalid array cursor")),
+            };
+            write!(self.out, "{separator}{field}={}", self.u32(value)?)?;
         }
         self.out.push(')');
         Ok(())
