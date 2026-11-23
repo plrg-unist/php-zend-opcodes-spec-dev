@@ -13,7 +13,9 @@ cargo test
 ./scripts/test_semantics.py
 ```
 
-The extension and Cargo suites discover `.php`, `.phpt`, and `.zop` fixtures under `tests/`. The semantics suite builds the executable, compares its results with Zend under both compiler profiles, and checks spec instruction coverage. It runs the [semantics cases](tests/semantics.json). All three suites use `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to select a matching PHP elsewhere.
+The extension and Cargo suites discover `.php`, `.phpt`, and `.zop` fixtures under `tests/`. All three suites use `../php-src/sapi/cli/php` by default. Set `ZEND_SPEC_PHP` to select a matching PHP elsewhere.
+
+The semantics suite compares the spec with Zend in parallel under both compiler profiles. With no paths it runs all registered fixtures and requires 100% spec instruction coverage. For a focused run, use a command such as `./scripts/test_semantics.py -j 4 tests/project/standalone_branches.zop`. [Registered fixtures](tests/semantics.json)
 
 ## Print and run a listing
 

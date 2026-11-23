@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,20 @@ class Case:
     stdout: bytes
     stderr: bytes
     divergence: Divergence = field(default_factory=dict)
+
+
+@dataclass
+class Coverage:
+    steps: list[str] = field(default_factory=list)
+    hits: set[int] = field(default_factory=set)
+
+    def merge(self, steps: list[str], hits: set[int]) -> None:
+        if not steps:
+            return
+        if self.steps and self.steps != steps:
+            raise ValueError("definition or step order changed across runs")
+        self.steps = steps
+        self.hits.update(hits)
 
 
 def octets(value: object) -> bytes:
@@ -94,6 +110,21 @@ def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
             read_divergence(row["divergence"]) if "divergence" in row else {},
         ))
     return groups
+
+
+def select_cases(cases: dict[Path, list[Case]], paths: list[str]) -> dict[Path, list[Case]]:
+    if not paths:
+        return cases
+    registered = {fixture.resolve() for fixture in cases}
+    selected: set[Path] = set()
+    for path in paths:
+        if not os.path.isfile(path):
+            raise ValueError(f"expected an existing fixture file: {path}")
+        resolved = Path(path).resolve()
+        if resolved not in registered:
+            raise ValueError(f"no registered semantics case in tests/semantics.json for {path}")
+        selected.add(resolved)
+    return {fixture: variants for fixture, variants in cases.items() if fixture.resolve() in selected}
 
 
 def build_binary() -> Path:
@@ -185,51 +216,79 @@ def check_case(binary: Path, php: Path, profile: str, listing: Path, case: Case,
             raise ValueError(f"expected panic after the emitted prefix, got {normal!r}")
 
 
+def check_profile(binary: Path, php: Path, fixture: Path, profile: str, variants: list[Case]) -> Coverage:
+    name = fixture.relative_to(TESTS)
+    label = f"{name} [{profile}]"
+    coverage = Coverage()
+    try:
+        with tempfile.TemporaryDirectory(prefix="zend-semantics-") as scratch:
+            directory = Path(scratch)
+            listing = directory / "program.zop"
+            report = directory / "coverage.txt"
+            data, _ = read_fixture(fixture)
+            if fixture.suffix != ".zop":
+                source = directory / fixture.with_suffix(".php").name
+                source.write_bytes(data)
+                data = run_php(php, profile, source, compile_only=True).listing
+            listing.write_bytes(data)
+            for case in variants:
+                label = f"{name} [{profile}, {case.stdin.name if case.stdin else 'empty stdin'}]"
+                check_case(binary, php, profile, listing, case, report)
+                if case.kind != "malformed":
+                    coverage.merge(*coverage_hits(report))
+    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"{label}: {error}") from error
+    return coverage
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Compare Zend and spec executions and measure spec coverage.")
+    parser.add_argument("-j", dest="jobs", type=int, default=os.cpu_count() or 1, metavar="JOBS",
+                        help="maximum parallel jobs (default: CPU count, or 1 if unknown)")
+    parser.add_argument("paths", nargs="*", metavar="PATH",
+                        help="registered fixture paths (default: full suite with 100%% coverage required)")
+    args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error("-j requires a positive integer")
+
     os.environ.pop("ZEND_SPEC_COVERAGE", None)
     php, fixtures = corpus()
-    cases = read_cases(fixtures)
+    cases = select_cases(read_cases(fixtures), args.paths)
     binary = build_binary()
-    all_steps: list[str] = []
-    all_hits: set[int] = set()
-    count = 0
-    with tempfile.TemporaryDirectory(prefix="zend-semantics-") as scratch:
-        directory = Path(scratch)
-        listing = directory / "program.zop"
-        report = directory / "coverage.txt"
-        missing = json_outcome(binary, listing, b"")
-        if missing.get("kind") != "tool_error" or not missing.get("message"):
-            raise ValueError(f"expected a tool_error for a missing file, got {missing!r}")
-        for fixture, variants in cases.items():
-            data, _ = read_fixture(fixture)
-            for profile in PROFILES:
-                label = f"{fixture.relative_to(TESTS)} [{profile}]"
+    if not args.paths:
+        with tempfile.TemporaryDirectory(prefix="zend-semantics-") as scratch:
+            missing = json_outcome(binary, Path(scratch) / "program.zop", b"")
+            if missing.get("kind") != "tool_error" or not missing.get("message"):
+                raise ValueError(f"expected a tool_error for a missing file, got {missing!r}")
+
+    coverage = Coverage()
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        pending = {
+            pool.submit(check_profile, binary, php, fixture, profile, variants): (fixture, profile)
+            for fixture, variants in cases.items() for profile in PROFILES
+        }
+        try:
+            for future in as_completed(pending):
+                fixture, profile = pending.pop(future)
+                result = future.result()
                 try:
-                    if fixture.suffix == ".zop":
-                        listing.write_bytes(data)
-                    else:
-                        source = directory / fixture.with_suffix(".php").name
-                        source.write_bytes(data)
-                        listing.write_bytes(run_php(php, profile, source, compile_only=True).listing)
-                    for case in variants:
-                        label = f"{fixture.relative_to(TESTS)} [{profile}, {case.stdin.name if case.stdin else 'empty stdin'}]"
-                        check_case(binary, php, profile, listing, case, report)
-                        if case.kind != "malformed":
-                            steps, hits = coverage_hits(report)
-                            if all_steps and all_steps != steps:
-                                raise ValueError("definition or step order changed across runs")
-                            all_steps = steps
-                            all_hits.update(hits)
-                        count += 1
-                except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-                    raise ValueError(f"{label}: {error}") from error
-    for index, step in enumerate(all_steps):
-        if index not in all_hits:
-            print(f"uncovered #{index}: {step}", file=sys.stderr)
-    coverage = f"{len(all_hits)}/{len(all_steps)} SL instructions"
-    if not all_steps or len(all_hits) != len(all_steps):
-        raise ValueError(f"incomplete coverage: {coverage}")
-    print(f"{count} semantics cases passed. Coverage: {coverage}.")
+                    coverage.merge(result.steps, result.hits)
+                except ValueError as error:
+                    raise ValueError(f"{fixture.relative_to(TESTS)} [{profile}]: {error}") from error
+        finally:
+            for future in pending:
+                future.cancel()
+
+    summary = f"{len(coverage.hits)}/{len(coverage.steps)} SL instructions"
+    if not args.paths and (not coverage.steps or len(coverage.hits) != len(coverage.steps)):
+        for index, step in enumerate(coverage.steps):
+            if index not in coverage.hits:
+                print(f"uncovered #{index}: {step}", file=sys.stderr)
+        raise ValueError(f"incomplete coverage: {summary}")
+    if not coverage.steps:
+        summary = "0 SL instructions executed (all selected cases were malformed)"
+    count = sum(len(variants) for variants in cases.values()) * len(PROFILES)
+    print(f"{count} semantics cases passed. Coverage: {summary}.")
 
 
 if __name__ == "__main__":
