@@ -1,0 +1,42 @@
+zend-opcodes
+file "array_read_raw_keys.php"
+main
+body - {
+  lines 1 5
+  frame 2 cache 0
+  locals 2 ["key", "array"]
+  size 26 literals 5 children 0
+  lit[0] = array(1 => "I", "1" => "S", "01" => "O")
+  lit[1] = "1"
+  lit[2] = array("1" => false)
+  lit[3] = "\x0a"
+  lit[4] = null
+  code
+    0: ASSIGN CV0, lit[1] | line=1
+    1: ASSIGN CV1, lit[0] | line=1
+    2: T2 = FETCH_DIM_R lit[0], lit[1] | line=1
+    3: ECHO T2 | line=1
+    4: T2 = FETCH_DIM_R CV1, lit[1] | line=1
+    5: ECHO T2 | line=1
+    6: T2 = FETCH_DIM_R CV1, CV0 | line=1
+    7: ECHO T2 | line=1
+    8: T2 = FETCH_DIM_IS CV1, lit[1] | line=2
+    9: ECHO T2 | line=2
+    10: T2 = FETCH_DIM_IS lit[0], lit[1] | line=2
+    11: ECHO T2 | line=2
+    12: T2 = ISSET_ISEMPTY_DIM_OBJ lit[2], lit[1] | line=3
+    13: ECHO T2 | line=3
+    14: T2 = ISSET_ISEMPTY_DIM_OBJ lit[2], CV0 | line=3
+    15: T3 = BOOL_NOT T2 | line=3
+    16: ECHO T3 | line=3
+    17: T2 = ARRAY_KEY_EXISTS lit[1], lit[2] | line=3
+    18: T3 = BOOL_NOT T2 | line=3
+    19: ECHO T3 | line=3
+    20: T2 = IN_ARRAY CV0, lit[2] | line=4 ext=1
+    21: ECHO T2 | line=4
+    22: T2 = IN_ARRAY CV0, lit[0] | line=4 ext=1
+    23: ECHO T2 | line=4
+    24: ECHO lit[3] | line=5
+    25: RETURN lit[4] | line=5
+}
+end

@@ -2,12 +2,16 @@ var n : nat
 var i : int
 var b : bool
 
-;; CLI-initialized array slots retain their presence without reading their contents.
-syntax slotValue = zval | CLI_ARRAY
+;; Shared arrays compare equal immediately, even when an element is NaN.
+syntax literalRoot = POOL_LITERAL nat | SHARED_LITERAL nat
+syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat
+syntax slotValue
+syntax runtimeEntry = ITEM arraykey slotValue
+syntax slotValue = zval | CLI_ARRAY | ARRAY_VALUE arrayId runtimeEntry* int? nat?
 
 ;; Conversions can emit several diagnostics before producing a value or raising an error.
 syntax numericResult =
-  | NUM_VALUE zval | NUM_ERROR bytes | NUM_WARNING bytes numericResult
+  | NUM_VALUE slotValue | NUM_ERROR bytes | NUM_WARNING bytes numericResult
   | NUM_DEPRECATED bytes numericResult | NUM_UNSUPPORTED
 
 ;; Single-bit masks in the TYPE_CHECK instruction's extended value.
@@ -24,8 +28,17 @@ def $scalar_type_bit(_) = 0
 dec $simple_value(slotValue) : bool
 def $simple_value(slotValue) = $scalar_type_bit(slotValue) =/= 0
 
+dec $is_array_value(slotValue) : bool
+def $is_array_value(ARRAY_VALUE _ _ _ _) = true
+def $is_array_value(CLI_ARRAY) = true
+def $is_array_value(_) = false
+  -- otherwise
+
 dec $type_check(slotValue, nat) : bool
 def $type_check(UNDEF, n_mask) = $(n_mask \ 2 = 1)
+def $type_check(DEFERRED _, n_mask) = $((n_mask / 2048) \ 2 = 1)
+def $type_check(slotValue, n_mask) = $((n_mask / 128) \ 2 = 1)
+  -- if $is_array_value(slotValue)
 def $type_check(slotValue, n_mask) = $((n_mask / n_bit) \ 2 = 1)
   -- if n_bit = $scalar_type_bit(slotValue)
   -- if n_bit =/= 0
@@ -37,15 +50,22 @@ def $gettype(slotValue) = [ 98, 111, 111, 108, 101, 97, 110 ]           ;; boole
 def $gettype(INT _) = [ 105, 110, 116, 101, 103, 101, 114 ]        ;; integer
 def $gettype(FLOAT _) = [ 100, 111, 117, 98, 108, 101 ]            ;; double
 def $gettype(STRING _) = [ 115, 116, 114, 105, 110, 103 ]          ;; string
+def $gettype(slotValue) = [ 97, 114, 114, 97, 121 ]               ;; array
+  -- if $is_array_value(slotValue)
+def $gettype(_) = [ 117, 110, 107, 110, 111, 119, 110, 32, 116, 121, 112, 101 ] ;; unknown type
+  -- otherwise
 
-;; Scalar names used by PHP exceptions; boolean literals have distinct names.
+;; Names used in PHP diagnostics. Boolean literals have distinct names.
 dec $value_name(slotValue) : bytes
-def $value_name(NULL) = [ 110, 117, 108, 108 ]
+def $value_name(slotValue) = [ 110, 117, 108, 108 ]
+  -- if slotValue = NULL \/ slotValue = UNDEF
 def $value_name(TRUE) = [ 116, 114, 117, 101 ]
 def $value_name(FALSE) = [ 102, 97, 108, 115, 101 ]
 def $value_name(INT _) = [ 105, 110, 116 ]
 def $value_name(FLOAT _) = [ 102, 108, 111, 97, 116 ]
 def $value_name(STRING _) = [ 115, 116, 114, 105, 110, 103 ]
+def $value_name(slotValue) = $gettype(slotValue)
+  -- if $is_array_value(slotValue)
 
 dec $zend_bool(bool) : zval
 def $zend_bool(true) = TRUE
@@ -61,12 +81,16 @@ def $is_nan(_) = false
   -- otherwise
 
 dec $truth(slotValue) : bool
+def $truth(UNDEF) = false
+def $truth(DEFERRED _) = false
 def $truth(NULL) = false
 def $truth(FALSE) = false
 def $truth(TRUE) = true
 def $truth(INT i) = i =/= 0
 def $truth(FLOAT n) = $float_magnitude(n) =/= 0
 def $truth(STRING bytes) = (bytes =/= eps) /\ (bytes =/= [ 48 ])
+def $truth(ARRAY_VALUE _ runtimeEntry* _ _) = runtimeEntry* =/= eps
+def $truth(CLI_ARRAY) = true   ;; The CLI always adds entries to $_SERVER.
 
 ;; Decimal PHP integers are emitted as ASCII octets.
 dec $digits(nat) : bytes

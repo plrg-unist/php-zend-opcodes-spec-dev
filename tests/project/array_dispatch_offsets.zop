@@ -1,0 +1,29 @@
+zend-opcodes
+file "array_dispatch_offsets.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  size 13 literals 6 children 0
+  lit[0] = int(0)
+  lit[1] = array(0 => int(3), 1 => int(1), "z" => int(2))
+  lit[2] = int(1)
+  lit[3] = ","
+  lit[4] = "z"
+  lit[5] = "\x0a"
+  code
+    0: JMP @2 | line=1
+    1: RETURN lit[2] | line=1
+    2: MATCH lit[0], lit[1] | line=1 ext=@1
+    3: T0 = FETCH_DIM_R lit[1], lit[0] | line=2
+    4: ECHO T0 | line=2
+    5: ECHO lit[3] | line=2
+    6: T0 = FETCH_DIM_R lit[1], lit[2] | line=2
+    7: ECHO T0 | line=2
+    8: ECHO lit[3] | line=2
+    9: T0 = FETCH_DIM_R lit[1], lit[4] | line=2
+    10: ECHO T0 | line=2
+    11: ECHO lit[5] | line=2
+    12: RETURN lit[2] | line=3
+}
+end

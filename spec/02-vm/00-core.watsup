@@ -1,22 +1,22 @@
 syntax outcome = PHP bytes bytes nat | UNSUPPORTED bytes bytes
 syntax fragment = FRAGMENT nat nat bytes
 syntax frame = {
-  CODE instruction*, POOL poolentry*, PC nat, SLOTS slotValue*, ROPEPARTS fragment*,
-  FILE bytes, LINE nat, NAMES bytes*, STRICT bool, TRIES tryregion*, STDOUT bytes
+  CODE instruction*, POOL poolentry*, PC nat, SLOTS slotValue*, ROPEPARTS fragment*, NEXTARRAY nat,
+  FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
 syntax transition = CONTINUE frame | FINISH outcome
 
-;; File mode provides argc=1 and the arrays argv, _GET, _POST, _COOKIE, _FILES and _SERVER.
-dec $initial_local(bytes) : slotValue
-def $initial_local([ 97, 114, 103, 99 ]) = INT 1
-def $initial_local(bytes) = CLI_ARRAY
-  -- if bytes <- [ [ 97, 114, 103, 118 ],
-                   [ 95, 71, 69, 84 ],
+;; PHP puts the CLI script argument in argv, even if the unit has a different logical filename.
+dec $initial_local(bytes, bytes) : slotValue
+def $initial_local([ 97, 114, 103, 99 ], _) = INT 1
+def $initial_local([ 97, 114, 103, 118 ], bytes_script) = $cli_argv(bytes_script)
+def $initial_local(bytes, _) = ARRAY_VALUE (CLI_ARRAY_ID 0) eps eps eps
+  -- if bytes <- [ [ 95, 71, 69, 84 ],
                    [ 95, 80, 79, 83, 84 ],
                    [ 95, 67, 79, 79, 75, 73, 69 ],
-                   [ 95, 70, 73, 76, 69, 83 ],
-                   [ 95, 83, 69, 82, 86, 69, 82 ] ]
-def $initial_local(_) = UNDEF
+                   [ 95, 70, 73, 76, 69, 83 ] ]
+def $initial_local([ 95, 83, 69, 82, 86, 69, 82 ], _) = CLI_ARRAY
+def $initial_local(_, _) = UNDEF
   -- otherwise
 
 dec $empty_slots(nat) : slotValue*
@@ -29,9 +29,21 @@ dec $ext_value(extension?) : nat
 def $ext_value(eps) = 0
 def $ext_value(EXT_VALUE n) = n
 
+;; Ordinary nested arrays inherit the identity of their root and their own key path.
+;; A shared literal starts a new root wherever the unit names it.
+dec $runtime_value(zval, literalRoot, arraykey*) : slotValue
+def $runtime_value(ARRAY (ENTRY arraykey zval)* i? n?, literalRoot, arraykey_path*) =
+  ARRAY_VALUE (LITERAL_ARRAY literalRoot arraykey_path*) runtimeEntry* ($array_next(runtimeEntry*, i?)) n?
+  -- if runtimeEntry* = (ITEM arraykey $runtime_value(zval, literalRoot, arraykey_path* ++ [arraykey]))*
+def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITERAL n, eps)
+def $runtime_value(zval, _, _) = zval
+  -- otherwise
+
+dec $literal_value(zval, nat, instruction*) : slotValue
+
 ;; CV, TMP and VAR indices address the same frame.
 dec $read(frame, operand) : slotValue
-def $read(frame, LIT n) = zval
+def $read(frame, LIT n) = $literal_value(zval, n, frame.CODE)
   -- if LITERAL zval = frame.POOL[n]
 def $read(frame, CV n) = frame.SLOTS[n]
 def $read(frame, TMP n) = frame.SLOTS[n]
@@ -139,9 +151,9 @@ def $store_result(frame, operand_r, operand_dst, slotValue) =
   CONTINUE $write($write(frame, operand_dst, slotValue), operand_r, slotValue)
 
 dec $apply_numeric(frame, operand, operand, smartbranch?, numericResult) : transition
-def $apply_numeric(frame, operand_r, operand_dst, eps, NUM_VALUE zval) = $store_result(frame, operand_r, operand_dst, zval)
-def $apply_numeric(frame, operand_r, _, smartbranch, NUM_VALUE zval) =
-  CONTINUE $comparison(frame, operand_r, smartbranch, zval = TRUE)
+def $apply_numeric(frame, operand_r, operand_dst, eps, NUM_VALUE slotValue) = $store_result(frame, operand_r, operand_dst, slotValue)
+def $apply_numeric(frame, operand_r, _, smartbranch, NUM_VALUE slotValue) =
+  CONTINUE $comparison(frame, operand_r, smartbranch, slotValue = TRUE)
 def $apply_numeric(frame, _, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
 def $apply_numeric(frame, operand_r, operand_dst, smartbranch?, NUM_WARNING bytes numericResult) =
   $apply_numeric($report(frame, WARNING, bytes), operand_r, operand_dst, smartbranch?, numericResult)
@@ -149,9 +161,12 @@ def $apply_numeric(frame, operand_r, operand_dst, smartbranch?, NUM_DEPRECATED b
   $apply_numeric($report(frame, DEPRECATED, bytes), operand_r, operand_dst, smartbranch?, numericResult)
 def $apply_numeric(frame, _, _, _, NUM_UNSUPPORTED) = FINISH (UNSUPPORTED frame.STDOUT eps)
 
+dec $known_value(slotValue) : bool
+def $known_value(slotValue) = $simple_value(slotValue) \/ $is_array_value(slotValue)
+
 dec $unary(frame, opcode, operand, operand, operand, slotValue) : transition
 def $unary(frame, ASSIGN, operand_r, operand_dst, _, slotValue) = $store_result(frame, operand_r, operand_dst, slotValue)
-  -- if $simple_value(slotValue)
+  -- if $known_value(slotValue)
 def $unary(frame, opcode, operand_r, operand_dst, _, slotValue) =
   $apply_numeric(frame, operand_r, operand_dst, eps, $numeric_incdec(opcode, slotValue))
   -- if opcode = PRE_INC \/ opcode = PRE_DEC
@@ -163,38 +178,28 @@ def $unary(frame, BW_NOT, operand_r, _, _, slotValue) =
   $apply_numeric(frame, operand_r, UNUSED, eps, $bitwise(BW_NOT, slotValue, NULL))
 def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
   -- if opcode = QM_ASSIGN \/ opcode = COPY_TMP
-  -- if $simple_value(slotValue)
+  -- if $known_value(slotValue)
 def $unary(frame, FREE, _, _, _, slotValue) = CONTINUE frame
-  -- if $simple_value(slotValue)
+  -- if $known_value(slotValue)
 def $unary(frame, CHECK_VAR, _, _, _, _) = CONTINUE frame
 def $unary(frame, ECHO, _, _, _, slotValue) = CONTINUE frame'[.STDOUT = frame'.STDOUT ++ $scalar_bytes(slotValue)]
   -- if $simple_value(slotValue)
   -- if frame' = $string_frame(frame, slotValue)
 def $unary(frame, RETURN, _, _, _, slotValue) = FINISH (PHP frame.STDOUT eps 0)
-  -- if $simple_value(slotValue)
+  -- if $known_value(slotValue)
 def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write($truth_frame(frame, slotValue), operand_r, $zend_bool(b))
   -- if opcode = BOOL \/ opcode = BOOL_NOT
-  -- if $simple_value(slotValue)
   -- if b = ($truth(slotValue) = (opcode = BOOL))
 def $unary(frame, GET_TYPE, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, STRING $gettype(slotValue))
-  -- if $simple_value(slotValue)
 def $unary(frame, STRLEN, operand_r, _, _, slotValue) = $length_result(frame, operand_r, slotValue, $strlen(slotValue, frame.STRICT))
 def $unary(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
-dec $xor_right(frame, operand, bool, slotValue) : transition
-def $xor_right(frame, operand_r, b_l, slotValue) = CONTINUE $write($truth_frame(frame, slotValue), operand_r, $zend_bool(b))
-  -- if $simple_value(slotValue)
-  -- if b = (b_l =/= $truth(slotValue))
-def $xor_right(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
-  -- otherwise
-
 dec $xor(frame, operand, slotValue, slotValue) : transition
-def $xor(frame, operand_r, slotValue_l, slotValue_r) =
-  $xor_right($truth_frame(frame, slotValue_l), operand_r, $truth(slotValue_l), slotValue_r)
-  -- if $simple_value(slotValue_l)
-def $xor(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
-  -- otherwise
+def $xor(frame, operand_r, slotValue_l, slotValue_r) = CONTINUE $write(frame'', operand_r, $zend_bool(b))
+  -- if frame' = $truth_frame(frame, slotValue_l)
+  -- if frame'' = $truth_frame(frame', slotValue_r)
+  -- if b = ($truth(slotValue_l) =/= $truth(slotValue_r))
 
 ;; Zend normalizes these commutative instruction operands when loading a listing.
 ;; Their order is observable through conversion diagnostics and type-error messages.
@@ -268,6 +273,8 @@ relation StringStep: frame; opcode; operand; operand; operand; extension? ~> tra
 dec $truth_branch(frame, opcode, operand, operand, nat, slotValue) : transition
 dec $null_branch(frame, opcode, operand, operand, nat, nat, slotValue) : frame
 dec $dispatch_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
+dec $array_build_step(frame, opcode, operand, operand, operand, nat) : transition
+dec $array_read_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 
 dec $step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 def $step(frame, NOP, _, _, _, _, _) = CONTINUE frame
@@ -281,6 +288,12 @@ def $step(frame, opcode, operand_r, operand_a, TARGET n, extension?, _) =
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?) =
   $dispatch_step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
   -- if opcode <- [CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH]
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) =
+  $array_build_step(frame, opcode, operand_r, operand_a, operand_b, $ext_value(extension?))
+  -- if opcode <- [INIT_ARRAY, ADD_ARRAY_ELEMENT, ADD_ARRAY_UNPACK]
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?) =
+  $array_read_step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
+  -- if opcode <- [FETCH_DIM_R, FETCH_DIM_IS, ISSET_ISEMPTY_DIM_OBJ, ISSET_ISEMPTY_CV, COUNT, ARRAY_KEY_EXISTS, IN_ARRAY]
 def $step(frame, ASSIGN, operand_r, operand_dst, operand_src, _, _) =
   $unary(frame', ASSIGN, operand_r, operand_dst, UNUSED, slotValue)
   -- if (frame', slotValue) = $read_operand(frame, operand_src)
@@ -304,7 +317,6 @@ def $step(frame, opcode, operand_r, operand_a, operand_b, _, smartbranch?) =
 def $step(frame, TYPE_CHECK, operand_r, operand_a, _, extension?, smartbranch?) =
   CONTINUE $comparison(frame', operand_r, smartbranch?, $type_check(slotValue', n_mask))
   -- if slotValue = $read(frame, operand_a)
-  -- if $simple_value(slotValue) \/ (slotValue = UNDEF)
   -- if n_mask = $ext_value(extension?)
   -- if (frame', slotValue') = $type_operand(frame, operand_a, slotValue, n_mask)
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) = transition
@@ -329,10 +341,10 @@ def $dormant_class(CLASS (CLASSHEADER bytes_key _ classLink _ _ _ bytes_parent? 
 def $dormant_class(_) = false
   -- otherwise
 
-dec $execute(unit, bytes) : outcome
-def $execute(UNIT bytes_file _ eps (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) _ classDecl*, _)
-  = $run({ CODE instruction*, POOL poolentry*, PC 0, SLOTS (($initial_local(bytes_cv))* ++ $empty_slots(n)), ROPEPARTS eps,
-           FILE bytes_file, LINE 0, NAMES bytes_cv*, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps })
+dec $execute(unit, bytes, bytes) : outcome
+def $execute(UNIT bytes_file _ eps (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) _ classDecl*, _, bytes_script)
+  = $run({ CODE instruction*, POOL poolentry*, PC 0, SLOTS (($initial_local(bytes_cv, bytes_script))* ++ $empty_slots(n)), ROPEPARTS eps, NEXTARRAY 0,
+           FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps })
   -- if ~(false <- ($dormant_class(classDecl))*)
-def $execute(_, _) = UNSUPPORTED eps eps
+def $execute(_, _, _) = UNSUPPORTED eps eps
   -- otherwise

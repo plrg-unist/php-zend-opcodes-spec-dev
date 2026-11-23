@@ -1,0 +1,18 @@
+zend-opcodes
+file "undef_key.php"
+main
+body - {
+  lines 1 2
+  frame 1 cache 0
+  size 4 literals 4 children 0
+  lit[0] = "key"
+  lit[1] = int(7)
+  lit[2] = undef
+  lit[3] = "unreachable"
+  code
+    0: ECHO lit[0] | line=1
+    1: T0 = INIT_ARRAY lit[1], lit[2] | line=2 ext=4
+    2: ECHO lit[3] | line=2
+    3: RETURN lit[1] | line=2
+}
+end

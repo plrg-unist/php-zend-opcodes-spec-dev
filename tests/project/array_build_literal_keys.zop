@@ -1,0 +1,34 @@
+zend-opcodes
+file "literal_keys.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  locals 2 ["key", "array"]
+  size 15 literals 8 children 0
+  lit[0] = "12"
+  lit[1] = "S"
+  lit[2] = "I"
+  lit[3] = "A"
+  lit[4] = array("12" => "S", 12 => "I", 13 => "A")
+  lit[5] = array("12" => "S", 0 => "I", 1 => "A")
+  lit[6] = "\x0a"
+  lit[7] = int(1)
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: T2 = INIT_ARRAY lit[1], lit[0] | line=1 ext=7
+    2: T2 = ADD_ARRAY_ELEMENT lit[2], CV0 | line=1 ext=1
+    3: T2 = ADD_ARRAY_ELEMENT lit[3] | line=1
+    4: ASSIGN CV1, T2 | line=1
+    5: T3 = IS_IDENTICAL CV1, lit[4] | line=1
+    6: ECHO T3 | line=1
+    7: T3 = COUNT CV1 | line=1
+    8: ECHO T3 | line=1
+    9: T2 = INIT_ARRAY | line=1 ext=1
+    10: T2 = ADD_ARRAY_UNPACK CV1 | line=1
+    11: T3 = IS_IDENTICAL T2, lit[5] | line=1
+    12: ECHO T3 | line=1
+    13: ECHO lit[6] | line=1
+    14: RETURN lit[7] | line=1
+}
+end

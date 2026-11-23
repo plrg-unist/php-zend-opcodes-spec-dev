@@ -1,0 +1,19 @@
+zend-opcodes
+file "cli.php"
+main
+body - {
+  lines 1 4
+  frame 2 cache 0
+  locals 1 ["_SERVER"]
+  size 5 literals 3 children 0
+  lit[0] = "T"
+  lit[1] = "REQUEST_TIME_FLOAT"
+  lit[2] = int(1)
+  code
+    0: ECHO lit[0] | line=2
+    1: T1 = FETCH_DIM_R CV0, lit[1] | line=3
+    2: T2 = GET_TYPE T1 | line=3
+    3: ECHO T2 | line=3
+    4: RETURN lit[2] | line=4 ext=4294967295
+}
+end

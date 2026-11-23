@@ -79,22 +79,27 @@ fn outcome(arena: &mut Arena, result: Value) -> Result<Outcome> {
     }
 }
 
-fn execute(arena: &mut Arena, unit: Value, input: &[u8]) -> Result<Outcome> {
-    let values = input
+fn byte_list(arena: &mut Arena, bytes: &[u8]) -> Result<Value> {
+    let values = bytes
         .iter()
         .map(|&byte| make::nat(arena, u64::from(byte).into(), Default::default()))
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let stdin = make::list(
+    Ok(make::list(
         arena,
         typ::make::list(typ::make::nat()).node.into(),
         values,
         Default::default(),
-    )?;
+    )?)
+}
+
+fn execute(arena: &mut Arena, unit: Value, input: &[u8], path: &Path) -> Result<Outcome> {
+    let stdin = byte_list(arena, input)?;
+    let script = byte_list(arena, path.as_os_str().as_encoded_bytes())?;
 
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("spec");
     let spec = p4spectec::structure(&[dir], true).map_err(|report| diagnostic(&report))?;
     let coverage_path = env::var_os("ZEND_SPEC_COVERAGE").map(PathBuf::from);
-    let config = Config::new(false, true, false, coverage_path.is_none());
+    let config = Config::new(true, true, false, coverage_path.is_none());
     let mut runner = build_sl(arena, spec.clone(), config, binary64::Binary64)
         .map_err(|report| diagnostic(&report))?;
     let coverage = coverage_path.map(|path| {
@@ -107,7 +112,7 @@ fn execute(arena: &mut Arena, unit: Value, input: &[u8]) -> Result<Outcome> {
     });
 
     let result = runner
-        .eval_func(arena, "execute", &[], &[unit, stdin])
+        .eval_func(arena, "execute", &[], &[unit, stdin, script])
         .result
         .map_err(|err| diagnostic(&err.into_report()))?;
     let result = outcome(arena, result)?;
@@ -144,7 +149,7 @@ fn run(path: &Path) -> Result<Outcome> {
     };
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
-    execute(&mut arena, unit, &input)
+    execute(&mut arena, unit, &input, path)
 }
 
 fn write_streams(stdout: &[u8], stderr: &[u8]) -> io::Result<()> {

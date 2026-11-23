@@ -1,0 +1,24 @@
+zend-opcodes
+file "cli.php"
+main
+body - {
+  lines 1 4
+  frame 2 cache 0
+  locals 1 ["_SERVER"]
+  size 8 literals 5 children 0
+  lit[0] = "K"
+  lit[1] = "PHP_SPEC_TEST_SERVER_KEY"
+  lit[2] = "present"
+  lit[3] = "absent"
+  lit[4] = int(1)
+  code
+    0: ECHO lit[0] | line=2
+    1: T1 = ARRAY_KEY_EXISTS lit[1], CV0 | line=3 smart=JMPZ
+    2: JMPZ T1, @5 | line=3
+    3: T2 = QM_ASSIGN lit[2] | line=3
+    4: JMP @6 | line=3
+    5: T2 = QM_ASSIGN lit[3] | line=3
+    6: ECHO T2 | line=3
+    7: RETURN lit[4] | line=4 ext=4294967295
+}
+end

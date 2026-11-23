@@ -1,0 +1,63 @@
+;; Preserve a key conversion's diagnostics before inserting the element.
+dec $array_insert_at(slotValue, slotValue, numericResult) : numericResult
+def $array_insert_at(slotValue_dst, slotValue_value, NUM_VALUE slotValue_key) =
+  $array_insert(slotValue_dst, $array_key_tag(slotValue_key), slotValue_value)
+def $array_insert_at(slotValue_dst, slotValue_value, NUM_WARNING bytes numericResult) =
+  NUM_WARNING bytes $array_insert_at(slotValue_dst, slotValue_value, numericResult)
+def $array_insert_at(slotValue_dst, slotValue_value, NUM_DEPRECATED bytes numericResult) =
+  NUM_DEPRECATED bytes $array_insert_at(slotValue_dst, slotValue_value, numericResult)
+def $array_insert_at(_, _, numericResult) = numericResult
+  -- otherwise
+
+dec $write_array_element(frame, operand, operand, slotValue?) : transition
+def $write_array_element(frame, operand_r, UNUSED, slotValue_value) =
+  $apply_numeric(frame, operand_r, UNUSED, eps, $array_insert($read(frame, operand_r), eps, slotValue_value))
+def $write_array_element(frame, operand_r, operand_key, slotValue_value) =
+  $apply_numeric(frame', operand_r, UNUSED, eps,
+    $array_insert_at($read(frame', operand_r), slotValue_value, $array_key(ADD_ARRAY_ELEMENT, operand_key, slotValue_key)))
+  -- if operand_key =/= UNUSED
+  -- if slotValue_key = $read(frame, operand_key)
+  -- if $known_value(slotValue_key) \/ (slotValue_key = UNDEF)
+  -- if (frame', _) = $read_value(frame, operand_key, slotValue_key)
+def $write_array_element(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+;; Zend fetches the value before its key. The reference flag applies only to VAR and CV.
+dec $array_element_source(frame, operand, nat) : (frame, slotValue?)
+def $array_element_source(frame, operand_v, n) = (frame', slotValue)
+  -- if $(n \ 2 = 0) \/ $($operand_rank(operand_v) < 4)
+  -- if (frame', slotValue) = $read_operand(frame, operand_v)
+def $array_element_source(frame, _, _) = (frame, eps)
+  -- otherwise
+
+dec $add_array_element(frame, operand, operand, operand, nat) : transition
+def $add_array_element(frame, operand_r, operand_v, operand_key, n) =
+  $write_array_element(frame', operand_r, operand_key, slotValue?)
+  -- if (frame', slotValue?) = $array_element_source(frame, operand_v, n)
+
+dec $new_array(frame, operand) : frame
+def $new_array(frame, operand_r) =
+  $write(frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand_r, ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) eps eps eps)
+
+dec $unpack_source(slotValue, slotValue) : numericResult
+def $unpack_source(slotValue_dst, slotValue_src) = $array_unpack(slotValue_dst, slotValue_src)
+  -- if $is_array_value(slotValue_src) /\ slotValue_src =/= CLI_ARRAY
+;; Error: Only arrays and Traversables can be unpacked, <type> given
+def $unpack_source(_, slotValue) = NUM_ERROR
+  ([ 69, 114, 114, 111, 114, 58, 32, 79, 110, 108, 121, 32, 97, 114, 114, 97, 121, 115, 32,
+     97, 110, 100, 32, 84, 114, 97, 118, 101, 114, 115, 97, 98, 108, 101, 115, 32, 99, 97, 110,
+     32, 98, 101, 32, 117, 110, 112, 97, 99, 107, 101, 100, 44, 32 ] ++ $value_name(slotValue)
+     ++ [ 32, 103, 105, 118, 101, 110 ])
+  -- if $simple_value(slotValue) \/ (slotValue = UNDEF)
+def $unpack_source(_, _) = NUM_UNSUPPORTED
+  -- otherwise
+
+def $array_build_step(frame, INIT_ARRAY, operand_r, UNUSED, _, _) = CONTINUE $new_array(frame, operand_r)
+def $array_build_step(frame, INIT_ARRAY, operand_r, operand_v, operand_k, n) =
+  $add_array_element($new_array(frame, operand_r), operand_r, operand_v, operand_k, n)
+  -- if operand_v =/= UNUSED
+def $array_build_step(frame, ADD_ARRAY_ELEMENT, operand_r, operand_v, operand_k, n) =
+  $add_array_element(frame, operand_r, operand_v, operand_k, n)
+def $array_build_step(frame, ADD_ARRAY_UNPACK, operand_r, operand_v, _, _) =
+  $apply_numeric(frame', operand_r, UNUSED, eps, $unpack_source($read(frame', operand_r), slotValue))
+  -- if (frame', slotValue) = $read_operand(frame, operand_v)

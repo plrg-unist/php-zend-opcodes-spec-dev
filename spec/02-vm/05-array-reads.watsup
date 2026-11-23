@@ -1,0 +1,142 @@
+;; The VM's shared dimension-read helper interprets a numeric string even when
+;; its key is literal. FETCH_DIM_R takes that helper only for literal containers.
+dec $dimension_key(opcode, operand, operand, slotValue) : slotValue
+def $dimension_key(FETCH_DIM_IS, _, LIT _, STRING bytes) = $string_array_key(bytes)
+def $dimension_key(FETCH_DIM_R, LIT _, LIT _, STRING bytes) = $string_array_key(bytes)
+def $dimension_key(_, _, _, slotValue) = slotValue
+  -- otherwise
+
+dec $printed_array_key(arraykey) : bytes
+def $printed_array_key(INDEX i) = $decimal(i)
+def $printed_array_key(KEY bytes) = [34] ++ bytes ++ [34]
+
+dec $found_value(slotValue?) : slotValue
+def $found_value(slotValue) = slotValue
+def $found_value(eps) = NULL
+
+dec $isset_empty(frame, nat, slotValue) : (frame, bool)
+def $isset_empty(frame, 0, slotValue) = (frame, ~$nullish(slotValue))
+def $isset_empty(frame, 1, slotValue) = ($truth_frame(frame, slotValue), ~$truth(slotValue))
+
+dec $lookup_result(frame, opcode, operand, nat, smartbranch?, arraykey, slotValue?) : transition
+def $lookup_result(frame, FETCH_DIM_R, operand_r, _, _, arraykey, eps) =
+  CONTINUE $write($report(frame, WARNING, bytes_msg), operand_r, NULL)
+  -- if bytes_msg = [ 85, 110, 100, 101, 102, 105, 110, 101, 100, 32, 97, 114, 114, 97, 121, 32,
+                      107, 101, 121, 32 ] ++ $printed_array_key(arraykey)  ;; Undefined array key
+def $lookup_result(frame, opcode, operand_r, _, _, _, slotValue?) =
+  CONTINUE $write(frame, operand_r, $found_value(slotValue?))
+  -- if opcode = FETCH_DIM_IS \/ (opcode = FETCH_DIM_R /\ slotValue? =/= eps)
+def $lookup_result(frame, ARRAY_KEY_EXISTS, operand_r, _, smartbranch?, _, slotValue?) =
+  CONTINUE $comparison(frame, operand_r, smartbranch?, slotValue? =/= eps)
+def $lookup_result(frame, ISSET_ISEMPTY_DIM_OBJ, operand_r, n, smartbranch?, _, slotValue?) =
+  CONTINUE $comparison(frame', operand_r, smartbranch?, b)
+  -- if (frame', b) = $isset_empty(frame, $(n \ 2), $found_value(slotValue?))
+
+dec $server_result(frame, opcode, operand, nat, smartbranch?, arraykey, serverLookup) : transition
+def $server_result(frame, opcode, operand_r, n, smartbranch?, arraykey, SERVER_KNOWN slotValue?) =
+  $lookup_result(frame, opcode, operand_r, n, smartbranch?, arraykey, slotValue?)
+def $server_result(frame, opcode, operand_r, n, smartbranch?, _, SERVER_PRESENT) =
+  CONTINUE $comparison(frame, operand_r, smartbranch?, true)
+  -- if opcode = ARRAY_KEY_EXISTS \/ (opcode = ISSET_ISEMPTY_DIM_OBJ /\ $(n \ 2 = 0))
+def $server_result(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+;; Key conversions can emit warnings and deprecations before the lookup.
+dec $converted_lookup(frame, opcode, operand, nat, smartbranch?, slotValue, numericResult) : transition
+def $converted_lookup(frame, opcode, operand_r, n, smartbranch?, ARRAY_VALUE _ runtimeEntry* _ _, NUM_VALUE slotValue_key) =
+  $lookup_result(frame, opcode, operand_r, n, smartbranch?, arraykey, $array_find(runtimeEntry*, arraykey))
+  -- if arraykey = $array_key_tag(slotValue_key)
+def $converted_lookup(frame, opcode, operand_r, n, smartbranch?, CLI_ARRAY, NUM_VALUE slotValue_key) =
+  $server_result(frame, opcode, operand_r, n, smartbranch?, arraykey, $server_lookup(arraykey, frame.SCRIPT))
+  -- if arraykey = $array_key_tag(slotValue_key)
+def $converted_lookup(frame, opcode, operand_r, n, smartbranch?, slotValue, NUM_WARNING bytes numericResult) =
+  $converted_lookup($report(frame, WARNING, bytes), opcode, operand_r, n, smartbranch?, slotValue, numericResult)
+def $converted_lookup(frame, opcode, operand_r, n, smartbranch?, slotValue, NUM_DEPRECATED bytes numericResult) =
+  $converted_lookup($report(frame, DEPRECATED, bytes), opcode, operand_r, n, smartbranch?, slotValue, numericResult)
+def $converted_lookup(frame, _, _, _, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
+
+dec $scalar_query(frame, opcode, operand, nat, smartbranch?, slotValue) : transition
+;; TypeError: array_key_exists(): Argument #2 ($array) must be of type array, <type> given
+def $scalar_query(frame, ARRAY_KEY_EXISTS, _, _, _, slotValue) = $raise(frame,
+    [ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 97, 114, 114, 97, 121, 95, 107, 101, 121,
+      95, 101, 120, 105, 115, 116, 115, 40, 41, 58, 32, 65, 114, 103, 117, 109, 101, 110, 116, 32,
+      35, 50, 32, 40, 36, 97, 114, 114, 97, 121, 41, 32, 109, 117, 115, 116, 32, 98, 101, 32,
+      111, 102, 32, 116, 121, 112, 101, 32, 97, 114, 114, 97, 121, 44, 32 ]
+    ++ $value_name(slotValue) ++ [ 32, 103, 105, 118, 101, 110 ])
+;; Warning: Trying to access array offset on <type>
+def $scalar_query(frame, FETCH_DIM_R, operand_r, _, _, slotValue) =
+  CONTINUE $write($report(frame, WARNING, bytes_msg), operand_r, NULL)
+  -- if bytes_msg = [ 84, 114, 121, 105, 110, 103, 32, 116, 111, 32, 97, 99, 99, 101, 115, 115, 32,
+                        97, 114, 114, 97, 121, 32, 111, 102, 102, 115, 101, 116, 32, 111, 110, 32 ]
+      ++ $value_name(slotValue)
+def $scalar_query(frame, FETCH_DIM_IS, operand_r, _, _, _) = CONTINUE $write(frame, operand_r, NULL)
+def $scalar_query(frame, ISSET_ISEMPTY_DIM_OBJ, operand_r, n, smartbranch?, _) =
+  CONTINUE $comparison(frame, operand_r, smartbranch?, $(n \ 2 = 1))
+
+dec $array_query(frame, opcode, operand, operand, operand, nat, smartbranch?, slotValue, slotValue) : transition
+def $array_query(frame, opcode, operand_r, operand_a, operand_k, n, smartbranch?, slotValue_a, slotValue_k) =
+  $converted_lookup(frame, opcode, operand_r, n, smartbranch?, slotValue_a, $array_key(opcode, operand_k, slotValue_key))
+  -- if $is_array_value(slotValue_a)
+  -- if $known_value(slotValue_k) \/ (slotValue_k = UNDEF)
+  -- if slotValue_key = $dimension_key(opcode, operand_a, operand_k, slotValue_k)
+def $array_query(frame, opcode, operand_r, _, _, n, smartbranch?, slotValue_a, _) =
+  $scalar_query(frame, opcode, operand_r, n, smartbranch?, slotValue_a)
+  -- if $simple_value(slotValue_a) \/ (slotValue_a = UNDEF)
+  -- if opcode = ARRAY_KEY_EXISTS \/ $scalar_type_bit(slotValue_a) =/= 64
+def $array_query(frame, _, _, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+dec $dim_container(frame, opcode, operand) : (frame, slotValue)
+def $dim_container(frame, FETCH_DIM_R, operand) = $read_operand(frame, operand)
+def $dim_container(frame, opcode, operand) = (frame, $read(frame, operand)) -- if opcode =/= FETCH_DIM_R
+
+dec $count_name(nat) : bytes
+def $count_name(0) = [ 99, 111, 117, 110, 116 ]
+def $count_name(n) = [ 115, 105, 122, 101, 111, 102 ] -- if n =/= 0
+
+;; IN_ARRAY stores the haystack as a set of keys. Loose-mode tables contain
+;; string keys, compared as bytes for a string needle and by PHP equality otherwise.
+dec $in_keyset(slotValue, arraykey*, nat) : bool
+def $in_keyset(STRING bytes, arraykey*, _) = (KEY bytes) <- arraykey*
+def $in_keyset(INT i, arraykey*, n) = (INDEX i) <- arraykey* -- if n =/= 0
+def $in_keyset(slotValue, arraykey*, 0) = (KEY eps) <- arraykey*
+  -- if $nullish(slotValue) \/ (slotValue = FALSE)
+def $in_keyset(zval, (KEY bytes)*, 0) = true <- ($scalar_order(zval, STRING bytes) = 0)*
+  -- if (zval = TRUE) \/ $is_number(zval)
+def $in_keyset(_, _, _) = false -- otherwise
+
+dec $array_builtin(opcode, slotValue, arraykey*, nat) : numericResult
+def $array_builtin(COUNT, ARRAY_VALUE _ runtimeEntry* _ _, _, _) = NUM_VALUE (INT $(|runtimeEntry*|))
+;; TypeError: count()/sizeof(): Argument #1 ($value) must be of type Countable|array, <type> given
+def $array_builtin(COUNT, slotValue, _, n) = NUM_ERROR ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32 ]
+    ++ $count_name(n)
+    ++ [ 40, 41, 58, 32, 65, 114, 103, 117, 109, 101, 110, 116, 32, 35, 49, 32, 40, 36, 118, 97, 108,
+         117, 101, 41, 32, 109, 117, 115, 116, 32, 98, 101, 32, 111, 102, 32, 116, 121, 112, 101, 32,
+         67, 111, 117, 110, 116, 97, 98, 108, 101, 124, 97, 114, 114, 97, 121, 44, 32 ]
+    ++ $value_name(slotValue) ++ [ 32, 103, 105, 118, 101, 110 ])
+  -- if $simple_value(slotValue) \/ (slotValue = UNDEF)
+def $array_builtin(IN_ARRAY, slotValue, arraykey*, n) = NUM_VALUE $zend_bool($in_keyset(slotValue, arraykey*, n))
+  -- if $known_value(slotValue) \/ (slotValue = UNDEF) \/ (n =/= 0) \/ (arraykey* = eps)
+def $array_builtin(_, _, _, _) = NUM_UNSUPPORTED -- otherwise
+
+def $array_read_step(frame, opcode, operand_r, operand_a, operand_k, extension?, smartbranch?) =
+  $array_query(frame'', opcode, operand_r, operand_a, operand_k, $ext_value(extension?), smartbranch?, slotValue_a, slotValue_k)
+  -- if opcode <- [FETCH_DIM_R, FETCH_DIM_IS, ISSET_ISEMPTY_DIM_OBJ]
+  -- if (frame', slotValue_a) = $dim_container(frame, opcode, operand_a)
+  -- if slotValue_k = $read(frame', operand_k)
+  -- if (frame'', _) = $read_value(frame', operand_k, slotValue_k)
+def $array_read_step(frame, ARRAY_KEY_EXISTS, operand_r, operand_k, operand_a, _, smartbranch?) =
+  $array_query(frame'', ARRAY_KEY_EXISTS, operand_r, operand_a, operand_k, 0, smartbranch?, slotValue_a, slotValue_k)
+  -- if slotValue_k = $read(frame, operand_k)
+  -- if (frame', _) = $read_value(frame, operand_k, slotValue_k)
+  -- if (frame'', slotValue_a) = $read_operand(frame', operand_a)
+def $array_read_step(frame, ISSET_ISEMPTY_CV, operand_r, operand_a, _, extension?, smartbranch?) =
+  CONTINUE $comparison(frame', operand_r, smartbranch?, b)
+  -- if (frame', b) = $isset_empty(frame, $($ext_value(extension?) \ 2), $read(frame, operand_a))
+def $array_read_step(frame, COUNT, operand_r, operand_a, _, extension?, _) =
+  $apply_numeric(frame', operand_r, UNUSED, eps, $array_builtin(COUNT, slotValue, eps, $ext_value(extension?)))
+  -- if (frame', slotValue) = $read_operand(frame, operand_a)
+def $array_read_step(frame, IN_ARRAY, operand_r, operand_a, LIT n, extension?, smartbranch?) =
+  $apply_numeric(frame', operand_r, UNUSED, smartbranch?, $array_builtin(IN_ARRAY, slotValue, arraykey*, $ext_value(extension?)))
+  -- if (frame', slotValue) = $read_operand(frame, operand_a)
+  -- if ARRAY_VALUE _ (ITEM arraykey slotValue_entry)* _ _ = $read(frame', LIT n)

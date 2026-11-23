@@ -1,0 +1,86 @@
+syntax valueOrder = ORDER int | UNKNOWN_ORDER
+dec $value_order(bool, slotValue, slotValue) : valueOrder
+
+dec $found_order(slotValue, slotValue?) : valueOrder
+def $found_order(slotValue_l, slotValue_r) = $value_order(false, slotValue_l, slotValue_r)
+def $found_order(_, eps) = ORDER 1
+
+;; Strict comparisons use insertion order. Loose comparisons look up the left key
+;; in the right array when the entries at the same position have different keys.
+dec $entry_order(bool, runtimeEntry, runtimeEntry, runtimeEntry*) : valueOrder
+def $entry_order(b, ITEM arraykey slotValue_l, ITEM arraykey slotValue_r, _) =
+  $value_order(b, slotValue_l, slotValue_r)
+def $entry_order(true, ITEM arraykey_l _, ITEM arraykey_r _, _) = ORDER 1
+  -- if arraykey_l =/= arraykey_r
+def $entry_order(false, ITEM arraykey_l slotValue_l, ITEM arraykey_r _, runtimeEntry*) =
+  $found_order(slotValue_l, $array_find(runtimeEntry*, arraykey_l))
+  -- if arraykey_l =/= arraykey_r
+
+;; Stop at the first differing or unknown entry. Splitting the range bounds the
+;; interpreter's call depth even when coverage records each individual step.
+dec $entry_range(bool, runtimeEntry*, runtimeEntry*, nat, nat) : valueOrder
+dec $entry_rest(bool, runtimeEntry*, runtimeEntry*, nat, nat, valueOrder) : valueOrder
+def $entry_range(_, _, _, n, n) = ORDER 0
+def $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n, n_end) =
+  $entry_order(b, runtimeEntry_l*[n], runtimeEntry_r*[n], runtimeEntry_r*)
+  -- if n_end = $(n + 1)
+def $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n_start, n_end) =
+  $entry_rest(b, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end,
+              $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n_start, n_mid))
+  -- if $(n_start + 1 < n_end)
+  -- if n_mid = $((n_start + n_end) / 2)
+def $entry_rest(b, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end, ORDER 0) =
+  $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end)
+def $entry_rest(_, _, _, _, _, valueOrder) = valueOrder
+  -- if valueOrder =/= ORDER 0
+
+dec $array_order(bool, arrayId, runtimeEntry*, arrayId, runtimeEntry*) : valueOrder
+def $array_order(_, arrayId, _, arrayId, _) = ORDER 0
+def $array_order(_, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*) =
+  ORDER $int_order(|runtimeEntry_l*|, |runtimeEntry_r*|)
+  -- if arrayId_l =/= arrayId_r
+  -- if |runtimeEntry_l*| =/= |runtimeEntry_r*|
+def $array_order(b, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*) =
+  $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, 0, |runtimeEntry_l*|)
+  -- if arrayId_l =/= arrayId_r
+  -- if |runtimeEntry_l*| = |runtimeEntry_r*|
+
+;; Loose comparisons with null or a boolean use array emptiness. Arrays rank
+;; above every integer, float (including NaN), and string.
+dec $array_scalar_order(bool, slotValue, zval) : int
+def $array_scalar_order(false, slotValue, zval) = $bool_order($truth(slotValue), $truth(zval))
+  -- if $($scalar_type_bit(zval) < 16)
+def $array_scalar_order(_, _, _) = 1
+  -- otherwise
+
+;; Even with an empty environment, file-mode CLI installs the nine entries
+;; described in $server_lookup. Zend compares array sizes before any entries.
+dec $smaller_than_server(runtimeEntry*) : bool
+def $smaller_than_server(runtimeEntry*) = $(|runtimeEntry*| < 9)
+
+def $value_order(true, zval_l, zval_r) = ORDER $bool_order(~$identical_scalar(zval_l, zval_r), false)
+  -- if $simple_value(zval_l) /\ $simple_value(zval_r)
+def $value_order(false, zval_l, zval_r) = ORDER $scalar_order(zval_l, zval_r)
+  -- if $simple_value(zval_l) /\ $simple_value(zval_r)
+def $value_order(b, ARRAY_VALUE arrayId_l runtimeEntry_l* _ _, ARRAY_VALUE arrayId_r runtimeEntry_r* _ _) =
+  $array_order(b, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*)
+def $value_order(b, slotValue_l, zval_r) = ORDER $array_scalar_order(b, slotValue_l, zval_r)
+  -- if $is_array_value(slotValue_l) /\ $simple_value(zval_r)
+def $value_order(b, zval_l, slotValue_r) = ORDER $(-$array_scalar_order(b, slotValue_r, zval_l))
+  -- if $simple_value(zval_l) /\ $is_array_value(slotValue_r)
+def $value_order(_, CLI_ARRAY, CLI_ARRAY) = ORDER 0
+def $value_order(_, CLI_ARRAY, ARRAY_VALUE _ runtimeEntry* _ _) = ORDER 1
+  -- if $smaller_than_server(runtimeEntry*)
+def $value_order(_, ARRAY_VALUE _ runtimeEntry* _ _, CLI_ARRAY) = ORDER (-1)
+  -- if $smaller_than_server(runtimeEntry*)
+def $value_order(_, _, _) = UNKNOWN_ORDER
+  -- otherwise
+
+dec $comparison_result(opcode, valueOrder) : numericResult
+def $comparison_result(opcode, ORDER i) = NUM_VALUE $order_result(opcode, i)
+def $comparison_result(_, UNKNOWN_ORDER) = NUM_UNSUPPORTED
+
+dec $numeric_compare(opcode, slotValue, slotValue) : numericResult
+def $numeric_compare(opcode, slotValue_l, slotValue_r) =
+  $comparison_result(opcode, $value_order((opcode = IS_IDENTICAL) \/ (opcode = IS_NOT_IDENTICAL),
+                                         slotValue_l, slotValue_r))

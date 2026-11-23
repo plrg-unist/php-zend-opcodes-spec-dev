@@ -1,0 +1,158 @@
+;; Canonical signed-decimal spellings alone become integer array keys.
+dec $string_array_key(bytes) : zval
+def $string_array_key(bytes) = INT i
+  -- if $(|bytes| <= 20)
+  -- if bytes_digits = $sign_tail(bytes)
+  -- if $byte_span(DECIMAL_DIGIT, bytes_digits) = |bytes_digits|
+  -- if i = $($number_sign(bytes) * $decimal_magnitude(bytes_digits, 0))
+  -- if $fits_long(i) /\ $decimal(i) = bytes
+def $string_array_key(bytes) = STRING bytes
+  -- otherwise
+
+dec $null_key_message(opcode) : bytes
+;; Using null as the key parameter for array_key_exists() is deprecated, use an empty string instead
+def $null_key_message(ARRAY_KEY_EXISTS) =
+  [ 85, 115, 105, 110, 103, 32, 110, 117, 108, 108, 32, 97, 115, 32, 116, 104, 101, 32,
+    107, 101, 121, 32, 112, 97, 114, 97, 109, 101, 116, 101, 114, 32, 102, 111, 114, 32,
+    97, 114, 114, 97, 121, 95, 107, 101, 121, 95, 101, 120, 105, 115, 116, 115, 40, 41,
+    32, 105, 115, 32, 100, 101, 112, 114, 101, 99, 97, 116, 101, 100, 44, 32, 117, 115,
+    101, 32, 97, 110, 32, 101, 109, 112, 116, 121, 32, 115, 116, 114, 105, 110, 103, 32,
+    105, 110, 115, 116, 101, 97, 100 ]
+;; Using null as an array offset is deprecated, use an empty string instead
+def $null_key_message(_) =
+  [ 85, 115, 105, 110, 103, 32, 110, 117, 108, 108, 32, 97, 115, 32, 97, 110, 32, 97,
+    114, 114, 97, 121, 32, 111, 102, 102, 115, 101, 116, 32, 105, 115, 32, 100, 101, 112,
+    114, 101, 99, 97, 116, 101, 100, 44, 32, 117, 115, 101, 32, 97, 110, 32, 101, 109,
+    112, 116, 121, 32, 115, 116, 114, 105, 110, 103, 32, 105, 110, 115, 116, 101, 97, 100 ]
+  -- otherwise
+
+dec $key_error_suffix(opcode) : bytes
+def $key_error_suffix(ISSET_ISEMPTY_DIM_OBJ) = [ 32, 105, 110, 32, 105, 115, 115, 101, 116, 32, 111, 114, 32, 101, 109, 112, 116, 121 ]
+def $key_error_suffix(_) = [ 32, 111, 110, 32, 97, 114, 114, 97, 121 ]
+  -- otherwise
+
+;; TypeError: Cannot access offset of type <type> on array / in isset or empty
+dec $illegal_key(opcode, bytes) : numericResult
+def $illegal_key(opcode, bytes_type) = NUM_ERROR (
+    [ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32,
+      97, 99, 99, 101, 115, 115, 32, 111, 102, 102, 115, 101, 116, 32, 111, 102, 32, 116,
+      121, 112, 101, 32 ]
+    ++ bytes_type ++ $key_error_suffix(opcode))
+
+syntax keyOperand = LITERAL_KEY | LOCAL_KEY | TEMPORARY_KEY
+dec $key_operand(operand) : keyOperand
+def $key_operand(LIT _) = LITERAL_KEY
+def $key_operand(CV _) = LOCAL_KEY
+def $key_operand(_) = TEMPORARY_KEY
+  -- otherwise
+
+;; The VM reports an undefined-CV warning before passing UNDEF here. Only
+;; dimension reads also issue the ordinary null-key deprecation in that case.
+dec $array_key(opcode, operand, slotValue) : numericResult
+def $array_key(opcode, LIT _, STRING bytes) = NUM_VALUE (STRING bytes)
+  -- if opcode =/= ARRAY_KEY_EXISTS
+def $array_key(opcode, operand, STRING bytes) = NUM_VALUE $string_array_key(bytes)
+  -- if opcode = ARRAY_KEY_EXISTS \/ $key_operand(operand) =/= LITERAL_KEY
+def $array_key(_, _, INT i) = NUM_VALUE (INT i)
+def $array_key(_, _, FALSE) = NUM_VALUE (INT 0)
+def $array_key(_, _, TRUE) = NUM_VALUE (INT 1)
+def $array_key(_, _, FLOAT n) = $float_integer(n, true)
+def $array_key(opcode, _, NULL) = NUM_DEPRECATED ($null_key_message(opcode)) (NUM_VALUE (STRING eps))
+def $array_key(ARRAY_KEY_EXISTS, _, UNDEF) = NUM_VALUE (STRING eps)
+def $array_key(opcode, CV _, UNDEF) = NUM_VALUE (STRING eps)
+  -- if opcode = INIT_ARRAY \/ opcode = ADD_ARRAY_ELEMENT
+def $array_key(opcode, operand, UNDEF) = $illegal_key(opcode, $value_name(NULL))
+  -- if opcode = INIT_ARRAY \/ opcode = ADD_ARRAY_ELEMENT
+  -- if $key_operand(operand) =/= LOCAL_KEY
+def $array_key(opcode, _, UNDEF) = NUM_DEPRECATED ($null_key_message(opcode)) (NUM_VALUE (STRING eps))
+  -- if opcode = FETCH_DIM_R \/ opcode = FETCH_DIM_IS \/ opcode = ISSET_ISEMPTY_DIM_OBJ
+def $array_key(opcode, _, slotValue) = $illegal_key(opcode, $value_name(slotValue))
+  -- if $is_array_value(slotValue)
+
+dec $array_key_tag(slotValue) : arraykey
+def $array_key_tag(INT i) = INDEX i
+def $array_key_tag(STRING bytes) = KEY bytes
+
+dec $array_position(runtimeEntry*, arraykey) : nat
+def $array_position((ITEM arraykey_row _)*, arraykey) = $prefix_end(b*, 0, |b*|)
+  -- if b* = (arraykey =/= arraykey_row)*
+
+dec $array_find(runtimeEntry*, arraykey) : slotValue?
+def $array_find(runtimeEntry*, arraykey) = slotValue
+  -- if n = $array_position(runtimeEntry*, arraykey)
+  -- if $(n < |runtimeEntry*|)
+  -- if ITEM _ slotValue = runtimeEntry*[n]
+def $array_find(_, _) = eps
+  -- otherwise
+
+;; A fresh array starts at LONG_MIN. Explicit negative keys advance from there;
+;; appending without an integer key starts at zero. LONG_MAX saturates.
+dec $next_after_key(int, arraykey) : int
+def $next_after_key(i_next, INDEX i_key) = $(i_key + 1)
+  -- if $(i_next <= i_key) /\ $(i_key < 9223372036854775807)
+def $next_after_key(_, INDEX 9223372036854775807) = 9223372036854775807
+def $next_after_key(i, _) = i
+  -- otherwise
+
+dec $derived_next(runtimeEntry*, int) : int
+def $derived_next(eps, i) = i
+def $derived_next([ITEM arraykey _], i) = $next_after_key(i, arraykey)
+def $derived_next(runtimeEntry*, i) = $derived_next(runtimeEntry*[n_mid : n_rest], i_left)
+  -- if $(|runtimeEntry*| > 1)
+  -- if n_mid = $(|runtimeEntry*| / 2)
+  -- if n_rest = $(|runtimeEntry*| - n_mid)
+  -- if i_left = $derived_next(runtimeEntry*[0 : n_mid], i)
+
+dec $array_next(runtimeEntry*, int?) : int
+def $array_next(_, i) = i
+def $array_next(runtimeEntry*, eps) = $derived_next(runtimeEntry*, -9223372036854775808)
+
+dec $append_index(int) : int
+def $append_index(-9223372036854775808) = 0
+def $append_index(i) = i
+  -- otherwise
+
+dec $put_entry(runtimeEntry*, nat, runtimeEntry) : runtimeEntry*
+def $put_entry(runtimeEntry*, n, runtimeEntry_new) = runtimeEntry* ++ [ runtimeEntry_new ]
+  -- if n = |runtimeEntry*|
+def $put_entry(runtimeEntry*, n, runtimeEntry_new) =
+  runtimeEntry*[0 : n] ++ [runtimeEntry_new] ++ runtimeEntry*[n_after : n_count]
+  -- if $(n < |runtimeEntry*|)
+  -- if n_after = $(n + 1)
+  -- if n_count = $(|runtimeEntry*| - n_after)
+
+dec $append_entry(arrayId, runtimeEntry*, int, int, nat?, slotValue) : numericResult
+dec $array_insert(slotValue, arraykey?, slotValue) : numericResult
+def $array_insert(ARRAY_VALUE arrayId runtimeEntry* i? n?, arraykey, slotValue) =
+  NUM_VALUE (ARRAY_VALUE arrayId ($put_entry(runtimeEntry*, n_at, ITEM arraykey slotValue)) i_new n?)
+  -- if n_at = $array_position(runtimeEntry*, arraykey)
+  -- if i_new = $next_after_key($array_next(runtimeEntry*, i?), arraykey)
+def $array_insert(ARRAY_VALUE arrayId runtimeEntry* i? n?, eps, slotValue) =
+  $append_entry(arrayId, runtimeEntry*, i_key, $next_after_key(i_key, INDEX i_key), n?, slotValue)
+  -- if i_key = $append_index($array_next(runtimeEntry*, i?))
+
+;; Error: Cannot add element to the array as the next element is already occupied
+def $append_entry(_, runtimeEntry*, 9223372036854775807, _, _, _) = NUM_ERROR (
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 97, 100, 100, 32,
+    101, 108, 101, 109, 101, 110, 116, 32, 116, 111, 32, 116, 104, 101, 32, 97, 114, 114,
+    97, 121, 32, 97, 115, 32, 116, 104, 101, 32, 110, 101, 120, 116, 32, 101, 108, 101,
+    109, 101, 110, 116, 32, 105, 115, 32, 97, 108, 114, 101, 97, 100, 121, 32, 111, 99,
+    99, 117, 112, 105, 101, 100 ])
+  -- if $array_find(runtimeEntry*, INDEX 9223372036854775807) =/= eps
+def $append_entry(arrayId, runtimeEntry*, i, i_new, n?, slotValue) = NUM_VALUE
+   (ARRAY_VALUE arrayId (runtimeEntry* ++ [ITEM (INDEX i) slotValue]) i_new n?)
+  -- otherwise
+
+dec $unpack_key(arraykey) : arraykey?
+def $unpack_key(KEY bytes) = KEY bytes
+def $unpack_key(INDEX _) = eps
+
+dec $unpack_entries(numericResult, runtimeEntry*) : numericResult
+def $unpack_entries(NUM_VALUE slotValue_dst, (ITEM arraykey slotValue) :: runtimeEntry*) =
+  $unpack_entries($array_insert(slotValue_dst, $unpack_key(arraykey), slotValue), runtimeEntry*)
+def $unpack_entries(numericResult, _) = numericResult
+  -- otherwise
+
+dec $array_unpack(slotValue, slotValue) : numericResult
+def $array_unpack(slotValue_dst, ARRAY_VALUE _ runtimeEntry* _ _) =
+  $unpack_entries(NUM_VALUE slotValue_dst, runtimeEntry*)

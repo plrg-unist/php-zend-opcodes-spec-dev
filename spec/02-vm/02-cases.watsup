@@ -1,6 +1,28 @@
+;; A table shared with an ordinary literal operand exposes the signed byte
+;; offsets in Zend's relocated array. The pinned ABI uses 32 bytes per opline.
+dec $uses_dispatch_table(nat, instruction) : bool
+def $uses_dispatch_table(n, OPLINE opcode _ _ (LIT n_table) _ _ _ _ _ _ _) =
+  (n = n_table) /\ (opcode <- [ SWITCH_LONG, SWITCH_STRING, MATCH ])
+def $uses_dispatch_table(_, _) = false
+  -- otherwise
+
+dec $ordinary_array(zval, nat, nat, nat) : slotValue
+def $ordinary_array(zval, n_lit, n_end, n_end) = $runtime_value(zval, POOL_LITERAL n_lit, eps)
+def $ordinary_array(ARRAY (ENTRY arraykey (INT i_target))* i_next? n_cursor?, n_lit, n_owner, n_end) =
+  $runtime_value(ARRAY (ENTRY arraykey (INT $((i_target - n_owner) * 32)))* i_next? n_cursor?, POOL_LITERAL n_lit, eps)
+  -- if $(n_owner < n_end)
+
+def $literal_value(ARRAY arrayentry* i? n?, n_lit, instruction*) =
+  $ordinary_array(ARRAY arrayentry* i? n?, n_lit, n_owner, |instruction*|)
+  -- if b* = (~$uses_dispatch_table(n_lit, instruction))*
+  -- if n_owner = $prefix_end(b*, 0, |instruction*|)
+def $literal_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITERAL n, eps)
+def $literal_value(zval, _, _) = zval
+  -- otherwise
+
 ;; Table entries hold validated absolute instruction indices. Search exact keys,
 ;; including integer-looking byte strings, and use the default index on a miss.
-dec $table_target(arraykey, slotValue, nat) : nat
+dec $table_target(arraykey, zval, nat) : nat
 def $table_target(arraykey, ARRAY (ENTRY arraykey_row (INT n_row))* _ _, n_default) =
   (n_row* ++ [n_default])[n_position]
   -- if b* = (arraykey =/= arraykey_row)*
@@ -22,8 +44,9 @@ def $dispatch_subject(frame, opcode, operand) = (frame, $read(frame, operand))
   -- if opcode =/= MATCH
 
 dec $table_branch(frame, opcode, operand, nat, arraykey?) : frame
-def $table_branch(frame, _, operand, n_default, arraykey) =
-  frame[.PC = $table_target(arraykey, $read(frame, operand), n_default)]
+def $table_branch(frame, _, LIT n, n_default, arraykey) =
+  frame[.PC = $table_target(arraykey, zval, n_default)]
+  -- if LITERAL zval = frame.POOL[n]
 def $table_branch(frame, MATCH, _, n_default, eps) = frame[.PC = n_default]
 def $table_branch(frame, opcode, _, _, eps) = frame
   -- if opcode =/= MATCH

@@ -551,6 +551,12 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
             if (op->op2_type == IS_CONST) name_literals(r, b, op, op->op2, 1);
             break;
         }
+        case ZEND_INIT_ARRAY:
+        case ZEND_ADD_ARRAY_ELEMENT:
+            if (op->op1_type == IS_CONST && Z_ISUNDEF_P(RT_CONSTANT(op, op->op1))) {
+                invalid(r, b, op, "undef cannot be an array element");
+            }
+            break;
         case ZEND_IN_ARRAY: {
             zval *lookup = RT_CONSTANT(op, op->op2);
             if (Z_TYPE_P(lookup) != IS_ARRAY) invalid(r, b, op, "expected a lookup array");

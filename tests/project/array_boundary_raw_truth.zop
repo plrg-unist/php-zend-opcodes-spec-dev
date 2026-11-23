@@ -1,0 +1,46 @@
+zend-opcodes
+file "raw_truth.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  size 29 literals 7 children 0
+  lit[0] = ast(constant(0 1 "SUBJECT"))
+  lit[1] = true
+  lit[2] = "F"
+  lit[3] = "wrong"
+  lit[4] = "\x0a"
+  lit[5] = undef
+  lit[6] = "|"
+  code
+    0: T0 = BOOL_XOR lit[0], lit[1] | line=1
+    1: ECHO T0 | line=1
+    2: T0 = BOOL_XOR lit[1], lit[0] | line=1
+    3: ECHO T0 | line=1
+    4: T0 = BOOL_NOT lit[0] | line=1
+    5: ECHO T0 | line=1
+    6: T0 = BOOL_NOT lit[5] | line=2
+    7: ECHO T0 | line=2
+    8: T0 = JMPNZ_EX lit[0], @11 | line=2
+    9: ECHO lit[2] | line=2
+    10: JMP @12 | line=2
+    11: ECHO lit[3] | line=2
+    12: ECHO lit[4] | line=2
+    13: T0 = TYPE_CHECK lit[0] | line=3 ext=128
+    14: ECHO T0 | line=3
+    15: ECHO lit[6] | line=3
+    16: T0 = TYPE_CHECK lit[0] | line=3 ext=2048
+    17: ECHO T0 | line=3
+    18: ECHO lit[6] | line=3
+    19: T0 = GET_TYPE lit[0] | line=3
+    20: ECHO T0 | line=3
+    21: ECHO lit[6] | line=3
+    22: T0 = GET_TYPE lit[5] | line=3
+    23: ECHO T0 | line=3
+    24: ECHO lit[6] | line=3
+    25: T0 = TYPE_CHECK lit[5] | line=3 ext=1
+    26: ECHO T0 | line=3
+    27: ECHO lit[4] | line=3
+    28: RETURN lit[1] | line=3
+}
+end

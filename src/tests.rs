@@ -524,8 +524,11 @@ fn execution_checks_jump_tables() {
 fn execution_checks_array_operands_and_dimension_keys() {
     let template = BRANCH_AND_ARRAY
         .replace("frame 0", "frame 3")
-        .replace("literals 2", "literals 4")
-        .replace("  code", "  lit[2] = int(0)\n  lit[3] = \"0\"\n  code");
+        .replace("literals 2", "literals 5")
+        .replace(
+            "  code",
+            "  lit[2] = int(0)\n  lit[3] = \"0\"\n  lit[4] = undef\n  code",
+        );
     let mut arena = Arena::new();
     let mut validate = |row: &str| {
         let text = template.replace("ASSIGN CV0, lit[0] | line=7", row);
@@ -536,6 +539,8 @@ fn execution_checks_array_operands_and_dimension_keys() {
     for row in [
         "T1 = INIT_ARRAY | ext=2",
         "T1 = INIT_ARRAY V2, CV0 | ext=9",
+        "T1 = INIT_ARRAY CV0, lit[4]",
+        "T1 = ADD_ARRAY_ELEMENT lit[2], lit[4]",
         "T1 = ADD_ARRAY_ELEMENT CV0 | ext=1",
         "T1 = ADD_ARRAY_UNPACK V2",
         "V1 = FETCH_DIM_R V2, T3",
@@ -550,6 +555,8 @@ fn execution_checks_array_operands_and_dimension_keys() {
     }
     for row in [
         "T1 = INIT_ARRAY CV0, V2",
+        "T1 = INIT_ARRAY lit[4]",
+        "T1 = ADD_ARRAY_ELEMENT lit[4], lit[2]",
         "T1 = ADD_ARRAY_ELEMENT",
         "T1 = ADD_ARRAY_ELEMENT CV0, V2",
         "T1 = ADD_ARRAY_UNPACK",

@@ -1,0 +1,51 @@
+zend-opcodes
+file "cli.php"
+main
+body - {
+  lines 1 7
+  frame 6 cache 0
+  locals 4 ["path", "argv", "known", "_SERVER"]
+  size 20 literals 18 children 0
+  lit[0] = "C"
+  lit[1] = int(0)
+  lit[2] = "PHP_SELF"
+  lit[3] = "SCRIPT_NAME"
+  lit[4] = "SCRIPT_FILENAME"
+  lit[5] = "PATH_TRANSLATED"
+  lit[6] = ""
+  lit[7] = "DOCUMENT_ROOT"
+  lit[8] = int(1)
+  lit[9] = "argc"
+  lit[10] = "argv"
+  lit[11] = int(0)
+  lit[12] = "REQUEST_TIME"
+  lit[13] = float(0)
+  lit[14] = "REQUEST_TIME_FLOAT"
+  lit[15] = "equal"
+  lit[16] = "different"
+  lit[17] = int(1)
+  ranges 1
+  live T6 kind 0 @4 @12
+  code
+    0: ECHO lit[0] | line=2
+    1: T4 = FETCH_DIM_R CV1, lit[1] | line=3
+    2: ASSIGN CV0, T4 | line=3
+    3: T6 = INIT_ARRAY CV0, lit[2] | line=4 ext=38
+    4: T6 = ADD_ARRAY_ELEMENT CV0, lit[3] | line=4
+    5: T6 = ADD_ARRAY_ELEMENT CV0, lit[4] | line=4
+    6: T6 = ADD_ARRAY_ELEMENT CV0, lit[5] | line=4
+    7: T6 = ADD_ARRAY_ELEMENT lit[6], lit[7] | line=5
+    8: T6 = ADD_ARRAY_ELEMENT lit[8], lit[9] | line=5
+    9: T6 = ADD_ARRAY_ELEMENT CV1, lit[10] | line=5
+    10: T6 = ADD_ARRAY_ELEMENT lit[11], lit[12] | line=5
+    11: T6 = ADD_ARRAY_ELEMENT lit[13], lit[14] | line=5
+    12: ASSIGN CV2, T6 | line=4
+    13: T8 = IS_EQUAL CV3, CV2 | line=6 smart=JMPZ
+    14: JMPZ T8, @17 | line=6
+    15: T9 = QM_ASSIGN lit[15] | line=6
+    16: JMP @18 | line=6
+    17: T9 = QM_ASSIGN lit[16] | line=6
+    18: ECHO T9 | line=6
+    19: RETURN lit[17] | line=7 ext=4294967295
+}
+end

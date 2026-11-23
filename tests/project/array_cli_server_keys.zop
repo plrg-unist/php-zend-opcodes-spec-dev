@@ -1,0 +1,93 @@
+zend-opcodes
+file "cli.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  locals 2 ["_SERVER", "argv"]
+  size 58 literals 24 children 0
+  lit[0] = "PHP_SELF"
+  lit[1] = "SCRIPT_NAME"
+  lit[2] = "SCRIPT_FILENAME"
+  lit[3] = "PATH_TRANSLATED"
+  lit[4] = "DOCUMENT_ROOT"
+  lit[5] = "argc"
+  lit[6] = "argv"
+  lit[7] = "REQUEST_TIME"
+  lit[8] = "REQUEST_TIME_FLOAT"
+  lit[9] = ""
+  lit[10] = "has space"
+  lit[11] = "bad["
+  lit[12] = "a\x00b"
+  lit[13] = "bad.name"
+  lit[14] = "="
+  lit[15] = "1"
+  lit[16] = "\x0a"
+  lit[17] = ":"
+  lit[18] = int(0)
+  lit[19] = int(1)
+  lit[20] = array()
+  lit[21] = array(0 => int(1))
+  lit[22] = false
+  lit[23] = true
+  code
+    0: ASSIGN CV1, lit[19] | line=1
+    1: T2 = FETCH_DIM_R CV0, lit[0] | line=1
+    2: ECHO T2 | line=1
+    3: ECHO lit[16] | line=1
+    4: T2 = FETCH_DIM_R CV0, lit[1] | line=1
+    5: ECHO T2 | line=1
+    6: ECHO lit[16] | line=1
+    7: T2 = FETCH_DIM_R CV0, lit[2] | line=1
+    8: ECHO T2 | line=1
+    9: ECHO lit[16] | line=1
+    10: T2 = FETCH_DIM_R CV0, lit[3] | line=1
+    11: ECHO T2 | line=1
+    12: ECHO lit[16] | line=1
+    13: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[4] | line=1 ext=1
+    14: ECHO T2 | line=1
+    15: T2 = FETCH_DIM_R CV0, lit[5] | line=1
+    16: ECHO T2 | line=1
+    17: T2 = FETCH_DIM_R CV0, lit[6] | line=1
+    18: T3 = FETCH_DIM_R T2, lit[18] | line=1
+    19: ECHO T3 | line=1
+    20: ECHO lit[16] | line=1
+    21: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[7] | line=1
+    22: ECHO T2 | line=1
+    23: T2 = ARRAY_KEY_EXISTS lit[8], CV0 | line=1
+    24: ECHO T2 | line=1
+    25: ECHO lit[16] | line=1
+    26: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[9] | line=1 ext=1
+    27: ECHO T2 | line=1
+    28: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[10] | line=1 ext=1
+    29: ECHO T2 | line=1
+    30: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[11] | line=1 ext=1
+    31: ECHO T2 | line=1
+    32: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[12] | line=1 ext=1
+    33: ECHO T2 | line=1
+    34: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[13] | line=1 ext=1
+    35: ECHO T2 | line=1
+    36: T2 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[14] | line=1 ext=1
+    37: ECHO T2 | line=1
+    38: ECHO lit[16] | line=1
+    39: T2 = FETCH_DIM_R CV0, lit[15] | line=1
+    40: ECHO T2 | line=1
+    41: T2 = IS_IDENTICAL CV0, CV0 | line=1
+    42: ECHO T2 | line=1
+    43: ECHO lit[17] | line=1
+    44: T2 = IS_EQUAL CV0, lit[20] | line=1
+    45: ECHO T2 | line=1
+    46: ECHO lit[17] | line=1
+    47: T2 = SPACESHIP CV0, lit[21] | line=1
+    48: ECHO T2 | line=1
+    49: ECHO lit[17] | line=1
+    50: T2 = IS_EQUAL CV0, lit[22] | line=1
+    51: ECHO T2 | line=1
+    52: ECHO lit[17] | line=1
+    53: T2 = IS_EQUAL CV0, lit[23] | line=1
+    54: ECHO T2 | line=1
+    55: ECHO lit[17] | line=1
+    56: ECHO lit[16] | line=1
+    57: RETURN lit[19] | line=1
+}
+end

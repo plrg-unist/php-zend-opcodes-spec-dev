@@ -383,6 +383,11 @@ impl<'a> Instruction<'a> {
             }
         }
         match (name, result, left) {
+            ("INIT_ARRAY" | "ADD_ARRAY_ELEMENT", _, Operand::Literal(n))
+                if layout.literal_tag(arena, n)? == "UNDEF" =>
+            {
+                return Err(Error::new("undef cannot be an array element"));
+            }
             ("JMP_NULL", _, _) if extended_value & 3 == 3 => {
                 return Err(Error::new("invalid nullsafe chain mode"));
             }

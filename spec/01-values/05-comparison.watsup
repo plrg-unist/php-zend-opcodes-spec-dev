@@ -99,19 +99,9 @@ def $identical_scalar(zval_l, zval_r) = zval_l = zval_r
 
 dec $order_result(opcode, int) : zval
 def $order_result(SPACESHIP, i) = INT i
-def $order_result(IS_EQUAL, i) = $zend_bool(i = 0)
-def $order_result(IS_NOT_EQUAL, i) = $zend_bool(i =/= 0)
+def $order_result(opcode, i) = $zend_bool(i = 0)
+  -- if opcode = IS_EQUAL \/ opcode = IS_IDENTICAL
+def $order_result(opcode, i) = $zend_bool(i =/= 0)
+  -- if opcode = IS_NOT_EQUAL \/ opcode = IS_NOT_IDENTICAL
 def $order_result(IS_SMALLER, i) = $zend_bool($(i < 0))
 def $order_result(IS_SMALLER_OR_EQUAL, i) = $zend_bool($(i <= 0))
-
-dec $scalar_compare_value(opcode, zval, zval) : zval
-def $scalar_compare_value(opcode, zval_l, zval_r) = $zend_bool($identical_scalar(zval_l, zval_r) = (opcode = IS_IDENTICAL))
-  -- if opcode = IS_IDENTICAL \/ opcode = IS_NOT_IDENTICAL
-def $scalar_compare_value(opcode, zval_l, zval_r) = $order_result(opcode, $scalar_order(zval_l, zval_r))
-  -- if opcode =/= IS_IDENTICAL /\ opcode =/= IS_NOT_IDENTICAL
-
-dec $numeric_compare(opcode, slotValue, slotValue) : numericResult
-def $numeric_compare(opcode, zval_l, zval_r) = NUM_VALUE $scalar_compare_value(opcode, zval_l, zval_r)
-  -- if $simple_value(zval_l) /\ $simple_value(zval_r)
-def $numeric_compare(_, _, _) = NUM_UNSUPPORTED
-  -- otherwise
