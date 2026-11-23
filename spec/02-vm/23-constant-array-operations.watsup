@@ -25,18 +25,23 @@ def $expr_offset_result(frame, opcode, ARRAY_VALUE _ runtimeEntry* _ _, NUM_VALU
   -- if (frame', slotValue) = $read_array_entry(frame, opcode, arraykey, $array_find(runtimeEntry*, arraykey))
 def $expr_offset_result(frame, opcode, STRING bytes, NUM_VALUE slotValue_key) = (frame', NUM_VALUE slotValue)
   -- if (frame', slotValue) = $read_offset_byte(frame, opcode, slotValue_key, $string_byte(bytes, slotValue_key))
+def $expr_offset_result(frame, _, HOST_OFFSET _, NUM_VALUE NULL) = (frame, NUM_VALUE NULL)
+def $expr_offset_result(frame, _, HOST_OFFSET _, NUM_VALUE (INT _)) = (frame, NUM_UNSUPPORTED)
 def $expr_offset_result(frame, _, _, NUM_ERROR bytes) = (frame, NUM_ERROR bytes)
 
 dec $expr_read_offset(frame, opcode, slotValue, slotValue) : (frame, numericResult)
 def $expr_read_offset(frame, opcode, slotValue_array, slotValue_key) =
   $expr_offset_result(frame', opcode, slotValue_array, numericResult)
-  -- if $is_array_value(slotValue_array)
+  -- if $is_array_value(slotValue_array) /\ $known_value(slotValue_key)
   -- if (frame', numericResult) = $dimension_diagnostics(frame, $array_key(opcode, TMP 0, slotValue_key))
-def $expr_read_offset(frame, opcode, STRING bytes, slotValue_key) =
-  $expr_offset_result(frame', opcode, STRING bytes, numericResult)
+def $expr_read_offset(frame, opcode, slotValue_subject, slotValue_key) =
+  $expr_offset_result(frame', opcode, slotValue_subject, numericResult)
+  -- if [STRING _] = $host_type_values(slotValue_subject)
+  -- if $known_value(slotValue_key)
   -- if (frame', numericResult) = $dimension_diagnostics(frame, $string_offset(opcode, slotValue_key))
 def $expr_read_offset(frame, opcode, slotValue, _) = ($scalar_offset_frame(frame, opcode, slotValue), NUM_VALUE NULL)
-  -- if ~$is_array_value(slotValue) /\ $scalar_type_bit(slotValue) =/= 64
+  -- if $simple_value(slotValue) /\ $scalar_type_bit(slotValue) =/= 64
+def $expr_read_offset(frame, _, _, _) = (frame, NUM_UNSUPPORTED) -- otherwise
 
 def $expr_dimension(frame, n, slotValue, slotValue_key) = $expr_read_offset(frame, opcode_modes*[n], slotValue, slotValue_key)
   -- if opcode_modes* = [FETCH_DIM_R, FETCH_DIM_IS]
@@ -46,4 +51,7 @@ def $expr_property(frame, slotValue_subject, slotValue_key) =
   ($report($string_frame(frame, slotValue_key), WARNING,
     [ 65, 116, 116, 101, 109, 112, 116, 32, 116, 111, 32, 114, 101, 97, 100, 32, 112, 114,
       111, 112, 101, 114, 116, 121, 32, 34 ] ++ $scalar_bytes(slotValue_key) ++ [ 34, 32, 111, 110, 32 ]
-      ++ $value_name(slotValue_subject)), NUM_VALUE NULL)
+      ++ $value_name(slotValue_type)), NUM_VALUE NULL)
+  -- if [slotValue_type] = $host_type_values(slotValue_subject)
+  -- if $known_value(slotValue_key)
+def $expr_property(frame, _, _) = (frame, NUM_UNSUPPORTED) -- otherwise

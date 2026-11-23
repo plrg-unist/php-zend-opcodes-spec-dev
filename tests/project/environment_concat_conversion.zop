@@ -1,0 +1,25 @@
+zend-opcodes
+file "environment_concat.php"
+autoglobal "_ENV"
+main
+body - {
+  lines 1 6
+  frame 4 cache 0
+  locals 2 ["value", "array"]
+  size 8 literals 5 children 0
+  lit[0] = "_ENV"
+  lit[1] = "ZEND_OPCODES_TEST_PROFILE"
+  lit[2] = array(0 => int(1))
+  lit[3] = "env|"
+  lit[4] = int(1)
+  code
+    0: V2 = FETCH_W lit[0] | line=2 ext=2
+    1: V3 = FETCH_DIM_W V2, lit[1] | line=2 ext=1
+    2: ASSIGN_REF CV0, V3 | line=2
+    3: ASSIGN CV1, lit[2] | line=3
+    4: ECHO lit[3] | line=4
+    5: T5 = CONCAT CV0, CV1 | line=5
+    6: ECHO T5 | line=5
+    7: RETURN lit[4] | line=6 ext=4294967295
+}
+end

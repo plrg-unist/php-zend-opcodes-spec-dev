@@ -2,7 +2,7 @@
 ;; line and PC for diagnostics until both rows have finished.
 syntax dimensionWrite = { OP opcode, DEST operand, KEY operand, RHS operand, RESULT operand, EXT nat }
 
-relation StringDimensionWrite: frame; opcode; operand; operand; operand; operand; bytes ~> transition
+relation StringDimensionWrite: frame; opcode; operand; operand; operand; operand; bytes? ~> transition
   hint(input %0 %1 %2 %3 %4 %5 %6)
 
 ;; Automatic conversion of false to array is deprecated
@@ -184,7 +184,7 @@ def $write_key_notice(frame, operand) = frame'
 
 dec $invalid_dimension_scalar(slotValue) : bool
 def $invalid_dimension_scalar(slotValue) =
-  ~$is_array_value(slotValue) /\ $scalar_type_bit(slotValue) =/= 64
+  ~$is_array_value(slotValue) /\ $scalar_type_bit($container_type(slotValue)) =/= 64
   /\ ~$nullish(slotValue) /\ slotValue =/= FALSE
 
 dec $unset_scalar_dimension(frame, slotValue) : transition
@@ -218,6 +218,10 @@ def $write_container(frame, dimensionWrite, slotValue_server) =
 def $write_container(frame, dimensionWrite, STRING bytes) = transition
   -- StringDimensionWrite: frame; dimensionWrite.OP; dimensionWrite.RESULT; dimensionWrite.DEST;
        dimensionWrite.KEY; dimensionWrite.RHS; bytes ~> transition
+def $write_container(frame, dimensionWrite, slotValue) = transition
+  -- if $opaque_string(slotValue)
+  -- StringDimensionWrite: frame; dimensionWrite.OP; dimensionWrite.RESULT; dimensionWrite.DEST;
+       dimensionWrite.KEY; dimensionWrite.RHS; eps ~> transition
 def $write_container(frame, dimensionWrite, slotValue) =
   $write_array_dimension($assign(frame'', dimensionWrite.DEST, slotValue_new), dimensionWrite, slotValue_new)
   -- if dimensionWrite.OP =/= UNSET_DIM
@@ -228,7 +232,7 @@ def $write_container(frame, dimensionWrite, slotValue) =
 def $write_container(frame, dimensionWrite, slotValue) =
   $unset_scalar_dimension($write_key_notice(frame, dimensionWrite.KEY), slotValue)
   -- if dimensionWrite.OP = UNSET_DIM
-  -- if ~$is_array_value(slotValue) /\ $scalar_type_bit(slotValue) =/= 64
+  -- if ~$is_array_value(slotValue) /\ $scalar_type_bit($container_type(slotValue)) =/= 64
 def $write_container(frame, dimensionWrite, slotValue) = $scalar_array_error(frame)
   -- if dimensionWrite.OP = ASSIGN_DIM
   -- if $invalid_dimension_scalar(slotValue)
@@ -250,7 +254,7 @@ def $after_dimension_data(CONTINUE frame, operand_v, operand_r) =
 def $after_dimension_data(FINISH outcome, _, _) = FINISH outcome
 
 def $dimension_write_step(frame, UNSET_DIM, _, operand_a, operand_k, _) =
-  $write_container(frame', { OP UNSET_DIM, DEST operand_a, KEY operand_k, RHS UNUSED, RESULT UNUSED, EXT 0 }, slotValue)
+  $write_container(frame', { OP UNSET_DIM, DEST operand_a, KEY operand_k, RHS UNUSED, RESULT UNUSED, EXT 0 }, $container_type(slotValue))
   -- if slotValue = $read(frame, operand_a)
   -- if frame' = $dimension_container_notice(frame, UNSET_DIM, operand_a, slotValue)
 def $dimension_write_step(frame, opcode, operand_r, operand_a, operand_k, n) =

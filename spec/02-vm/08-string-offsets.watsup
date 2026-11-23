@@ -13,12 +13,11 @@ def $original_string_key(_, _, _, _, slotValue) = slotValue -- otherwise
 ;; be used. Context zero supplies no error for a successfully converted key.
 def $defined_dimension_context(_, _, UNUSED, _) = true
 def $defined_dimension_context(frame, operand_a, operand_k, n) =
-  n =/= 0 \/ $scalar_type_bit($read(frame, operand_a)) =/= 64 \/ $invalid_string_offset($read(frame, operand_k))
+  n =/= 0 \/ $scalar_type_bit($container_type($read(frame, operand_a))) =/= 64 \/ $invalid_string_offset($read(frame, operand_k))
   -- if operand_k =/= UNUSED
 
 syntax offsetAction =
-  | READ_OFFSET opcode operand nat smartbranch? bytes
-  | WRITE_OFFSET operand operand operand bytes
+  | WRITE_OFFSET operand operand operand bytes?
   | REJECT_OFFSET opcode nat
 dec $wrong_offset_error(opcode, nat) : bytes
 
@@ -48,7 +47,7 @@ def $first_byte_frame(frame, _ :: _) =
         32, 116, 111, 32, 116, 104, 101, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101,
         116 ])
 
-dec $store_string_byte(frame, operand, operand, bytes, nat, bytes) : transition
+dec $store_string_byte(frame, operand, operand, bytes?, nat, bytes) : transition
 ;; Error: Cannot assign an empty string to a string offset
 def $store_string_byte(frame, _, _, _, _, eps) = $raise(frame,
     [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 97, 115, 115, 105, 103, 110, 32,
@@ -58,13 +57,21 @@ def $store_string_byte(frame, operand_r, operand_a, bytes, n, n_byte :: bytes_ta
   CONTINUE $write($assign(frame', operand_a, STRING $replace_offset(bytes, n, n_byte)), operand_r, STRING (n_byte :: eps))
   -- if frame' = $first_byte_frame(frame, bytes_tail)
 
+def $store_string_byte(frame, _, _, eps, _, _ :: bytes_tail) = FINISH (UNSUPPORTED frame'.STDOUT eps)
+  -- if frame' = $first_byte_frame(frame, bytes_tail)
+
+;; A nonnegative position always reaches the RHS. Negative positions require the length first.
+dec $write_unknown_string(frame, operand, operand, operand, int) : transition
+def $write_unknown_string(frame, operand_r, operand_a, operand_v, i) =
+  $store_string_byte(frame', operand_r, operand_a, eps, n, bytes_rhs)
+  -- if n = i
+  -- StringOperand: frame; operand_v ~> frame'; bytes_rhs
+def $write_unknown_string(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
 ;; Diagnose the key before touching the right operand. A write before the beginning
 ;; returns null without fetching the value. Other writes convert it to bytes here.
 relation ApplyStringOffset: frame; offsetAction; numericResult ~> transition
   hint(input %0 %1 %2)
-rule ApplyStringOffset/read:
-  frame; (READ_OFFSET opcode operand_r n smartbranch? bytes); (NUM_VALUE slotValue) ~>
-    $read_string_byte(frame, opcode, operand_r, n, smartbranch?, slotValue, $string_byte(bytes, slotValue))
 ;; Illegal string offset …
 rule ApplyStringOffset/before-start:
   frame; (WRITE_OFFSET operand_r _ _ bytes); (NUM_VALUE (INT i)) ~>
@@ -79,15 +86,31 @@ rule ApplyStringOffset/write:
   -- if $(i_pos >= 0)
   -- if n = i_pos
   -- StringOperand: frame; operand_v ~> frame'; bytes_rhs
+rule ApplyStringOffset/unknown-string:
+  frame; (WRITE_OFFSET operand_r operand_a operand_v eps); (NUM_VALUE (INT i)) ~>
+    $write_unknown_string(frame, operand_r, operand_a, operand_v, i)
 rule ApplyStringOffset/reject:
   frame; (REJECT_OFFSET opcode n); (NUM_VALUE _) ~> $raise(frame, $wrong_offset_error(opcode, n))
 rule ApplyStringOffset/invalid-key:
   frame; _; (NUM_ERROR bytes) ~> $raise(frame, bytes)
 
-def $query_string_offset(frame, opcode, operand_r, operand_a, operand_k, n, smartbranch?, bytes, slotValue) = transition
+dec $read_offset_key(opcode, slotValue) : numericResult
+def $read_offset_key(_, HOST_OFFSET _) = NUM_UNSUPPORTED
+def $read_offset_key(opcode, slotValue) = $string_offset(opcode, slotValue)
+  -- if ~$host_offset(slotValue)
+
+dec $read_offset_result(frame, opcode, operand, nat, smartbranch?, bytes?, numericResult) : transition
+def $read_offset_result(frame, _, _, _, _, _, NUM_ERROR bytes_msg) = $raise(frame, bytes_msg)
+def $read_offset_result(frame, opcode, operand_r, n, smartbranch?, _, NUM_VALUE NULL) =
+  $read_string_byte(frame, opcode, operand_r, n, smartbranch?, NULL, NULL)
+def $read_offset_result(frame, opcode, operand_r, n, smartbranch?, bytes, NUM_VALUE (INT i)) =
+  $read_string_byte(frame, opcode, operand_r, n, smartbranch?, INT i, $string_byte(bytes, INT i))
+def $read_offset_result(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
+def $query_string_offset(frame, opcode, operand_r, operand_a, operand_k, n, smartbranch?, bytes?, slotValue) =
+  $read_offset_result(frame', opcode, operand_r, n, smartbranch?, bytes?, numericResult)
   -- if slotValue_key = $original_string_key(frame, opcode, operand_a, operand_k, slotValue)
-  -- if (frame', numericResult) = $dimension_diagnostics(frame, $string_offset(opcode, slotValue_key))
-  -- ApplyStringOffset: frame'; (READ_OFFSET opcode operand_r n smartbranch? bytes); numericResult ~> transition
+  -- if (frame', numericResult) = $dimension_diagnostics(frame, $read_offset_key(opcode, slotValue_key))
 
 ;; Error: Cannot use assign-op operators with string offsets
 def $wrong_offset_error(ASSIGN_DIM_OP, _) =
@@ -136,12 +159,12 @@ def $string_dimension_fetch(frame, opcode, operand_k, n) = transition
 rule StringDimensionWrite/append:
   frame; ASSIGN_DIM; _; _; UNUSED; _; _ ~> $raise(frame, $string_append_error())
 rule StringDimensionWrite/assign:
-  frame; ASSIGN_DIM; operand_r; operand_a; operand_k; operand_v; bytes ~> transition
+  frame; ASSIGN_DIM; operand_r; operand_a; operand_k; operand_v; bytes? ~> transition
   -- if operand_k =/= UNUSED
   -- if $location_input(frame, operand_k)
   -- if (frame', slotValue) = $read_operand(frame, operand_k)
   -- if (frame'', numericResult) = $dimension_diagnostics(frame', $string_offset(ASSIGN_DIM, slotValue))
-  -- ApplyStringOffset: frame''; (WRITE_OFFSET operand_r operand_a operand_v bytes); numericResult ~> transition
+  -- ApplyStringOffset: frame''; (WRITE_OFFSET operand_r operand_a operand_v bytes?); numericResult ~> transition
 rule StringDimensionWrite/compound:
   frame; ASSIGN_DIM_OP; _; _; operand_k; _; _ ~> $string_dimension_fetch(frame, ASSIGN_DIM_OP, operand_k, 0)
   -- if $location_input(frame, operand_k)

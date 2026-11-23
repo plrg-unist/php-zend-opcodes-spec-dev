@@ -67,12 +67,16 @@ def $binary_operation(frame, b_inplace, ADD, slotValue_l, slotValue_h) =
   -- if (frame', numericResult) = $array_union(frame, b_inplace, slotValue_l, slotValue_h)
 ;; The left operand has been converted by $concat_values. In-place
 ;; concatenation of a variable with itself reuses that conversion.
+dec $joined_bytes(slotValue, slotValue) : numericResult
+def $joined_bytes(slotValue_l, slotValue_r) = NUM_VALUE (STRING ($scalar_bytes(slotValue_l) ++ $scalar_bytes(slotValue_r)))
+  -- if $known_value(slotValue_l) /\ $known_value(slotValue_r)
+def $joined_bytes(_, _) = NUM_UNSUPPORTED -- otherwise
+
 def $binary_operation(frame, true, CONCAT, slotValue, _) = (frame, NUM_VALUE (STRING (bytes ++ bytes)))
   -- if $known_value(slotValue)
   -- if bytes = $scalar_bytes(slotValue)
 def $binary_operation(frame, false, CONCAT, slotValue_l, slotValue_h) =
-  ($string_frame(frame, slotValue_h), NUM_VALUE (STRING ($scalar_bytes(slotValue_l) ++ $scalar_bytes(slotValue_h))))
-  -- if $known_value(slotValue_l) /\ $known_value(slotValue_h)
+  ($string_frame(frame, slotValue_h), $joined_bytes(slotValue_l, slotValue_h))
 def $binary_operation(frame, _, opcode, slotValue_l, slotValue_h) =
   (frame, $operate(binaryKind, opcode, slotValue_l, slotValue_h, frame))
   -- if binaryKind = $binary_kind(opcode)
