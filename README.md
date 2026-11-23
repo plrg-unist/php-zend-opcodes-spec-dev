@@ -1,6 +1,6 @@
 # PHP Zend Opcode Specification
 
-The PHP extension prints compiled PHP as a `.zop` listing and loads listings into Zend. The Rust library converts between listings and the compilation-unit AST. The `zend-opcodes` executable runs the supported main-body instructions using P4-SpecTec. [Design choices](design-docs/README.md) · [Syntax](spec/syntax.watsup) · [Execution rules](spec/vm.watsup)
+The PHP extension prints compiled PHP as a `.zop` listing and loads listings into Zend. The Rust library converts between listings and the compilation-unit AST. The `zend-opcodes` executable runs the supported main-body instructions using P4-SpecTec. [Intentional discrepancies and foreign calls](design-docs/README.md) · [Syntax](spec/syntax.watsup) · [Execution rules](spec/vm.watsup)
 
 ## Build and test
 

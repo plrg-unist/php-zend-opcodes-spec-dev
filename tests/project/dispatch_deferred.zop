@@ -1,0 +1,25 @@
+zend-opcodes
+file "dispatch.php"
+main
+body - {
+  lines 1 4
+  frame 0 cache 0
+  size 7 literals 8 children 0
+  lit[0] = ast(constant(0 1 "SUBJECT"))
+  lit[1] = array(1 => int(1), "SUBJECT" => int(1))
+  lit[2] = array("SUBJECT" => int(4))
+  lit[3] = array(1 => int(6))
+  lit[4] = "!"
+  lit[5] = "s"
+  lit[6] = "i"
+  lit[7] = int(1)
+  code
+    0: MATCH lit[0], lit[1] | line=1 ext=@2
+    1: ECHO lit[4] | line=1
+    2: SWITCH_STRING lit[0], lit[2] | line=2 ext=@4
+    3: ECHO lit[5] | line=2
+    4: SWITCH_LONG lit[0], lit[3] | line=3 ext=@6
+    5: ECHO lit[6] | line=3
+    6: RETURN lit[7] | line=4
+}
+end

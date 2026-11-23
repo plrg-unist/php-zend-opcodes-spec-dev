@@ -1,0 +1,45 @@
+zend-opcodes
+file "branch_undefined_slots.php"
+main
+body - {
+  lines 1 8
+  frame 1 cache 0
+  locals 5 ["missing", "zero", "nonzero", "nullish", "result"]
+  size 30 literals 4 children 0
+  lit[0] = "!"
+  lit[1] = "+"
+  lit[2] = "\x0a"
+  lit[3] = null
+  code
+    0: CV4 = JMPZ_EX CV0, @2 | line=1
+    1: ECHO lit[0] | line=1
+    2: CV1 = JMPZ_EX CV1, @4 | line=1
+    3: ECHO lit[0] | line=1
+    4: CV4 = JMPNZ_EX CV0, @6 | line=2
+    5: ECHO lit[1] | line=2
+    6: CV2 = JMPNZ_EX CV2, @8 | line=2
+    7: ECHO lit[1] | line=2
+    8: CV4 = JMP_NULL CV0, @10 | line=3 ext=8
+    9: ECHO lit[0] | line=3
+    10: CV3 = JMP_NULL CV3, @12 | line=3
+    11: ECHO lit[0] | line=3
+    12: CV0 = JMP_SET CV0, @14 | line=4
+    13: ECHO lit[1] | line=4
+    14: CV4 = JMP_NULL CV0, @16 | line=5 ext=1
+    15: ECHO lit[0] | line=5
+    16: T5 = GET_TYPE CV4 | line=5
+    17: ECHO T5 | line=5
+    18: ECHO CV4 | line=5
+    19: CV4 = JMP_NULL CV0, @21 | line=6 ext=2
+    20: ECHO lit[0] | line=6
+    21: T5 = GET_TYPE CV4 | line=6
+    22: ECHO T5 | line=6
+    23: ECHO CV4 | line=6
+    24: CV4 = COALESCE CV0, @26 | line=7
+    25: ECHO lit[1] | line=7
+    26: T5 = GET_TYPE CV3 | line=8
+    27: ECHO T5 | line=8
+    28: ECHO lit[2] | line=8
+    29: RETURN lit[3] | line=8
+}
+end

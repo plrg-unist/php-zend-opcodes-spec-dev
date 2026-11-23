@@ -20,9 +20,17 @@ Introduce project-defined versioning only at the user's request. Supply version 
 - Use Python's standard library by default. Make scripts executable, use type hints and keep comments minimal. If a third-party package would significantly simplify the implementation, explain what it would simplify and discuss dependency management with the user before adopting it.
 - Discuss any additional build or runtime dependency the native extension needs before adding it.
 
+## Human-facing design records
+
+Keep the [design index](../design-docs/README.md) limited to two subjects unless the user changes its scope.
+
+- **Intentional discrepancies.** An empty register needs only a one-line status in the index. Link a dedicated register when the first user-approved abstraction changes observable behavior in the implementation. For each entry, give the program and input, the differing stdout bytes, stderr bytes or exit status on both sides, the approved rationale, and a link to the regression case. Obtain the user's approval before implementing any such difference. [Approval policy](semantics-scope.md#choosing-what-to-model) · [Differential test expectations](differential-testing.md#spec-executable-and-differential-suite)
+- **Foreign calls.** For every `extern` or `builtin` declaration in `spec/`, identify its provider and what it supplies. Update the inventory when a declaration or its behavior changes, and verify it against the elaborator output using the command on the page. [Foreign call inventory](../design-docs/foreign-calls.md)
+
+Keep useful explanations of how the spec preserves Zend behavior in the relevant agent notes, with links to rules or tests that answer follow-up questions. Milestone plans, unsupported features, bugs and coverage gaps also belong in agent documentation.
+
 ## Maintaining these files
 
-- Use [design-docs](../design-docs/README.md) for short, human-readable explanations of settled choices about PHP-visible behavior and Zend implementation details. Add an entry when an implemented decision illustrates a lasting principle. Keep milestone plans and temporary coverage gaps in the agent documentation.
 - Keep each fact or decision in one place. When it changes, revise that passage and remove obsolete guidance. Use relative links wherever another file needs the same information.
 - Keep files focused on what an agent needs for a task. When a topic becomes large or has parts agents consult separately, split it into smaller files and link them where they are used.
 - As topic files are added, list them here with a short description so agents can find the relevant file directly.

@@ -21,6 +21,9 @@ Pinned Zend defines in-scope behavior. Describe a rule in terms of what a PHP pr
 
 When two rules might differ observably, look for a small program that distinguishes them. A handler can print its arguments, or a `catch` block can inspect a property changed before a throw. For a specialized opcode and an ordinary call, inspect the listings to confirm which path each compiler profile emitted. Preserve each path's observable behavior by default.
 
+- Interpolation ropes store byte fragments by rope and position. Convert each operand at its instruction to preserve warning order, then join the fragments in position order at `ROPE_END`. [String rules](../spec/vm_strings.watsup) · [Interleaved ropes fixture](../tests/project/rope_indices.zop)
+- Integer exponentiation promotes at the first overflowing multiplication. Zend produces adjacent floats for `3 ** 61` and `3.0 ** 61`, so promoting the integer base at the outset would change a strict comparison. [Arithmetic rules](../spec/values_numeric_arithmetic.watsup) · [Power regression](../tests/project/numeric_power_edges.php)
+
 Whenever an agent identifies a reason to abstract away an observable Zend behavior, the coordinator reports it to the user as soon as it arises. Subagents pass such findings to the coordinator. Show the pinned and proposed outcomes on a concrete example. Explain the general rule, the evidence that Zend's behavior is incidental, and the cost of matching it. The user decides whether to preserve Zend's behavior or approve the abstraction. Obtain explicit approval before implementing the divergent rule or accepting it in the tests. [Differential suite](differential-testing.md#spec-executable-and-differential-suite)
 
 ### Builtins

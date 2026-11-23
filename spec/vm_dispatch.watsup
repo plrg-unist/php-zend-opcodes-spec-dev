@@ -1,0 +1,42 @@
+;; Table entries hold validated absolute instruction indices. Search exact keys,
+;; including integer-looking byte strings, and use the default index on a miss.
+dec $table_target(arraykey, slotValue, nat) : nat
+def $table_target(arraykey, ARRAY (ENTRY arraykey_row (INT n_row))* _ _, n_default) =
+  (n_row* ++ [n_default])[n_position]
+  -- if b* = (arraykey =/= arraykey_row)*
+  -- if n_position = $prefix_end(b*, 0, |b*|)
+
+dec $dispatch_key(opcode, slotValue) : arraykey?
+def $dispatch_key(opcode, INT i) = INDEX i
+  -- if opcode = SWITCH_LONG \/ opcode = MATCH
+def $dispatch_key(opcode, STRING bytes) = KEY bytes
+  -- if opcode = SWITCH_STRING \/ opcode = MATCH
+def $dispatch_key(_, _) = eps
+  -- otherwise
+
+;; Switch leaves an undefined CV for its following loose comparison chain.
+;; Match reads it here, producing the ordinary warning before the default arm.
+dec $dispatch_subject(frame, opcode, operand) : (frame, slotValue)
+def $dispatch_subject(frame, MATCH, operand) = $read_operand(frame, operand)
+def $dispatch_subject(frame, opcode, operand) = (frame, $read(frame, operand))
+  -- if opcode =/= MATCH
+
+dec $table_branch(frame, opcode, operand, nat, arraykey?) : frame
+def $table_branch(frame, _, operand, n_default, arraykey) =
+  frame[.PC = $table_target(arraykey, $read(frame, operand), n_default)]
+def $table_branch(frame, MATCH, _, n_default, eps) = frame[.PC = n_default]
+def $table_branch(frame, opcode, _, _, eps) = frame
+  -- if opcode =/= MATCH
+
+dec $case_comparison(opcode) : opcode
+def $case_comparison(CASE) = IS_EQUAL
+def $case_comparison(CASE_STRICT) = IS_IDENTICAL
+
+def $dispatch_step(frame, opcode, operand_r, operand_l, operand_h, _, smartbranch?) =
+  $apply_numeric(frame', operand_r, UNUSED, smartbranch?,
+                 $numeric_compare($case_comparison(opcode), slotValue_l, slotValue_h))
+  -- if opcode = CASE \/ opcode = CASE_STRICT
+  -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, opcode, operand_l, operand_h)
+def $dispatch_step(frame, opcode, _, operand_subject, operand_table, EXT_TARGET n_default, _) =
+  CONTINUE $table_branch(frame', opcode, operand_table, n_default, $dispatch_key(opcode, slotValue))
+  -- if (frame', slotValue) = $dispatch_subject(frame, opcode, operand_subject)

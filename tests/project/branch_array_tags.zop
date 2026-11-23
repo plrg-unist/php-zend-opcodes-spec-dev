@@ -1,0 +1,24 @@
+zend-opcodes
+file "branch_array_tags.php"
+main
+body - {
+  lines 1 1
+  frame 0 cache 0
+  locals 4 ["argv", "copied", "literal", "result"]
+  size 9 literals 4 children 0
+  lit[0] = "!"
+  lit[1] = "A"
+  lit[2] = array()
+  lit[3] = "L\x0a"
+  code
+    0: CV1 = COALESCE CV0, @2 | line=1
+    1: ECHO lit[0] | line=1
+    2: CV3 = JMP_NULL CV1, @4 | line=1
+    3: ECHO lit[1] | line=1
+    4: CV2 = COALESCE lit[2], @6 | line=1
+    5: ECHO lit[0] | line=1
+    6: CV3 = JMP_NULL CV2, @8 | line=1
+    7: ECHO lit[3] | line=1
+    8: RETURN lit[1] | line=1
+}
+end

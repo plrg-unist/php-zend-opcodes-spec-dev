@@ -85,7 +85,7 @@ def $string_frame(frame, slotValue) = $nan_frame(frame, slotValue, [ 115, 116, 1
 ;; PC already points to the fallthrough instruction.
 dec $branch(frame, opcode, bool, nat) : frame
 def $branch(frame, opcode, b, n) = frame[.PC = n]
-  -- if (opcode = JMPNZ) = b
+  -- if (opcode <- [JMPNZ, JMPNZ_EX, JMP_SET]) = b
 def $branch(frame, _, _, _) = frame
   -- otherwise
 
@@ -176,9 +176,6 @@ def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write($truth_f
   -- if opcode = BOOL \/ opcode = BOOL_NOT
   -- if $simple_value(slotValue)
   -- if b = ($truth(slotValue) = (opcode = BOOL))
-def $unary(frame, opcode, _, _, TARGET n, slotValue) = CONTINUE $branch($truth_frame(frame, slotValue), opcode, $truth(slotValue), n)
-  -- if opcode = JMPZ \/ opcode = JMPNZ
-  -- if $simple_value(slotValue)
 def $unary(frame, GET_TYPE, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, STRING $gettype(slotValue))
   -- if $simple_value(slotValue)
 def $unary(frame, STRLEN, operand_r, _, _, slotValue) = $length_result(frame, operand_r, slotValue, $strlen(slotValue, frame.STRICT))
@@ -268,9 +265,22 @@ def $type_operand(frame, _, slotValue, _) = (frame, slotValue)
 relation StringStep: frame; opcode; operand; operand; operand; extension? ~> transition
   hint(input %0 %1 %2 %3 %4 %5)
 
+dec $truth_branch(frame, opcode, operand, operand, nat, slotValue) : transition
+dec $null_branch(frame, opcode, operand, operand, nat, nat, slotValue) : frame
+dec $dispatch_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
+
 dec $step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 def $step(frame, NOP, _, _, _, _, _) = CONTINUE frame
 def $step(frame, JMP, _, TARGET n, _, _, _) = CONTINUE frame[.PC = n]
+def $step(frame, opcode, operand_r, operand_a, TARGET n, _, _) =
+  $truth_branch(frame, opcode, operand_r, operand_a, n, $read(frame, operand_a))
+  -- if opcode <- [JMPZ, JMPNZ, JMPZ_EX, JMPNZ_EX, JMP_SET]
+def $step(frame, opcode, operand_r, operand_a, TARGET n, extension?, _) =
+  CONTINUE $null_branch(frame, opcode, operand_r, operand_a, n, $ext_value(extension?), $read(frame, operand_a))
+  -- if opcode = COALESCE \/ opcode = JMP_NULL
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?) =
+  $dispatch_step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
+  -- if opcode <- [CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH]
 def $step(frame, ASSIGN, operand_r, operand_dst, operand_src, _, _) =
   $unary(frame', ASSIGN, operand_r, operand_dst, UNUSED, slotValue)
   -- if (frame', slotValue) = $read_operand(frame, operand_src)
@@ -281,7 +291,7 @@ def $step(frame, ASSIGN_OP, operand_r, operand_dst, operand_src, extension?, _) 
   -- if (frame'', slotValue_l) = $read_operand(frame', operand_dst)
 def $step(frame, opcode, operand_r, operand_a, operand_b, _, _) = $unary(frame', opcode, operand_r, operand_a, operand_b, slotValue)
   -- if opcode <- [PRE_INC, PRE_DEC, POST_INC, POST_DEC, BW_NOT, QM_ASSIGN, COPY_TMP, FREE, CHECK_VAR,
-                   ECHO, RETURN, BOOL, BOOL_NOT, JMPZ, JMPNZ, GET_TYPE, STRLEN]
+                   ECHO, RETURN, BOOL, BOOL_NOT, GET_TYPE, STRLEN]
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
 def $step(frame, CAST, operand_r, operand_a, _, extension?, _) = $cast(frame', operand_r, $ext_value(extension?), slotValue)
   -- if (frame', slotValue) = $read_operand(frame, operand_a)

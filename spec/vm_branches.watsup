@@ -1,0 +1,44 @@
+;; JMP_SET copies its input only on the taken branch. JMPZ_EX and JMPNZ_EX
+;; store a boolean on either path; ordinary JMPZ and JMPNZ have no result.
+dec $truth_result(frame, opcode, operand, slotValue, bool) : frame
+def $truth_result(frame, JMP_SET, operand_r, slotValue, true) = $write(frame, operand_r, slotValue)
+def $truth_result(frame, JMP_SET, _, _, false) = frame
+def $truth_result(frame, opcode, operand_r, _, b) = $write(frame, operand_r, $zend_bool(b))
+  -- if opcode =/= JMP_SET
+
+;; Zend checks the undefined CV after writing an EX result, which may alias it.
+def $truth_branch(frame, opcode, operand_r, operand_a, n, UNDEF) = CONTINUE $branch(frame'', opcode, false, n)
+  -- if frame' = $truth_result(frame, opcode, operand_r, UNDEF, false)
+  -- if (frame'', _) = $read_operand(frame', operand_a)
+def $truth_branch(frame, opcode, operand_r, _, n, slotValue) = CONTINUE $branch(frame', opcode, b, n)
+  -- if $simple_value(slotValue)
+  -- if b = $truth(slotValue)
+  -- if frame' = $truth_result($truth_frame(frame, slotValue), opcode, operand_r, slotValue, b)
+def $truth_branch(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+dec $nullish(slotValue) : bool
+def $nullish(slotValue) = (slotValue = NULL) \/ (slotValue = UNDEF)
+
+;; JMP_NULL's low two bits select the result of an expression, isset, or empty.
+dec $chain_result(nat) : zval
+def $chain_result(0) = NULL
+def $chain_result(1) = FALSE
+def $chain_result(2) = TRUE
+
+;; Only an ordinary expression read warns. Bit 2 requests a quiet read.
+dec $chain_read(frame, operand, nat) : frame
+def $chain_read(frame, operand, 0) = frame'
+  -- if (frame', _) = $read_operand(frame, operand)
+def $chain_read(frame, _, _) = frame
+  -- otherwise
+
+def $null_branch(frame, COALESCE, operand_r, _, n, _, slotValue) =
+  $write(frame[.PC = n], operand_r, slotValue)
+  -- if ~$nullish(slotValue)
+def $null_branch(frame, JMP_NULL, operand_r, operand_a, n, n_mode, slotValue) =
+  $chain_read(frame', operand_a, $(n_mode \ 8))[.PC = n]
+  -- if $nullish(slotValue)
+  -- if frame' = $write(frame, operand_r, $chain_result($(n_mode \ 4)))
+def $null_branch(frame, _, _, _, _, _, _) = frame
+  -- otherwise
