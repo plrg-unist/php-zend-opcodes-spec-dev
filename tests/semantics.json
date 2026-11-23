@@ -330,6 +330,8 @@
   {"fixture": "project/foreach_cursor_partial_descendants.zop"},
   {"fixture": "project/foreach_dormant_named_handlers.zop"},
   {"fixture": "project/foreach_partial_call_targets.phpt"},
+  {"fixture": "project/invalid/constant_expression_dead_flags.zop", "expect": "malformed"},
+  {"fixture": "project/invalid/constant_expression_child.zop", "expect": "malformed"},
   {"fixture": "project/invalid/partial_deferred_array.zop", "expect": "malformed"},
   {"fixture": "project/invalid/partial_deferred_nested_body.zop", "expect": "malformed"},
   {"fixture": "project/invalid/cursor_layout_hole.zop", "expect": "malformed"},

@@ -1,0 +1,13 @@
+zend-opcodes
+file "dead_flags.php"
+main
+body - {
+  lines 1 2
+  frame 0 cache 0
+  size 1 literals 2 children 0
+  lit[0] = ast(constant(1 1 "NAN"))
+  lit[1] = int(1)
+  code
+    0: RETURN lit[1] | line=2
+}
+end

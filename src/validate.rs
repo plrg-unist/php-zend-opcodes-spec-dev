@@ -7,6 +7,8 @@ use p4spectec::lang::{
 
 use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
 
+mod expressions;
+
 /// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
 pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
     validate_unit_and_collect_bodies(arena, unit).map(|_| ())
@@ -36,11 +38,12 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
             return Err(Error::new("unknown or repeated autoglobal"));
         }
     }
-    let mut pending = vec![classes, functions, main];
+    let mut pending = vec![(classes, 0), (functions, 0), (main, 0)];
     let mut bodies = Vec::new();
     let mut shared_arrays = HashMap::new();
     let mut constant_literals = HashSet::new();
-    while let Some(value) = pending.pop() {
+    while let Some((value, closure_depth)) = pending.pop() {
+        let same_depth = |child| (child, closure_depth);
         match arena.value.kind(value.node) {
             ValueKind::Case(_) => match case_fields(arena, value)? {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
@@ -88,12 +91,63 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
                     layout.validate_code(arena, code, tries, ranges)?;
                     bodies.push(value);
                     // Deferred expressions anywhere in declarations or values can contain another body.
-                    pending.extend([decl, frame, pool, children]);
+                    pending.extend([decl, frame, pool, children].map(same_depth));
                 }
                 ("BODY", _) => return Err(Error::new("invalid body fields")),
-                ("VALUE", &[_, _, value]) => {
-                    check_constant_literal(arena, value, &mut constant_literals)?;
-                    pending.push(value);
+                ("DEFERRED", &[root]) => {
+                    expressions::check(
+                        arena,
+                        root,
+                        true,
+                        closure_depth,
+                        &mut pending,
+                        &mut constant_literals,
+                    )?;
+                }
+                (
+                    "CLASS",
+                    &[
+                        header,
+                        attrs,
+                        backing,
+                        interfaces,
+                        traits,
+                        props,
+                        constants,
+                        methods,
+                    ],
+                ) => {
+                    pending.extend(
+                        [header, attrs, interfaces, traits, props, methods].map(same_depth),
+                    );
+                    let backing = get::opt(arena, &backing)?
+                        .map(|b| case_fields(arena, b))
+                        .transpose()?;
+                    for &constant in get::list(arena, &constants)? {
+                        if let ("ENUMCASE", &[_, _, _, _, _, root, attrs]) =
+                            case_fields(arena, constant)?
+                        {
+                            let absent = matches!(case_fields(arena, root)?, ("ABSENT", []));
+                            if backing.is_none_or(|(kind, _)| (kind == "PURE") != absent) {
+                                return Err(Error::new(
+                                    "inconsistent enum case backing expression",
+                                ));
+                            }
+                            if !absent {
+                                expressions::check(
+                                    arena,
+                                    root,
+                                    false,
+                                    closure_depth,
+                                    &mut pending,
+                                    &mut constant_literals,
+                                )?;
+                            }
+                            pending.push(same_depth(attrs));
+                        } else {
+                            pending.push(same_depth(constant));
+                        }
+                    }
                 }
                 ("SHARED_ARRAY", &[id, array]) => {
                     let id = u32::try_from(index(arena, id)?)
@@ -102,7 +156,7 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
                     get::list(arena, &entries)?;
                     let payload = arena.value.canon_id(array.node);
                     match shared_arrays.insert(id, payload) {
-                        None => pending.push(array),
+                        None => pending.push(same_depth(array)),
                         Some(known) if known == payload => {}
                         Some(_) => {
                             return Err(Error::new(format!("conflicting shared array {id}")));
@@ -112,25 +166,19 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
                 ("SHARED_ARRAY", _) => return Err(Error::new("invalid shared array fields")),
                 ("ARRAY", &[entries, next, cursor, layout]) => {
                     check_array(arena, entries, next, cursor, layout)?;
-                    pending.push(entries);
-                }
-                // A deferred ARRAY expression has flags, a line and child expressions.
-                ("ARRAY", &[flags, _, children])
-                    if matches!(arena.value.kind(flags.node), ValueKind::Num(_)) =>
-                {
-                    pending.push(children);
+                    pending.push(same_depth(entries));
                 }
                 ("ARRAY", _) => return Err(Error::new("invalid array fields")),
-                (_, args) => pending.extend_from_slice(args),
+                (_, args) => pending.extend(args.iter().copied().map(same_depth)),
             },
             ValueKind::List(items) => {
                 if let Some(first) = items.first()
                     && !matches!(arena.value.kind(first.node), ValueKind::Num(_))
                 {
-                    pending.extend_from_slice(items);
+                    pending.extend(items.iter().copied().map(same_depth));
                 }
             }
-            ValueKind::Opt(Some(child)) => pending.push(*child),
+            ValueKind::Opt(Some(child)) => pending.push(same_depth(*child)),
             _ => {}
         }
     }

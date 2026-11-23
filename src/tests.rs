@@ -895,7 +895,7 @@ fn only_the_outer_static_table_requires_dense_buckets() {
 
 #[test]
 fn execution_validates_bodies_inside_deferred_attribute_arguments() {
-    let closure = "ast(closure(0 2\nbody \"f\" {\nlines 2 2\nframe 0 cache 0\n\
+    let closure = "ast(closure(0 2\nbody \"f\" {\nflags 4194320 0\nlines 2 2\nframe 0 cache 0\n\
         size 1 literals 1 children 0\nlit[0] = null\ncode\n0: RETURN lit[0]\n}\n))";
     let listing = PROPERTY_AND_ATTRIBUTE.replace("int(-7)", closure);
     let mut arena = Arena::new();
@@ -904,6 +904,60 @@ fn execution_validates_bodies_inside_deferred_attribute_arguments() {
     let broken = listing.replace("0: RETURN lit[0]\n", "0: RETURN lit[1]\n");
     let program = parse_zop(&mut arena, &broken).unwrap();
     assert!(validate_unit(&arena, &program).is_err());
+}
+
+#[test]
+fn execution_checks_constant_expression_roles_and_limits() {
+    let mut arena = Arena::new();
+    let mut check = |expr: &str| {
+        let text = BYTES_AND_LITERAL.replace("int(-7)", &format!("ast({expr})"));
+        let unit = parse_zop(&mut arena, &text).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for expr in [
+        r#"constant(2048 1 "Ns\\X")"#,
+        "value(65535 1 null)",
+        "unary(13 1 value(0 1 int(7)))",
+        "cast(18 1 value(0 1 int(7)))",
+        "class_name(1 1 none)",
+        "conditional(1 1 value(0 1 true) none value(0 1 int(1)))",
+        "array(3 1 2 element(0 1 value(0 1 int(7)) none) unpack(0 1 array(2 1 0)))",
+        r#"new(0 1 value(8 1 "parent") arguments(1 1 1 named(0 1 value(0 1 "p") value(0 1 int(1)))))"#,
+        r#"call(0 1 value(2 1 "f") callable(0 1 none none arguments(0 1 1 placeholder(1 1))))"#,
+        r#"static_call(0 1 value(4 1 "self") value(0 1 "f") callable(0 1 "x" "g" arguments(1 1 1 named(0 1 value(0 1 "p") placeholder(0 1)))))"#,
+    ] {
+        check(expr).unwrap_or_else(|err| panic!("{expr}: {err}"));
+    }
+    for expr in [
+        "none",
+        "element(0 1 value(0 1 int(7)) none)",
+        "value(65536 1 null)",
+        "value(0 1 undef)",
+        r#"constant(0 1 "x\x00y")"#,
+        "unary(15 1 value(0 1 true))",
+        "binary(14 1 value(0 1 true) value(0 1 true))",
+        "cast(1 1 value(0 1 true))",
+        "class_name(2 1 value(0 1 null))",
+        "array(1 1 0)",
+        "array(3 1 1 value(0 1 int(7)))",
+        "dimension(3 1 value(0 1 null) value(0 1 int(7)))",
+        "conditional(0 1 none value(0 1 null) none)",
+        r#"new(0 1 value(3 1 "x") arguments(0 1 0))"#,
+        r#"new(0 1 value(0 1 "x") arguments(0 1 1 placeholder(0 1)))"#,
+        r#"call(0 1 value(0 1 "f") callable(0 1 none none arguments(0 1 1 placeholder(0 1))))"#,
+        r#"call(0 1 value(0 1 "f") callable(0 1 "x" "g" arguments(0 1 2 placeholder(1 1) placeholder(0 1))))"#,
+        r#"call(0 1 value(0 1 "f") callable(0 1 "x" "g" arguments(1 1 2 named(0 1 value(0 1 "p") placeholder(0 1)) value(0 1 int(1)))))"#,
+    ] {
+        assert!(check(expr).is_err(), "{expr}");
+    }
+    for (depth, accepted) in [(256, true), (257, false)] {
+        let expr = format!(
+            "{}value(0 1 int(1)){}",
+            "plus(0 1 ".repeat(depth),
+            ")".repeat(depth)
+        );
+        assert_eq!(check(&expr).is_ok(), accepted);
+    }
 }
 
 #[test]
