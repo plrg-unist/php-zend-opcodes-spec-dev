@@ -1,0 +1,15 @@
+zend-opcodes
+file "foreach_cleanup_offset.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 1 ["a"]
+  size 3 literals 1 children 0
+  lit[0] = int(0)
+  code
+    0: RETURN lit[0]
+    1: FE_FREE T1, 1 | ext=1
+    2: RETURN lit[0]
+}
+end

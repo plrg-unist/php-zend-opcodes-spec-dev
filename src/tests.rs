@@ -904,3 +904,67 @@ fn values_outside_the_listing_format_are_rejected() {
     test_spec::check_unit(&mut runner, &mut arena, bad_byte).unwrap();
     assert!(print_zop(&arena, &bad_byte).is_err());
 }
+
+#[test]
+fn execution_checks_reference_and_foreach_shapes() {
+    let template = BRANCH_AND_ARRAY
+        .replace("frame 0", "frame 3")
+        .replace("JMPZ CV0, @3 | line=7", "FE_FREE T1");
+    let mut arena = Arena::new();
+    let mut validate = |row: &str| {
+        let text = template.replace("ASSIGN CV0, lit[0] | line=7", row);
+        let unit = parse_zop(&mut arena, &text).unwrap();
+        validate_unit(&arena, &unit)
+    };
+
+    for row in [
+        "ASSIGN_REF CV0, V1 | ext=1",
+        "V2 = ASSIGN_REF V1, CV0",
+        "V1 = MAKE_REF CV0",
+        "V2 = MAKE_REF V1",
+        "V1 = SEPARATE V1",
+        "SEPARATE V1",
+        "T1 = FE_RESET_R lit[1], @1",
+        "T1 = FE_RESET_R T2, @1",
+        "V1 = FE_RESET_R CV0, @1",
+        "V1 = FE_RESET_RW V2, @1",
+        "V1 = FE_RESET_RW CV0, @1",
+        "V1 = FE_RESET_RW lit[1], @1",
+        "FE_FETCH_R T1, T2 | ext=@1",
+        "CV0 = FE_FETCH_R T1, T2 | ext=@1",
+        "T3 = FE_FETCH_R V1, T2 | ext=@1",
+        "T2 = FE_FETCH_RW V1, CV0 | ext=@1",
+        "FE_FETCH_RW V1, V2 | ext=@1",
+        "FE_FREE T1",
+        "FE_FREE V1, 1 | ext=1",
+    ] {
+        validate(row).unwrap_or_else(|err| panic!("{row}: {err}"));
+    }
+    for row in [
+        "ASSIGN_REF lit[0], CV0",
+        "ASSIGN_REF CV0, T1",
+        "MAKE_REF CV0",
+        "V2 = MAKE_REF T1",
+        "V1 = SEPARATE CV0",
+        "T1 = FE_RESET_R V2, @1",
+        "V1 = FE_RESET_RW CV0, 1",
+        "T1 = FE_RESET_R CV0, @4",
+        "FE_RESET_RW CV0, @1",
+        "CV0 = FE_RESET_R lit[1], @1",
+        "FE_FETCH_R CV0, CV0 | ext=@1",
+        "FE_FETCH_RW T1, CV0 | ext=@1",
+        "FE_FETCH_R T1, lit[1] | ext=@1",
+        "FE_FETCH_R T1, CV0",
+        "FE_FETCH_RW V1, V2 | ext=1",
+        "FE_FETCH_R T1, T2 | ext=@4",
+        "V1 = FE_FREE T2",
+        "FE_FREE CV0",
+        "FE_FREE V1 | ext=1",
+        "FE_FREE T1, 1",
+        "FE_FREE T2, 1 | ext=1",
+        "FE_FREE T1, 2 | ext=1",
+        "FE_FREE V1, 4294967295 | ext=1",
+    ] {
+        assert!(validate(row).is_err(), "{row}");
+    }
+}

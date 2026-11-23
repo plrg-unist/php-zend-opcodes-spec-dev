@@ -130,7 +130,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(UNSET_OBJ, writable | unused, value, unused),
     SHAPE(UNSET_CV, cv, unused, unused),
     SHAPE(UNSET_STATIC_PROP, value, class_ref, unused),
-    SHAPE(FE_RESET_R, value, unused, temp),
+    SHAPE(FE_RESET_R, rvalue, unused, temp),
     SHAPE(FE_RESET_RW, value, unused, temp),
     SHAPE(FE_FETCH_R, temp, slot, optional_slot),
     SHAPE(FE_FETCH_RW, var, slot, optional_slot),
@@ -191,7 +191,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(OP_DATA, value, unused, unused),
     SHAPE(INSTANCEOF, slot, class_ref, slot),
     SHAPE(GENERATOR_CREATE, unused, unused, unused),
-    SHAPE(MAKE_REF, writable, unused, optional_slot),
+    SHAPE(MAKE_REF, writable, unused, slot),
     SHAPE(DECLARE_FUNCTION, literal, unused, unused),
     SHAPE(DECLARE_LAMBDA_FUNCTION, unused, unused, slot),
     SHAPE(DECLARE_CONST, literal, literal, unused),
@@ -439,6 +439,17 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
     uint32_t index = (uint32_t)(op - b->opcodes);
     uint32_t ext = op->extended_value;
     switch (op->opcode) {
+        case ZEND_FE_FREE:
+            if (ext & ZEND_FREE_ON_RETURN) {
+                /* The offset relocates exceptions raised by an early iterator release. */
+                uint32_t offset = op->op2.num;
+                if (offset >= b->last - index || op[offset].opcode != ZEND_FE_FREE
+                        || op[offset].op1.var != op->op1.var
+                        || (offset && (op[offset].extended_value & ZEND_FREE_ON_RETURN))) {
+                    invalid(r, b, op, "invalid foreach cleanup offset");
+                }
+            }
+            break;
         case ZEND_JMP_NULL:
             if ((ext & ZEND_SHORT_CIRCUITING_CHAIN_MASK) > ZEND_SHORT_CIRCUITING_CHAIN_EMPTY) {
                 invalid(r, b, op, "invalid nullsafe chain mode");

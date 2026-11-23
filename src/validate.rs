@@ -138,7 +138,7 @@ fn signed_index(arena: &Arena, value: Value) -> Result<i64> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Operand {
     Unused,
-    Immediate,
+    Immediate(usize),
     Target(usize),
     Literal(usize),
     Cv(usize),
@@ -150,7 +150,7 @@ impl Operand {
     fn read(arena: &Arena, value: Value, layout: &Layout<'_>) -> Result<Self> {
         let operand = match case_fields(arena, value)? {
             ("UNUSED", []) => Self::Unused,
-            ("IMM", [_]) => Self::Immediate,
+            ("IMM", &[n]) => Self::Immediate(index(arena, n)?),
             ("TARGET", &[n]) => Self::Target(index(arena, n)?),
             ("LIT", &[n]) => Self::Literal(index(arena, n)?),
             ("CV", &[n]) => Self::Cv(index(arena, n)?),
@@ -180,6 +180,17 @@ impl Operand {
 
     fn rvalue(self) -> bool {
         matches!(self, Self::Literal(_) | Self::Tmp(_) | Self::Cv(_))
+    }
+
+    fn writable(self) -> bool {
+        matches!(self, Self::Var(_) | Self::Cv(_))
+    }
+
+    fn temporary(self) -> Option<usize> {
+        match self {
+            Self::Tmp(n) | Self::Var(n) => Some(n),
+            _ => None,
+        }
     }
 }
 
@@ -262,11 +273,14 @@ impl<'a> Instruction<'a> {
         if result != unused && !result.slot() {
             return Err(Error::new("expected a result slot"));
         }
-        let writable = matches!(left, Operand::Cv(_) | Operand::Var(_));
+        let writable = left.writable();
         let optional_key = right.rvalue() || right == unused;
         let valid = match name {
             "NOP" => left == unused && right == unused && result == unused,
             "ASSIGN" | "ASSIGN_OP" => writable && right.rvalue(),
+            "ASSIGN_REF" => writable && right.writable(),
+            "MAKE_REF" => writable && right == unused && result.slot(),
+            "SEPARATE" => matches!(left, Operand::Var(_)) && right == unused,
             "ASSIGN_DIM" | "ASSIGN_DIM_OP" => writable && optional_key,
             "UNSET_DIM" => writable && right.rvalue() && result == unused,
             "OP_DATA" => left.value() && right == unused && result == unused,
@@ -325,15 +339,20 @@ impl<'a> Instruction<'a> {
                     && right == unused
                     && result.slot()
             }
-            "FREE" => {
-                let expected = if extended_value & 1 != 0 {
-                    Operand::Immediate
+            "FE_RESET_R" | "FE_RESET_RW" => {
+                (left.rvalue() || (name == "FE_RESET_RW" && matches!(left, Operand::Var(_))))
+                    && matches!(right, Operand::Target(_))
+                    && result.temporary().is_some()
+            }
+            "FE_FETCH_R" => left.temporary().is_some() && right.slot(),
+            "FE_FETCH_RW" => matches!(left, Operand::Var(_)) && right.slot(),
+            "FREE" | "FE_FREE" => {
+                let valid_end = if extended_value & 1 != 0 {
+                    matches!(right, Operand::Immediate(_))
                 } else {
-                    unused
+                    right == unused
                 };
-                matches!(left, Operand::Tmp(_) | Operand::Var(_))
-                    && right == expected
-                    && result == unused
+                left.temporary().is_some() && valid_end && result == unused
             }
             "ROPE_INIT" => left == unused && right.rvalue() && matches!(result, Operand::Tmp(_)),
             "ROPE_ADD" => matches!(left, Operand::Tmp(_)) && right.rvalue() && result == left,
@@ -382,7 +401,7 @@ impl<'a> Instruction<'a> {
                 }
             }
         }
-        let valid_ext = if row.uses_jump_table() {
+        let valid_ext = if row.uses_jump_table() || matches!(name, "FE_FETCH_R" | "FE_FETCH_RW") {
             extended_target.is_some()
         } else {
             matches!(ext, None | Some(("EXT_VALUE", [_])))
@@ -640,6 +659,16 @@ impl Layout<'_> {
             }
             if let Some(target) = op.extended_target {
                 check_target(executable, target)?;
+            }
+            if op.name == "FE_FREE"
+                && let Operand::Immediate(distance) = op.right
+                && !code[i..].get(distance).is_some_and(|end| {
+                    end.name == "FE_FREE"
+                        && end.left.temporary() == op.left.temporary()
+                        && (distance == 0 || end.extended_value & 1 == 0)
+                })
+            {
+                return Err(Error::new("invalid foreach cleanup offset"));
             }
             if let Some(smart) = op.smart {
                 let jump = match smart {
