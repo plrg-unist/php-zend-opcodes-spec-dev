@@ -416,6 +416,82 @@ fn execution_checks_jump_tables() {
 }
 
 #[test]
+fn execution_checks_array_operands_and_dimension_keys() {
+    let template = BRANCH_AND_ARRAY
+        .replace("frame 0", "frame 3")
+        .replace("literals 2", "literals 4")
+        .replace("  code", "  lit[2] = int(0)\n  lit[3] = \"0\"\n  code");
+    let mut arena = Arena::new();
+    let mut validate = |row: &str| {
+        let text = template.replace("ASSIGN CV0, lit[0] | line=7", row);
+        let unit = parse_zop(&mut arena, &text).unwrap();
+        validate_unit(&arena, &unit)
+    };
+
+    for row in [
+        "T1 = INIT_ARRAY | ext=2",
+        "T1 = INIT_ARRAY V2, CV0 | ext=9",
+        "T1 = ADD_ARRAY_ELEMENT CV0 | ext=1",
+        "T1 = ADD_ARRAY_UNPACK V2",
+        "V1 = FETCH_DIM_R V2, T3",
+        "T1 = FETCH_DIM_IS V2, lit[2] | numeric-string-key",
+        "T1 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[2] | numeric-string-key ext=1",
+        "T1 = ISSET_ISEMPTY_CV CV0 | ext=4294967295",
+        "T1 = ARRAY_KEY_EXISTS T2, CV0",
+        "T1 = COUNT lit[1] | ext=1",
+        "T1 = IN_ARRAY CV0, lit[1] | ext=2",
+    ] {
+        validate(row).unwrap_or_else(|err| panic!("{row}: {err}"));
+    }
+    for row in [
+        "T1 = INIT_ARRAY CV0, V2",
+        "T1 = ADD_ARRAY_ELEMENT",
+        "T1 = ADD_ARRAY_ELEMENT CV0, V2",
+        "T1 = ADD_ARRAY_UNPACK",
+        "T1 = ADD_ARRAY_UNPACK CV0, CV0",
+        "T1 = FETCH_DIM_R CV0, V2",
+        "T1 = FETCH_DIM_IS CV0",
+        "T1 = ISSET_ISEMPTY_DIM_OBJ V2, CV0",
+        "T1 = ISSET_ISEMPTY_CV T2",
+        "ISSET_ISEMPTY_CV CV0",
+        "T1 = ARRAY_KEY_EXISTS CV0, V2",
+        "T1 = COUNT V2",
+        "T1 = IN_ARRAY V2, lit[1]",
+        "T1 = IN_ARRAY CV0, lit[2]",
+        "T1 = IN_ARRAY CV0, lit[1]",
+        "COUNT CV0",
+        "T1 = FETCH_DIM_R CV0, CV0 | numeric-string-key",
+        "T1 = FETCH_DIM_R CV0, lit[0] | numeric-string-key",
+        "T1 = FETCH_DIM_IS CV0, lit[3] | numeric-string-key",
+        "T1 = ARRAY_KEY_EXISTS CV0, lit[2] | numeric-string-key",
+    ] {
+        assert!(validate(row).is_err(), "{row}");
+    }
+}
+
+#[test]
+fn execution_checks_nested_array_literals() {
+    let mut arena = Arena::new();
+    for (nested, valid) in [
+        (r#"array(0 => null, "0" => true; next=3; cursor=2)"#, true),
+        ("array(-4 => false; next=-3)", true),
+        (
+            "array(9223372036854775807 => true; next=9223372036854775807)",
+            true,
+        ),
+        ("array(1 => null, 1 => false)", false),
+        (r#"array("A" => true, "\x41" => false)"#, false),
+        ("array(0 => undef)", false),
+        ("array(1 => true; next=1)", false),
+        ("array(5 => true; cursor=2)", false),
+    ] {
+        let text = BRANCH_AND_ARRAY.replace("float(-0.0)", &format!("array(0 => {nested})"));
+        let unit = parse_zop(&mut arena, &text).unwrap();
+        assert_eq!(validate_unit(&arena, &unit).is_ok(), valid, "{nested}");
+    }
+}
+
+#[test]
 fn execution_checks_logical_filename() {
     let mut arena = Arena::new();
     for (filename, valid) in [

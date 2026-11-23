@@ -43,6 +43,13 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                     pending.extend([decl, frame, pool, children]);
                 }
                 ("BODY", _) => return Err(Error::new("invalid body fields")),
+                // A deferred ARRAY expression starts with numeric flags; a zval starts with entries.
+                ("ARRAY", &[entries, next, cursor])
+                    if matches!(arena.value.kind(entries.node), ValueKind::List(_)) =>
+                {
+                    check_array(arena, entries, next, cursor)?;
+                    pending.push(entries);
+                }
                 (_, args) => pending.extend_from_slice(args),
             },
             ValueKind::List(items) => {
@@ -196,14 +203,33 @@ impl<'a> Instruction<'a> {
             | "IS_SMALLER"
             | "IS_SMALLER_OR_EQUAL" => left.value() && right.value() && result.slot(),
             "BW_NOT" => left.value() && right == unused && result.slot(),
-            "BOOL" | "BOOL_NOT" | "CAST" | "GET_TYPE" | "STRLEN" | "TYPE_CHECK" => {
+            "BOOL" | "BOOL_NOT" | "CAST" | "GET_TYPE" | "STRLEN" | "TYPE_CHECK" | "COUNT" => {
                 left.rvalue() && right == unused && result.slot()
             }
-            "DIV" | "POW" | "IS_IDENTICAL" | "IS_NOT_IDENTICAL" | "IS_EQUAL" | "IS_NOT_EQUAL"
-            | "SPACESHIP" | "BOOL_XOR" | "CONCAT" | "FAST_CONCAT" => {
-                left.rvalue() && right.rvalue() && result.slot()
+            "DIV"
+            | "POW"
+            | "IS_IDENTICAL"
+            | "IS_NOT_IDENTICAL"
+            | "IS_EQUAL"
+            | "IS_NOT_EQUAL"
+            | "SPACESHIP"
+            | "BOOL_XOR"
+            | "CONCAT"
+            | "FAST_CONCAT"
+            | "ISSET_ISEMPTY_DIM_OBJ"
+            | "ARRAY_KEY_EXISTS" => left.rvalue() && right.rvalue() && result.slot(),
+            "INIT_ARRAY" | "ADD_ARRAY_ELEMENT" => {
+                (left.value() || (name == "INIT_ARRAY" && left == unused))
+                    && (right.rvalue() || right == unused)
+                    && result.slot()
             }
+            "ADD_ARRAY_UNPACK" => left.value() && right == unused && result.slot(),
+            "FETCH_DIM_R" | "FETCH_DIM_IS" => left.value() && right.rvalue() && result.slot(),
+            "IN_ARRAY" => left.rvalue() && matches!(right, Operand::Literal(_)) && result.slot(),
             "CHECK_VAR" => matches!(left, Operand::Cv(_)) && right == unused && result == unused,
+            "ISSET_ISEMPTY_CV" => {
+                matches!(left, Operand::Cv(_)) && right == unused && result.slot()
+            }
             "QM_ASSIGN" => left.value() && right == unused && result.slot(),
             "COPY_TMP" => {
                 matches!(left, Operand::Tmp(_) | Operand::Var(_))
@@ -272,9 +298,35 @@ impl<'a> Instruction<'a> {
             || get::opt(arena, &cache)?.is_some()
             || get::opt(arena, &default_cache)?.is_some()
             || get::opt(arena, &mask)?.is_some()
-            || get::bool(arena, &numeric)?
         {
             return Err(Error::new(format!("unexpected metadata for {name}")));
+        }
+        if get::bool(arena, &numeric)? {
+            let Operand::Literal(n) = right else {
+                return Err(Error::new(
+                    "numeric-string-key requires a dimension literal",
+                ));
+            };
+            if !matches!(
+                name,
+                "FETCH_DIM_R" | "FETCH_DIM_IS" | "ISSET_ISEMPTY_DIM_OBJ"
+            ) || layout.literal_tag(arena, n)? != "INT"
+                || layout.literal_tag(arena, n + 1)? != "STRING"
+            {
+                return Err(Error::new("invalid numeric-string-key literal pair"));
+            }
+        }
+        if let ("IN_ARRAY", Operand::Literal(n)) = (name, right) {
+            let [value] = fields(arena, layout.pool[n], "LITERAL")?;
+            let [entries, _, _] = fields(arena, value, "ARRAY")?;
+            if extended_value == 0 {
+                for &entry in get::list(arena, &entries)? {
+                    let [key, _] = fields(arena, entry, "ENTRY")?;
+                    if case_fields(arena, key)?.0 != "KEY" {
+                        return Err(Error::new("non-strict IN_ARRAY requires string keys"));
+                    }
+                }
+            }
         }
         match (name, result, left) {
             ("JMP_NULL", _, _) if extended_value & 3 == 3 => {
@@ -315,6 +367,15 @@ struct Layout<'a> {
 }
 
 impl Layout<'_> {
+    fn literal_tag<'a>(&self, arena: &'a Arena, n: usize) -> Result<&'a str> {
+        let literal = self
+            .pool
+            .get(n)
+            .ok_or_else(|| Error::new(format!("missing literal lit[{n}]")))?;
+        let [value] = fields(arena, *literal, "LITERAL")?;
+        Ok(case_fields(arena, value)?.0)
+    }
+
     fn validate_ranges(
         &self,
         arena: &Arena,
@@ -451,6 +512,41 @@ impl Layout<'_> {
     }
 }
 
+fn check_array(arena: &Arena, entries: Value, next: Value, cursor: Value) -> Result<()> {
+    let entries = get::list(arena, &entries)?;
+    if let Some(cursor) = get::opt(arena, &cursor)?
+        && index(arena, cursor)? > entries.len()
+    {
+        return Err(Error::new("array cursor exceeds entry count"));
+    }
+    let mut keys = HashSet::new();
+    let mut next_index = i64::MIN;
+    for &entry in entries {
+        let [key, value] = fields(arena, entry, "ENTRY")?;
+        match case_fields(arena, key)? {
+            ("INDEX", &[n]) => {
+                next_index = next_index.max(signed_index(arena, n)?.saturating_add(1));
+            }
+            ("KEY", [_]) => {}
+            _ => return Err(Error::new("invalid array key")),
+        }
+        if !keys.insert(arena.value.canon_id(key.node)) {
+            return Err(Error::new("duplicate array key"));
+        }
+        if case_fields(arena, value)?.0 == "UNDEF" {
+            return Err(Error::new("undef cannot be an array element"));
+        }
+    }
+    if let Some(next) = get::opt(arena, &next)?
+        && signed_index(arena, next)? < next_index
+    {
+        return Err(Error::new(
+            "next array index precedes an existing integer key",
+        ));
+    }
+    Ok(())
+}
+
 fn check_jump_table(
     arena: &Arena,
     literal: Value,
@@ -458,34 +554,16 @@ fn check_jump_table(
     code: &[Instruction<'_>],
 ) -> Result<()> {
     let [array] = fields(arena, literal, "LITERAL")?;
-    let [entries, next, cursor] = fields(arena, array, "ARRAY")?;
-    let entries = get::list(arena, &entries)?;
-    if let Some(cursor) = get::opt(arena, &cursor)?
-        && index(arena, cursor)? > entries.len()
-    {
-        return Err(Error::new("jump-table cursor exceeds entry count"));
-    }
-    let mut keys = HashSet::new();
-    let mut next_index = i64::MIN;
-    for &entry in entries {
+    let [entries, _, _] = fields(arena, array, "ARRAY")?;
+    for &entry in get::list(arena, &entries)? {
         let [key, target] = fields(arena, entry, "ENTRY")?;
-        match case_fields(arena, key)? {
-            ("INDEX", &[n]) if name != "SWITCH_STRING" => {
-                next_index = next_index.max(signed_index(arena, n)?.saturating_add(1));
-            }
-            ("KEY", [_]) if name != "SWITCH_LONG" => {}
-            _ => return Err(Error::new(format!("invalid jump-table key for {name}"))),
-        }
-        if !keys.insert(arena.value.canon_id(key.node)) {
-            return Err(Error::new("duplicate jump-table key"));
+        let kind = case_fields(arena, key)?.0;
+        if (name == "SWITCH_STRING" && kind != "KEY") || (name == "SWITCH_LONG" && kind != "INDEX")
+        {
+            return Err(Error::new(format!("invalid jump-table key for {name}")));
         }
         let [target] = fields(arena, target, "INT")?;
         check_target(code, index(arena, target)?)?;
-    }
-    if let Some(next) = get::opt(arena, &next)?
-        && signed_index(arena, next)? < next_index
-    {
-        return Err(Error::new("jump-table next index precedes an integer key"));
     }
     Ok(())
 }

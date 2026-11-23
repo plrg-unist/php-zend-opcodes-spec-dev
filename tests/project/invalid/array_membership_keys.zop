@@ -1,0 +1,15 @@
+zend-opcodes
+file "invalid.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  size 3 literals 2 children 0
+  lit[0] = int(1)
+  lit[1] = array(0 => true)
+  code
+    0: RETURN lit[0]
+    1: T0 = IN_ARRAY lit[0], lit[1]
+    2: RETURN lit[0]
+}
+end

@@ -121,8 +121,8 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(NEW, class_ref, unused, slot),
     SHAPE(FREE, temp, unused, unused),
     SHAPE(FE_FREE, temp, unused, unused),
-    SHAPE(INIT_ARRAY, optional, optional, slot),
-    SHAPE(ADD_ARRAY_ELEMENT, value, optional, slot),
+    SHAPE(INIT_ARRAY, optional, rvalue | unused, slot),
+    SHAPE(ADD_ARRAY_ELEMENT, value, rvalue | unused, slot),
     SHAPE(ADD_ARRAY_UNPACK, value, unused, slot),
     SHAPE(INCLUDE_OR_EVAL, value, unused, optional_slot),
     SHAPE(UNSET_VAR, value, unused, unused),
@@ -140,10 +140,10 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(FETCH_IS, value, unused, slot),
     SHAPE(FETCH_FUNC_ARG, value, unused, slot),
     SHAPE(FETCH_UNSET, value, unused, slot),
-    SHAPE(FETCH_DIM_R, value, value, slot),
+    SHAPE(FETCH_DIM_R, value, rvalue, slot),
     SHAPE(FETCH_DIM_W, writable, optional, slot),
     SHAPE(FETCH_DIM_RW, writable, optional, slot),
-    SHAPE(FETCH_DIM_IS, value, value, slot),
+    SHAPE(FETCH_DIM_IS, value, rvalue, slot),
     SHAPE(FETCH_DIM_FUNC_ARG, value, optional, slot),
     SHAPE(FETCH_DIM_UNSET, writable, value, slot),
     SHAPE(FETCH_OBJ_R, optional, value, slot),
@@ -173,7 +173,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(THROW, value, unused, unused),
     SHAPE(CLONE, optional, unused, slot),
     SHAPE(ISSET_ISEMPTY_VAR, value, unused, slot),
-    SHAPE(ISSET_ISEMPTY_DIM_OBJ, value, value, slot),
+    SHAPE(ISSET_ISEMPTY_DIM_OBJ, rvalue, rvalue, slot),
     SHAPE(ISSET_ISEMPTY_PROP_OBJ, optional, value, slot),
     SHAPE(ISSET_ISEMPTY_CV, cv, unused, slot),
     SHAPE(ISSET_ISEMPTY_STATIC_PROP, value, class_ref, slot),
@@ -219,12 +219,12 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(SWITCH_LONG, value, literal, unused),
     SHAPE(SWITCH_STRING, value, literal, unused),
     SHAPE(MATCH, value, literal, unused),
-    SHAPE(IN_ARRAY, value, literal, slot),
-    SHAPE(COUNT, value, unused, slot),
+    SHAPE(IN_ARRAY, rvalue, literal, slot),
+    SHAPE(COUNT, rvalue, unused, slot),
     SHAPE(GET_CLASS, optional, unused, slot),
     SHAPE(GET_CALLED_CLASS, unused, unused, slot),
     SHAPE(GET_TYPE, rvalue, unused, slot),
-    SHAPE(ARRAY_KEY_EXISTS, value, value, slot),
+    SHAPE(ARRAY_KEY_EXISTS, rvalue, rvalue, slot),
     SHAPE(MATCH_ERROR, value, unused, unused),
     SHAPE(JMP_NULL, rvalue, unused, slot),
     SHAPE(FETCH_GLOBALS, unused, unused, slot),
@@ -551,9 +551,17 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
             if (op->op2_type == IS_CONST) name_literals(r, b, op, op->op2, 1);
             break;
         }
-        case ZEND_IN_ARRAY:
-            if (Z_TYPE_P(RT_CONSTANT(op, op->op2)) != IS_ARRAY) invalid(r, b, op, "expected a lookup array");
+        case ZEND_IN_ARRAY: {
+            zval *lookup = RT_CONSTANT(op, op->op2);
+            if (Z_TYPE_P(lookup) != IS_ARRAY) invalid(r, b, op, "expected a lookup array");
+            if (!ext) {
+                zend_string *key;
+                ZEND_HASH_FOREACH_STR_KEY(Z_ARR_P(lookup), key) {
+                    if (!key) invalid(r, b, op, "non-strict IN_ARRAY requires string keys");
+                } ZEND_HASH_FOREACH_END();
+            }
             break;
+        }
         case ZEND_DECLARE_ATTRIBUTED_CONST:
             if (index + 1 >= b->last || op[1].opcode != ZEND_OP_DATA || op[1].op1_type != IS_CONST
                     || Z_TYPE_P(RT_CONSTANT(&op[1], op[1].op1)) != IS_PTR) {
