@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use p4spectec::lang::{
     common::prim::num,
     data::value::flat::{ValueKind, get},
@@ -62,6 +64,11 @@ fn index(arena: &Arena, value: Value) -> Result<usize> {
         .map_err(|_| Error::new("expected a nonnegative index"))
 }
 
+fn signed_index(arena: &Arena, value: Value) -> Result<i64> {
+    i64::try_from(num::to_int(get::num(arena, &value)?))
+        .map_err(|_| Error::new("expected a signed array index"))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Operand {
     Unused,
@@ -121,6 +128,10 @@ struct Instruction<'a> {
 }
 
 impl<'a> Instruction<'a> {
+    fn uses_jump_table(&self) -> bool {
+        matches!(self.name, "SWITCH_LONG" | "SWITCH_STRING" | "MATCH")
+    }
+
     fn read(arena: &'a Arena, row: Value, layout: &Layout<'_>) -> Result<Self> {
         let [
             op,
@@ -216,6 +227,15 @@ impl<'a> Instruction<'a> {
             "JMPZ" | "JMPNZ" => {
                 left.rvalue() && matches!(right, Operand::Target(_)) && result == unused
             }
+            "JMPZ_EX" | "JMPNZ_EX" | "JMP_SET" | "COALESCE" | "JMP_NULL" => {
+                left.rvalue() && matches!(right, Operand::Target(_)) && result.slot()
+            }
+            "CASE" | "CASE_STRICT" => {
+                matches!(left, Operand::Tmp(_)) && right.rvalue() && result.slot()
+            }
+            "SWITCH_LONG" | "SWITCH_STRING" | "MATCH" => {
+                left.value() && matches!(right, Operand::Literal(_)) && result == unused
+            }
             "ECHO" | "RETURN" => left.rvalue() && right == unused && result == unused,
             _ => return Ok(row),
         };
@@ -243,7 +263,12 @@ impl<'a> Instruction<'a> {
                 }
             }
         }
-        if !matches!(ext, None | Some(("EXT_VALUE", [_])))
+        let valid_ext = if row.uses_jump_table() {
+            extended_target.is_some()
+        } else {
+            matches!(ext, None | Some(("EXT_VALUE", [_])))
+        };
+        if !valid_ext
             || get::opt(arena, &cache)?.is_some()
             || get::opt(arena, &default_cache)?.is_some()
             || get::opt(arena, &mask)?.is_some()
@@ -252,6 +277,9 @@ impl<'a> Instruction<'a> {
             return Err(Error::new(format!("unexpected metadata for {name}")));
         }
         match (name, result, left) {
+            ("JMP_NULL", _, _) if extended_value & 3 == 3 => {
+                return Err(Error::new("invalid nullsafe chain mode"));
+            }
             ("CAST", _, _) if !(4..=8).contains(&extended_value) => {
                 return Err(Error::new("invalid cast type"));
             }
@@ -339,15 +367,14 @@ impl Layout<'_> {
             .iter()
             .map(|&row| Instruction::read(arena, row, self))
             .collect::<Result<_>>()?;
-        // OPcache can leave an unreachable FREE marked ZEND_FREE_SWITCH after the final return.
-        let executable = match code.split_last() {
-            Some((last, before))
-                if !before.is_empty() && last.name == "FREE" && last.extended_value == 2 =>
-            {
-                before
-            }
-            _ => &code,
-        };
+        // Nested switches can leave several unreachable cleanup instructions after a return.
+        let mut executable = code.as_slice();
+        while let Some((last, before)) = executable.split_last()
+            && last.name == "FREE"
+            && last.extended_value == 2
+        {
+            executable = before;
+        }
         let Some(last) = executable.last() else {
             return Err(Error::new("body has no instructions"));
         };
@@ -367,6 +394,7 @@ impl Layout<'_> {
             return Err(Error::new("body can fall past its final instruction"));
         }
         let mut needs_data = false;
+        let mut tables = HashSet::new();
         for (i, op) in code.iter().enumerate() {
             if (op.name == "OP_DATA") != needs_data {
                 return Err(Error::new(format!("unpaired OP_DATA at instruction {i}")));
@@ -409,21 +437,57 @@ impl Layout<'_> {
                     )));
                 }
             }
-            if matches!(op.name, "SWITCH_LONG" | "SWITCH_STRING" | "MATCH") {
+            if op.uses_jump_table() {
                 let Operand::Literal(n) = op.right else {
                     return Err(Error::new("expected jump-table literal"));
                 };
-                let [array] = fields(arena, self.pool[n], "LITERAL")?;
-                let [entries, _, _] = fields(arena, array, "ARRAY")?;
-                for &entry in get::list(arena, &entries)? {
-                    let [_, target] = fields(arena, entry, "ENTRY")?;
-                    let [target] = fields(arena, target, "INT")?;
-                    check_target(executable, index(arena, target)?)?;
+                if !tables.insert(n) {
+                    return Err(Error::new("shared jump-table literal"));
                 }
+                check_jump_table(arena, self.pool[n], op.name, executable)?;
             }
         }
         Ok(executable.len())
     }
+}
+
+fn check_jump_table(
+    arena: &Arena,
+    literal: Value,
+    name: &str,
+    code: &[Instruction<'_>],
+) -> Result<()> {
+    let [array] = fields(arena, literal, "LITERAL")?;
+    let [entries, next, cursor] = fields(arena, array, "ARRAY")?;
+    let entries = get::list(arena, &entries)?;
+    if let Some(cursor) = get::opt(arena, &cursor)?
+        && index(arena, cursor)? > entries.len()
+    {
+        return Err(Error::new("jump-table cursor exceeds entry count"));
+    }
+    let mut keys = HashSet::new();
+    let mut next_index = i64::MIN;
+    for &entry in entries {
+        let [key, target] = fields(arena, entry, "ENTRY")?;
+        match case_fields(arena, key)? {
+            ("INDEX", &[n]) if name != "SWITCH_STRING" => {
+                next_index = next_index.max(signed_index(arena, n)?.saturating_add(1));
+            }
+            ("KEY", [_]) if name != "SWITCH_LONG" => {}
+            _ => return Err(Error::new(format!("invalid jump-table key for {name}"))),
+        }
+        if !keys.insert(arena.value.canon_id(key.node)) {
+            return Err(Error::new("duplicate jump-table key"));
+        }
+        let [target] = fields(arena, target, "INT")?;
+        check_target(code, index(arena, target)?)?;
+    }
+    if let Some(next) = get::opt(arena, &next)?
+        && signed_index(arena, next)? < next_index
+    {
+        return Err(Error::new("jump-table next index precedes an integer key"));
+    }
+    Ok(())
 }
 
 fn check_target(code: &[Instruction<'_>], target: usize) -> Result<()> {

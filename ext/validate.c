@@ -77,10 +77,10 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(JMP, unused, unused, unused),
     SHAPE(JMPZ, rvalue, unused, unused),
     SHAPE(JMPNZ, rvalue, unused, unused),
-    SHAPE(JMPZ_EX, value, unused, slot),
-    SHAPE(JMPNZ_EX, value, unused, slot),
-    SHAPE(CASE, temp, value, slot),
-    SHAPE(CASE_STRICT, temp, value, slot),
+    SHAPE(JMPZ_EX, rvalue, unused, slot),
+    SHAPE(JMPNZ_EX, rvalue, unused, slot),
+    SHAPE(CASE, tmp, rvalue, slot),
+    SHAPE(CASE_STRICT, tmp, rvalue, slot),
     SHAPE(CHECK_VAR, cv, unused, unused),
     SHAPE(CAST, rvalue, unused, slot),
     SHAPE(BOOL, rvalue, unused, slot),
@@ -199,7 +199,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(DECLARE_CLASS_DELAYED, literal, literal, unused),
     SHAPE(DECLARE_ANON_CLASS, literal, unused | literal, slot),
     SHAPE(ASSERT_CHECK, unused, unused, optional_slot),
-    SHAPE(JMP_SET, value, unused, slot),
+    SHAPE(JMP_SET, rvalue, unused, slot),
     SHAPE(SEPARATE, var, unused, optional_slot),
     SHAPE(DISCARD_EXCEPTION, temp, unused, unused),
     SHAPE(YIELD, optional, optional, optional_slot),
@@ -209,7 +209,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(YIELD_FROM, value, unused, optional_slot),
     SHAPE(COPY_TMP, temp, unused, slot),
     SHAPE(BIND_GLOBAL, cv, literal, unused),
-    SHAPE(COALESCE, value, unused, slot),
+    SHAPE(COALESCE, rvalue, unused, slot),
     SHAPE(FUNC_NUM_ARGS, unused, unused, slot),
     SHAPE(FUNC_GET_ARGS, unused | literal, unused, slot),
     SHAPE(BIND_LEXICAL, tmp, cv, unused),
@@ -226,7 +226,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(GET_TYPE, rvalue, unused, slot),
     SHAPE(ARRAY_KEY_EXISTS, value, value, slot),
     SHAPE(MATCH_ERROR, value, unused, unused),
-    SHAPE(JMP_NULL, value, unused, slot),
+    SHAPE(JMP_NULL, rvalue, unused, slot),
     SHAPE(FETCH_GLOBALS, unused, unused, slot),
     SHAPE(CALLABLE_CONVERT, unused, unused, slot),
     SHAPE(FRAMELESS_ICALL_0, unused, unused, slot),
@@ -439,6 +439,11 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
     uint32_t index = (uint32_t)(op - b->opcodes);
     uint32_t ext = op->extended_value;
     switch (op->opcode) {
+        case ZEND_JMP_NULL:
+            if ((ext & ZEND_SHORT_CIRCUITING_CHAIN_MASK) > ZEND_SHORT_CIRCUITING_CHAIN_EMPTY) {
+                invalid(r, b, op, "invalid nullsafe chain mode");
+            }
+            break;
         case ZEND_RECV:
         case ZEND_RECV_INIT:
         case ZEND_RECV_VARIADIC:
@@ -579,10 +584,10 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
     }
 }
 
-void zo_validate_code(zo_reader *r, zend_op_array *body)
+void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable)
 {
     uint32_t params = body->num_args + !!(body->fn_flags & ZEND_ACC_VARIADIC);
-    if (body->last <= params) zo_fail(r, "missing code after parameters");
+    if (executable <= params) zo_fail(r, "missing code after parameters");
     for (uint32_t i = 0; i < body->last; ++i) {
         const zend_op *op = &body->opcodes[i];
         const operand_shape *shape = &shapes[op->opcode];
@@ -599,17 +604,14 @@ void zo_validate_code(zo_reader *r, zend_op_array *body)
         check_names_and_cache(r, body, op);
         check_body_instruction(r, body, op);
     }
-    const zend_op *last = &body->opcodes[body->last - 1];
-    /* OPcache can leave the switch's unused cleanup immediately after its final return. */
-    bool trailing_cleanup = last->opcode == ZEND_FREE && last->extended_value == ZEND_FREE_SWITCH;
-    if (trailing_cleanup && body->last > 1) {
+    const zend_op *last = &body->opcodes[executable - 1];
+    if (executable < body->last) {
         for (uint32_t i = 0; i < body->last_try_catch; ++i) {
             const zend_try_catch_element *region = &body->try_catch_array[i];
-            if (region->catch_op == body->last - 1 || region->finally_op == body->last - 1) {
+            if (region->catch_op >= executable || region->finally_op >= executable) {
                 invalid(r, body, last, "exception handler enters trailing cleanup");
             }
         }
-        --last;
     }
     switch (last->opcode) {
         case ZEND_RETURN:
@@ -624,7 +626,7 @@ void zo_validate_code(zo_reader *r, zend_op_array *body)
             break;
         case ZEND_DO_ICALL:
         case ZEND_DO_UCALL:
-            if (!trailing_cleanup) break;
+            if (executable == body->last) break;
             ZEND_FALLTHROUGH;
         default:
             invalid(r, body, last, "body can fall past its final instruction");

@@ -549,15 +549,15 @@ static void read_instruction(zo_reader *r, zend_op_array *body, uint32_t i)
     zo_eol(r);
 }
 
-static void validate_target(zo_reader *r, const zend_op_array *body, uint32_t i, uint32_t target)
+static void validate_target(zo_reader *r, const zend_op_array *body, uint32_t executable,
+        uint32_t i, uint32_t target)
 {
-    if (target >= body->last || body->opcodes[target].opcode == ZEND_OP_DATA
-            || (target == body->last - 1 && body->opcodes[target].opcode == ZEND_FREE)) {
+    if (target >= executable || body->opcodes[target].opcode == ZEND_OP_DATA) {
         zo_fail(r, "instruction %u references invalid jump target @%u", i, target);
     }
 }
 
-static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line)
+static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line, uint32_t executable)
 {
     bool *used = ecalloc(MAX(1, body->last_literal), sizeof(bool));
     for (uint32_t i = 0; i < body->last; ++i) {
@@ -568,10 +568,10 @@ static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line)
             zo_fail(r, "instruction %u has an unpaired OP_DATA", i);
         }
         if (op->op1_type == IS_UNUSED && unused_kind(op, false) == ZO_TARGET) {
-            validate_target(r, body, i, (uint32_t)(OP_JMP_ADDR(op, op->op1) - body->opcodes));
+            validate_target(r, body, executable, i, (uint32_t)(OP_JMP_ADDR(op, op->op1) - body->opcodes));
         }
         if (op->op2_type == IS_UNUSED && unused_kind(op, true) == ZO_TARGET) {
-            validate_target(r, body, i, (uint32_t)(OP_JMP_ADDR(op, op->op2) - body->opcodes));
+            validate_target(r, body, executable, i, (uint32_t)(OP_JMP_ADDR(op, op->op2) - body->opcodes));
         }
         uint32_t smart = op->result_type & (IS_SMART_BRANCH_JMPZ | IS_SMART_BRANCH_JMPNZ);
         if (smart && (!zend_is_smart_branch(op) || i + 1 >= body->last ||
@@ -580,7 +580,7 @@ static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line)
             zo_fail(r, "instruction %u has a mismatched smart branch", i);
         }
         if ((zend_get_opcode_flags(op->opcode) & ZEND_VM_EXT_MASK) == ZEND_VM_EXT_JMP_ADDR) {
-            validate_target(r, body, i, (uint32_t)ZEND_OFFSET_TO_OPLINE_NUM(body, op, op->extended_value));
+            validate_target(r, body, executable, i, (uint32_t)ZEND_OFFSET_TO_OPLINE_NUM(body, op, op->extended_value));
         }
         if (!dispatch_table(op->opcode)) continue;
         if (op->op2_type != IS_CONST) zo_fail(r, "instruction %u requires a jump-table literal", i);
@@ -596,7 +596,7 @@ static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line)
                 zo_fail(r, "invalid jump table entry at instruction %u", i);
             }
             uint32_t dest = (uint32_t)Z_LVAL_P(target);
-            validate_target(r, body, i, dest);
+            validate_target(r, body, executable, i, dest);
             ZVAL_LONG(target, (int32_t)relative_target(r, body, i, dest));
         } ZEND_HASH_FOREACH_END();
     }
@@ -609,8 +609,14 @@ void zo_read_instructions(zo_reader *r, zend_op_array *body)
     uint32_t first_line = r->line;
     for (uint32_t i = 0; i < body->last; ++i) read_instruction(r, body, i);
     uint32_t next_line = r->line;
-    fix_targets(r, body, first_line);
+    /* Nested switches can leave several unreachable cleanup instructions after a return. */
+    uint32_t executable = body->last;
+    while (executable && body->opcodes[executable - 1].opcode == ZEND_FREE &&
+            body->opcodes[executable - 1].extended_value == ZEND_FREE_SWITCH) {
+        --executable;
+    }
+    fix_targets(r, body, first_line, executable);
     r->line = next_line;
-    zo_validate_code(r, body);
+    zo_validate_code(r, body, executable);
     for (uint32_t i = 0; i < body->last; ++i) ZEND_VM_SET_OPCODE_HANDLER(&body->opcodes[i]);
 }

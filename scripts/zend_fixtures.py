@@ -79,7 +79,7 @@ def run_php(
         command.extend(["-d", "zend_opcodes.load=1"])
     if rejection is not None:
         command.extend(["-d", "display_errors=stderr"])
-    if compile_only:
+    if compile_only or rejection is not None:
         command.append("-l")
     result = subprocess.run(
         [*command, str(entry)], cwd=entry.parent, input=stdin, stdin=subprocess.DEVNULL if stdin is None else None,
@@ -90,7 +90,8 @@ def run_php(
         if result.returncode < 0 or (compile_only and result.returncode != 0) or not listing:
             raise ValueError(f"PHP status {result.returncode} producing listing: "
                              f"stdout {result.stdout[:500]!r}, stderr {result.stderr[:500]!r}")
-    elif result.returncode <= 0 or result.stdout or output.exists() or rejection not in result.stderr:
+    elif (result.returncode <= 0 or result.stdout != b"Errors parsing " + os.fsencode(entry) + b"\n"
+          or output.exists() or rejection not in result.stderr):
         raise ValueError(f"expected loader rejection {rejection!r}, got status {result.returncode}, "
                          f"stdout {result.stdout[:250]!r}, stderr {result.stderr[:250]!r}")
     return Execution(result.stdout, result.stderr, result.returncode, listing)

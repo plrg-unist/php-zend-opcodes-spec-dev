@@ -283,6 +283,139 @@ fn execution_checks_numeric_instruction_forms() {
 }
 
 #[test]
+fn execution_checks_value_branches_and_case_comparisons() {
+    let template = BRANCH_AND_ARRAY.replace("frame 0", "frame 3");
+    let mut arena = Arena::new();
+    let mut validate = |row: &str| {
+        let listing = template.replace("ASSIGN CV0, lit[0] | line=7", row);
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for name in ["JMPZ_EX", "JMPNZ_EX", "JMP_SET", "COALESCE", "JMP_NULL"] {
+        for (dst, input) in [("T1", "lit[0]"), ("V3", "T1"), ("CV0", "CV0")] {
+            validate(&format!("{dst} = {name} {input}, @2")).unwrap();
+        }
+        for row in [
+            format!("{name} CV0, @2"),
+            format!("T1 = {name} V3, @2"),
+            format!("T1 = {name} CV0, 2"),
+            format!("T1 = {name} CV0, T2"),
+            format!("T1 = {name} CV0, @4"),
+            format!("T1 = {name} CV0, @2 | ext=@2"),
+            format!("T1 = {name} CV0, @2 | cache=0"),
+            format!("T1 = {name} CV0, @2 | smart=JMPZ"),
+        ] {
+            assert!(validate(&row).is_err(), "{row}");
+        }
+    }
+    for flags in [0, 1, 2, 4, 5, 6, 8, u32::MAX - 1] {
+        validate(&format!("T1 = JMP_NULL CV0, @2 | ext={flags}")).unwrap();
+    }
+    for flags in [3, 7, u32::MAX] {
+        assert!(validate(&format!("T1 = JMP_NULL CV0, @2 | ext={flags}")).is_err());
+    }
+    for name in ["CASE", "CASE_STRICT"] {
+        for (dst, rhs) in [("T2", "lit[0]"), ("CV0", "T2"), ("V3", "CV0")] {
+            validate(&format!("{dst} = {name} T1, {rhs}")).unwrap();
+        }
+        for row in [
+            format!("{name} T1, T2"),
+            format!("T1 = {name} V2, CV0"),
+            format!("T1 = {name} CV0, CV0"),
+            format!("T1 = {name} T2, V3"),
+            format!("T1 = {name} T2, CV0 | cache=0"),
+        ] {
+            assert!(validate(&row).is_err(), "{row}");
+        }
+    }
+    for name in ["CASE", "CASE_STRICT"] {
+        for jump in ["JMPZ", "JMPNZ"] {
+            let paired = template
+                .replace(
+                    "ASSIGN CV0, lit[0] | line=7",
+                    &format!("T1 = {name} T2, CV0 | smart={jump}"),
+                )
+                .replace("JMPZ CV0", &format!("{jump} T1"));
+            let unit = parse_zop(&mut arena, &paired).unwrap();
+            validate_unit(&arena, &unit).unwrap();
+            let wrong_slot = parse_zop(
+                &mut arena,
+                &paired.replace(&format!("{jump} T1"), &format!("{jump} T2")),
+            )
+            .unwrap();
+            assert!(validate_unit(&arena, &wrong_slot).is_err());
+        }
+    }
+}
+
+#[test]
+fn execution_checks_jump_tables() {
+    let template = BRANCH_AND_ARRAY.replace("frame 0", "frame 3");
+    let mut arena = Arena::new();
+    let mut validate = |code: &str, array: &str| {
+        let listing = template
+            .replace("ASSIGN CV0, lit[0] | line=7", code)
+            .replace(
+                r#"array("0" => float(nan:0xfff8000000000042), -3 => true; next=0; cursor=1)"#,
+                array,
+            );
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for name in ["SWITCH_LONG", "SWITCH_STRING", "MATCH"] {
+        for subject in ["CV0", "T1", "V1", "lit[0]"] {
+            validate(&format!("{name} {subject}, lit[1] | ext=@2"), "array()").unwrap();
+        }
+        for row in [
+            format!("T1 = {name} CV0, lit[1] | ext=@2"),
+            format!("{name} _, lit[1] | ext=@2"),
+            format!("{name} CV0, T1 | ext=@2"),
+            format!("{name} CV0, lit[0] | ext=@2"),
+            format!("{name} CV0, lit[1]"),
+            format!("{name} CV0, lit[1] | ext=2"),
+            format!("{name} CV0, lit[1] | ext=@4"),
+            format!("{name} CV0, lit[1] | ext=@2 cache=0"),
+            format!("{name} CV0, lit[1] | ext=@2 numeric-string-key"),
+        ] {
+            assert!(validate(&row, "array()").is_err(), "{row}");
+        }
+    }
+    let dispatch = "MATCH CV0, lit[1] | ext=@2";
+    for valid in [
+        r#"array(-1 => int(0), "-1" => int(2), "\x00\xff" => int(3); next=0; cursor=3)"#,
+        "array(-4 => int(1); next=-3)",
+        "array(9223372036854775807 => int(2); next=9223372036854775807)",
+    ] {
+        validate(dispatch, valid).unwrap();
+    }
+    for (name, table) in [
+        ("SWITCH_LONG", r#"array("0" => int(0))"#),
+        ("SWITCH_STRING", "array(0 => int(0))"),
+        ("MATCH", "array(1 => int(2), 1 => int(3))"),
+        ("MATCH", r#"array("A" => int(2), "\x41" => int(3))"#),
+        ("MATCH", "array(1 => true)"),
+        ("MATCH", "array(1 => int(-1))"),
+        ("MATCH", "array(1 => int(4))"),
+        ("MATCH", "array(1 => int(2); next=1)"),
+        ("MATCH", "array(1 => int(2); cursor=2)"),
+    ] {
+        assert!(
+            validate(&format!("{name} CV0, lit[1] | ext=@2"), table).is_err(),
+            "{table}"
+        );
+    }
+    let shared = template
+        .replace("ASSIGN CV0, lit[0] | line=7", dispatch)
+        .replace("JMPZ CV0, @3 | line=7", dispatch)
+        .replace(
+            r#"array("0" => float(nan:0xfff8000000000042), -3 => true; next=0; cursor=1)"#,
+            "array(0 => int(2))",
+        );
+    let unit = parse_zop(&mut arena, &shared).unwrap();
+    assert!(validate_unit(&arena, &unit).is_err());
+}
+
+#[test]
 fn execution_checks_logical_filename() {
     let mut arena = Arena::new();
     for (filename, valid) in [
@@ -342,6 +475,39 @@ fn trailing_switch_cleanup_must_be_unreachable() {
         table.replace("0 => int(2)", "0 => int(3)"),
     ] {
         assert!(validate(&invalid).is_err(), "{invalid}");
+    }
+
+    let nested = table.replace("size 4", "size 6").replace(
+        "3: FREE T1 | ext=2",
+        "3: FREE T1 | ext=2\n    4: FREE T1 | ext=2\n    5: FREE T1 | ext=2",
+    );
+    validate(&nested).unwrap();
+    validate(
+        &nested
+            .replace("ASSIGN CV0, lit[0] | line=7", "FREE T1 | ext=2")
+            .replace("ext=@2", "ext=@0"),
+    )
+    .unwrap();
+    for target in 3..=5 {
+        for invalid in [
+            nested.replace("ASSIGN CV0, lit[0] | line=7", &format!("JMP @{target}")),
+            nested.replace(
+                "ASSIGN CV0, lit[0] | line=7",
+                &format!("JMPZ CV0, @{target}"),
+            ),
+            nested.replace("ext=@2", &format!("ext=@{target}")),
+            nested.replace("0 => int(2)", &format!("0 => int({target})")),
+            nested.replace(
+                "  code",
+                &format!("  tries 1\n  try @0 catch @{target} finally @0 end @0\n  code"),
+            ),
+            nested.replace(
+                "  code",
+                &format!("  tries 1\n  try @0 catch @0 finally @{target} end @{target}\n  code"),
+            ),
+        ] {
+            assert!(validate(&invalid).is_err(), "{invalid}");
+        }
     }
 }
 

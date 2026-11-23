@@ -48,7 +48,7 @@ void zo_print_literal(smart_str *out, const zend_op_array *body, uint32_t index)
 void zo_print_instructions(smart_str *out, const zend_op_array *body);
 void zo_read_instructions(zo_reader *r, zend_op_array *body);
 void zo_freeze_bound_literal(zo_reader *r, zval *value);
-void zo_validate_code(zo_reader *r, zend_op_array *body);
+void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable);
 void zo_validate_unit_calls(zo_reader *r);
 
 void zo_print_body(smart_str *out, const zend_op_array *body);

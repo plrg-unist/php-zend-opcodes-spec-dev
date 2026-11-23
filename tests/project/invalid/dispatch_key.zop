@@ -1,0 +1,15 @@
+zend-opcodes
+file "invalid.php"
+main
+body - {
+  lines 1 1
+  frame 0 cache 0
+  size 3 literals 2 children 0
+  lit[0] = int(1)
+  lit[1] = array("1" => int(2))
+  code
+    0: RETURN lit[0]
+    1: SWITCH_LONG lit[0], lit[1] | ext=@2
+    2: RETURN lit[0]
+}
+end
