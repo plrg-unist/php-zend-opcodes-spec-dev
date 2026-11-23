@@ -171,12 +171,25 @@ impl<'a> Instruction<'a> {
         let valid = match name {
             "NOP" => left == unused && right == unused && result == unused,
             "ASSIGN" | "ASSIGN_OP" => writable && right.rvalue(),
-            "PRE_INC" => writable && right == unused,
-            "IS_SMALLER" => left.value() && right.value() && result.slot(),
+            "PRE_INC" | "PRE_DEC" => writable && right == unused,
+            "POST_INC" | "POST_DEC" => writable && right == unused && result.slot(),
+            "ADD"
+            | "SUB"
+            | "MUL"
+            | "MOD"
+            | "SL"
+            | "SR"
+            | "BW_OR"
+            | "BW_AND"
+            | "BW_XOR"
+            | "IS_SMALLER"
+            | "IS_SMALLER_OR_EQUAL" => left.value() && right.value() && result.slot(),
+            "BW_NOT" => left.value() && right == unused && result.slot(),
             "BOOL" | "BOOL_NOT" | "CAST" | "GET_TYPE" | "STRLEN" | "TYPE_CHECK" => {
                 left.rvalue() && right == unused && result.slot()
             }
-            "BOOL_XOR" | "CONCAT" | "FAST_CONCAT" => {
+            "DIV" | "POW" | "IS_IDENTICAL" | "IS_NOT_IDENTICAL" | "IS_EQUAL" | "IS_NOT_EQUAL"
+            | "SPACESHIP" | "BOOL_XOR" | "CONCAT" | "FAST_CONCAT" => {
                 left.rvalue() && right.rvalue() && result.slot()
             }
             "CHECK_VAR" => matches!(left, Operand::Cv(_)) && right == unused && result == unused,

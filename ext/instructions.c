@@ -574,7 +574,7 @@ static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line)
             validate_target(r, body, i, (uint32_t)(OP_JMP_ADDR(op, op->op2) - body->opcodes));
         }
         uint32_t smart = op->result_type & (IS_SMART_BRANCH_JMPZ | IS_SMART_BRANCH_JMPNZ);
-        if (smart && (i + 1 >= body->last ||
+        if (smart && (!zend_is_smart_branch(op) || i + 1 >= body->last ||
             body->opcodes[i + 1].opcode != (smart == IS_SMART_BRANCH_JMPZ ? ZEND_JMPZ : ZEND_JMPNZ) ||
             body->opcodes[i + 1].op1_type != IS_TMP_VAR || body->opcodes[i + 1].op1.var != op->result.var)) {
             zo_fail(r, "instruction %u has a mismatched smart branch", i);

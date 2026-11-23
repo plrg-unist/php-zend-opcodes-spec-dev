@@ -220,6 +220,69 @@ fn execution_checks_scalar_instruction_forms() {
 }
 
 #[test]
+fn execution_checks_numeric_instruction_forms() {
+    let template = BRANCH_AND_ARRAY.replace("frame 0", "frame 3");
+    let mut arena = Arena::new();
+    let mut validate = |row: &str| {
+        let listing = template.replace("ASSIGN CV0, lit[0] | line=7", row);
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for name in [
+        "DIV",
+        "POW",
+        "IS_EQUAL",
+        "IS_NOT_EQUAL",
+        "IS_IDENTICAL",
+        "IS_NOT_IDENTICAL",
+        "SPACESHIP",
+    ] {
+        validate(&format!("T1 = {name} lit[0], lit[1]")).unwrap();
+        for operands in ["V2, CV0", "CV0, V2"] {
+            let row = format!("T1 = {name} {operands}");
+            assert!(validate(&row).is_err(), "{row}");
+        }
+    }
+    for name in [
+        "ADD",
+        "SUB",
+        "MUL",
+        "MOD",
+        "SL",
+        "SR",
+        "BW_OR",
+        "BW_AND",
+        "BW_XOR",
+        "IS_SMALLER",
+        "IS_SMALLER_OR_EQUAL",
+    ] {
+        validate(&format!("T1 = {name} V2, V3")).unwrap();
+        validate(&format!("T1 = {name} lit[0], lit[1]")).unwrap();
+    }
+    for row in [
+        "ADD CV0, lit[0]",
+        "T1 = MOD CV0",
+        "T1 = MUL CV0, lit[1] | cache=0",
+        "T1 = BW_NOT V2, CV0",
+        "BW_NOT CV0",
+        "T1 = POST_DEC T2",
+        "POST_INC CV0",
+        "T1 = PRE_DEC lit[0]",
+        "T1 = POST_INC CV0, lit[0]",
+    ] {
+        assert!(validate(row).is_err(), "{row}");
+    }
+    for row in [
+        "T1 = BW_NOT V2",
+        "PRE_DEC V2",
+        "T1 = POST_INC CV0",
+        "CV0 = POST_DEC V2",
+    ] {
+        validate(row).unwrap();
+    }
+}
+
+#[test]
 fn execution_checks_logical_filename() {
     let mut arena = Arena::new();
     for (filename, valid) in [
