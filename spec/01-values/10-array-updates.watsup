@@ -12,6 +12,11 @@ def $initial_array_index(n) = STORAGE (-9223372036854775808) MIXED
 def $initial_array_index(n) = STORAGE (-9223372036854775808) (VACANT ($array_capacity($(n / 4), 8)))
   -- if $((n / 2) \ 2 = 0)
 
+dec $literal_index(int, literalLayout?) : arrayIndex
+def $literal_index(i, eps) = NEXT_INDEX i
+def $literal_index(i, PACKED_LITERAL n_capacity) = STORAGE i (PACKED n_capacity)
+def $literal_index(i, MIXED_LITERAL) = STORAGE i MIXED
+
 ;; The first integer key must fit the initial capacity. Later keys can grow a
 ;; packed array by one doubling when more than half its capacity is occupied.
 dec $layout_for_key(arrayLayout, int, nat, arraykey) : arrayLayout

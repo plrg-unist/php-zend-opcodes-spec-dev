@@ -245,6 +245,10 @@ void zo_print_literal(zo_writer *writer, const zend_op_array *body, uint32_t ind
         for (uint32_t i = 0; i < body->last; ++i) {
             const zend_op *op = &body->opcodes[i];
             if (!dispatch_table(op->opcode) || RT_CONSTANT(op, op->op2) != literal) continue;
+            if (!zend_hash_num_elements(Z_ARR_P(literal))) {
+                zo_put_table(writer, Z_ARR_P(literal));
+                return;
+            }
             zval table;
             ZVAL_ARR(&table, zend_array_dup(Z_ARR_P(literal)));
             zval *value;

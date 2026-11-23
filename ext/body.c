@@ -471,8 +471,7 @@ static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
         ZEND_HASH_FOREACH_STR_KEY(Z_ARRVAL(statics), key) {
             if (!key) zo_fail(r, "invalid static variable name");
         } ZEND_HASH_FOREACH_END();
-        body->static_variables = zend_array_dup(Z_ARRVAL(statics));
-        zval_ptr_dtor(&statics);
+        body->static_variables = Z_ARRVAL(statics);
         zo_eol(r);
     }
     zo_expect(r, "size");

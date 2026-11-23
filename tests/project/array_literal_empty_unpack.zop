@@ -1,0 +1,30 @@
+zend-opcodes
+file "array_literal_empty_unpack.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 1 ["a"]
+  size 13 literals 6 children 0
+  lit[0] = array(0 => int(1), 1 => int(2), 2 => int(3))
+  lit[1] = int(2)
+  lit[2] = array(packed=8; next=1)
+  lit[3] = "X"
+  lit[4] = int(1)
+  lit[5] = "\x0a"
+  code
+    0: ASSIGN CV0, lit[0]
+    1: UNSET_DIM CV0, lit[1]
+    2: T1 = QM_ASSIGN CV0
+    3: UNSET_CV CV0
+    4: T1 = ADD_ARRAY_UNPACK lit[2]
+    5: ASSIGN CV0, T1
+    6: ASSIGN_DIM CV0
+    7: OP_DATA lit[3]
+    8: T1 = FETCH_DIM_IS CV0, lit[1]
+    9: ECHO T1
+    10: ECHO lit[5]
+    11: SWITCH_LONG lit[4], lit[2] | ext=@12
+    12: RETURN lit[4]
+}
+end

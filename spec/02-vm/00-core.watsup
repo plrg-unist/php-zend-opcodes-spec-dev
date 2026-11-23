@@ -36,8 +36,8 @@ def $ext_value(EXT_VALUE n) = n
 ;; Ordinary nested arrays inherit the identity of their root and their own key path.
 ;; A shared literal starts a new root wherever the unit names it.
 dec $runtime_value(zval, literalRoot, arraykey*) : slotValue
-def $runtime_value(ARRAY (ENTRY arraykey zval)* i? n?, literalRoot, arraykey_path*) =
-  ARRAY_VALUE (LITERAL_ARRAY literalRoot arraykey_path*) runtimeEntry* (NEXT_INDEX ($array_next(runtimeEntry*, i?))) n?
+def $runtime_value(ARRAY (ENTRY arraykey zval)* i? n? literalLayout?, literalRoot, arraykey_path*) =
+  ARRAY_VALUE (LITERAL_ARRAY literalRoot arraykey_path*) runtimeEntry* ($literal_index($array_next(runtimeEntry*, i?), literalLayout?)) n?
   -- if runtimeEntry* = (ITEM arraykey $runtime_value(zval, literalRoot, arraykey_path* ++ [arraykey]))*
 def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITERAL n, eps)
 def $runtime_value(zval, _, _) = zval

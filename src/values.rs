@@ -70,8 +70,22 @@ impl Parser<'_> {
     }
 
     fn read_array(&mut self) -> Result<Value> {
+        let layout = if self.take("packed=") {
+            let capacity = self.number()?;
+            Some(self.case("literalLayout", "PACKED_LITERAL", [capacity])?)
+        } else if self.take("mixed") {
+            Some(self.case("literalLayout", "MIXED_LITERAL", [])?)
+        } else {
+            None
+        };
+        let mut has_metadata = if layout.is_some() {
+            self.expect(";")?;
+            self.peek("next=") || self.peek("cursor=")
+        } else {
+            self.take(";")
+        };
         let mut entries = Vec::new();
-        if !self.peek(")") && !self.peek(";") {
+        if !has_metadata && !self.peek(")") {
             loop {
                 let key = if self.peek("\"") {
                     let bytes = self.bytes()?;
@@ -88,10 +102,11 @@ impl Parser<'_> {
                     break;
                 }
             }
+            has_metadata = self.take(";");
         }
         let mut next = None;
         let mut cursor = None;
-        if self.take(";") {
+        if has_metadata {
             if self.take("next=") {
                 let n = self.i64()?;
                 next = Some(self.int(n)?);
@@ -108,7 +123,8 @@ impl Parser<'_> {
         let entries = self.list("arrayentry", entries)?;
         let next = self.opt("int", next)?;
         let cursor = self.opt("nat", cursor)?;
-        self.case("zval", "ARRAY", [entries, next, cursor])
+        let layout = self.opt("literalLayout", layout)?;
+        self.case("zval", "ARRAY", [entries, next, cursor, layout])
     }
 
     pub(crate) fn ztype(&mut self) -> Result<Value> {
@@ -189,13 +205,13 @@ impl Printer<'_> {
                     write!(self.out, "float({float:?})")?;
                 }
             }
-            ("ARRAY", [entries, next, cursor]) => {
+            ("ARRAY", &[entries, next, cursor, layout]) => {
                 self.out.push_str("array");
-                self.write_array(*entries, *next, *cursor)?;
+                self.write_array(entries, next, cursor, layout)?;
             }
             ("SHARED_ARRAY", &[id, array]) => {
                 let id = self.u32(id)?;
-                let [entries, next, cursor] = self.fields(array, "ARRAY")?;
+                let [entries, next, cursor, layout] = self.fields(array, "ARRAY")?;
                 if let Some(known) = self.shared_arrays.get(&id) {
                     if !known.is_some_and(|value| {
                         self.arena.value.canon_id(value.node)
@@ -207,7 +223,7 @@ impl Printer<'_> {
                 } else {
                     self.shared_arrays.insert(id, None);
                     write!(self.out, "array#{id}")?;
-                    self.write_array(entries, next, cursor)?;
+                    self.write_array(entries, next, cursor, layout)?;
                     self.shared_arrays.insert(id, Some(array));
                 }
             }
@@ -221,9 +237,31 @@ impl Printer<'_> {
         Ok(())
     }
 
-    fn write_array(&mut self, entries: Value, next: Value, cursor: Value) -> Result<()> {
+    fn write_array(
+        &mut self,
+        entries: Value,
+        next: Value,
+        cursor: Value,
+        layout: Value,
+    ) -> Result<()> {
         self.out.push('(');
-        for (index, &entry) in self.list(entries)?.iter().enumerate() {
+        let entries = self.list(entries)?;
+        let mut separator = "; ";
+        if let Some(layout) = self.opt(layout)? {
+            match self.case(layout)? {
+                ("PACKED_LITERAL", &[capacity]) => {
+                    write!(self.out, "packed={};", self.u32(capacity)?)?
+                }
+                ("MIXED_LITERAL", []) => self.out.push_str("mixed;"),
+                _ => return Err(Error::new("invalid array literal layout")),
+            }
+            if entries.is_empty() {
+                separator = " ";
+            } else {
+                self.out.push(' ');
+            }
+        }
+        for (index, &entry) in entries.iter().enumerate() {
             if index != 0 {
                 self.out.push_str(", ");
             }
@@ -237,10 +275,11 @@ impl Printer<'_> {
             self.zval(value)?;
         }
         if let Some(value) = self.opt(next)? {
-            write!(self.out, "; next={}", self.int(value)?)?;
+            write!(self.out, "{separator}next={}", self.int(value)?)?;
+            separator = "; ";
         }
         if let Some(value) = self.opt(cursor)? {
-            write!(self.out, "; cursor={}", self.u32(value)?)?;
+            write!(self.out, "{separator}cursor={}", self.u32(value)?)?;
         }
         self.out.push(')');
         Ok(())

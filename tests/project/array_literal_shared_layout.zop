@@ -1,0 +1,37 @@
+zend-opcodes
+file "array_literal_shared_layout.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  locals 1 ["a"]
+  size 18 literals 8 children 0
+  lit[0] = array(0 => array#7(mixed; 0 => float(nan:0x7ff8000000000001); next=9; cursor=1), 1 => array-ref(7))
+  lit[1] = int(0)
+  lit[2] = int(1)
+  lit[3] = int(2)
+  lit[4] = int(9)
+  lit[5] = "A"
+  lit[6] = "B"
+  lit[7] = "\x0a"
+  code
+    0: T1 = FETCH_DIM_R lit[0], lit[1]
+    1: ASSIGN CV0, T1
+    2: T1 = FETCH_DIM_R lit[0], lit[2]
+    3: T2 = IS_IDENTICAL CV0, T1
+    4: ECHO T2
+    5: ASSIGN_DIM CV0, lit[2]
+    6: OP_DATA lit[5]
+    7: ASSIGN_DIM CV0
+    8: OP_DATA lit[6]
+    9: T1 = FETCH_DIM_IS CV0, lit[3]
+    10: ECHO T1
+    11: T1 = FETCH_DIM_R CV0, lit[4]
+    12: ECHO T1
+    13: T1 = FETCH_DIM_R lit[0], lit[1]
+    14: T2 = COUNT T1
+    15: ECHO T2
+    16: ECHO lit[7]
+    17: RETURN lit[2]
+}
+end

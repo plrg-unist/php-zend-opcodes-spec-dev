@@ -28,7 +28,13 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
                     let [temps, _, locals, statics] = fields(arena, frame, "FRAME")?;
                     if let Some(table) = get::opt(arena, &statics)? {
-                        fields::<3>(arena, table, "ARRAY")?;
+                        let [entries, _, _, _] = fields(arena, table, "ARRAY")?;
+                        for &entry in get::list(arena, &entries)? {
+                            let [key, _] = fields(arena, entry, "ENTRY")?;
+                            if case_fields(arena, key)?.0 != "KEY" {
+                                return Err(Error::new("invalid static variable name"));
+                            }
+                        }
                     }
                     let locals = get::list(arena, &locals)?.len();
                     let slots = locals + index(arena, temps)?;
@@ -54,7 +60,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                 ("SHARED_ARRAY", &[id, array]) => {
                     let id = u32::try_from(index(arena, id)?)
                         .map_err(|_| Error::new("shared array id exceeds u32"))?;
-                    let [entries, _, _] = fields(arena, array, "ARRAY")?;
+                    let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
                     get::list(arena, &entries)?;
                     let payload = arena.value.canon_id(array.node);
                     match shared_arrays.insert(id, payload) {
@@ -66,13 +72,17 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                     }
                 }
                 ("SHARED_ARRAY", _) => return Err(Error::new("invalid shared array fields")),
-                // A deferred ARRAY expression starts with numeric flags; a zval starts with entries.
-                ("ARRAY", &[entries, next, cursor])
-                    if matches!(arena.value.kind(entries.node), ValueKind::List(_)) =>
-                {
-                    check_array(arena, entries, next, cursor)?;
+                ("ARRAY", &[entries, next, cursor, layout]) => {
+                    check_array(arena, entries, next, cursor, layout)?;
                     pending.push(entries);
                 }
+                // A deferred ARRAY expression has flags, a line and child expressions.
+                ("ARRAY", &[flags, _, children])
+                    if matches!(arena.value.kind(flags.node), ValueKind::Num(_)) =>
+                {
+                    pending.push(children);
+                }
+                ("ARRAY", _) => return Err(Error::new("invalid array fields")),
                 (_, args) => pending.extend_from_slice(args),
             },
             ValueKind::List(items) => {
@@ -103,7 +113,7 @@ fn check_constant_literal(arena: &Arena, value: Value, checked: &mut HashSet<Val
                 ));
             }
             ("SHARED_ARRAY", &[_, array]) => pending.push(array),
-            ("ARRAY", &[entries, _, _]) => {
+            ("ARRAY", &[entries, _, _, _]) => {
                 for &entry in get::list(arena, &entries)? {
                     let [_, item] = fields(arena, entry, "ENTRY")?;
                     pending.push(item);
@@ -412,7 +422,7 @@ impl<'a> Instruction<'a> {
                 ("SHARED_ARRAY", &[_, array]) => array,
                 _ => value,
             };
-            let [entries, _, _] = fields(arena, array, "ARRAY")?;
+            let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
             if extended_value == 0 {
                 for &entry in get::list(arena, &entries)? {
                     let [key, _] = fields(arena, entry, "ENTRY")?;
@@ -662,7 +672,28 @@ impl Layout<'_> {
     }
 }
 
-fn check_array(arena: &Arena, entries: Value, next: Value, cursor: Value) -> Result<()> {
+fn check_array(
+    arena: &Arena,
+    entries: Value,
+    next: Value,
+    cursor: Value,
+    layout: Value,
+) -> Result<()> {
+    let packed_capacity = match get::opt(arena, &layout)?
+        .map(|v| case_fields(arena, v))
+        .transpose()?
+    {
+        None | Some(("MIXED_LITERAL", [])) => None,
+        Some(("PACKED_LITERAL", &[n])) => {
+            let capacity = index(arena, n)?;
+            // HT_MIN_SIZE and HT_MAX_SIZE on the pinned 64-bit Zend build.
+            if !(8..=1 << 30).contains(&capacity) || !capacity.is_power_of_two() {
+                return Err(Error::new("invalid packed array capacity"));
+            }
+            Some(capacity as i64)
+        }
+        _ => return Err(Error::new("invalid array literal layout")),
+    };
     let entries = get::list(arena, &entries)?;
     if let Some(cursor) = get::opt(arena, &cursor)?
         && index(arena, cursor)? > entries.len()
@@ -675,7 +706,15 @@ fn check_array(arena: &Arena, entries: Value, next: Value, cursor: Value) -> Res
         let [key, value] = fields(arena, entry, "ENTRY")?;
         match case_fields(arena, key)? {
             ("INDEX", &[n]) => {
-                next_index = next_index.max(signed_index(arena, n)?.saturating_add(1));
+                let n = signed_index(arena, n)?;
+                if packed_capacity.is_some_and(|capacity| n < 0 || n < next_index || n >= capacity)
+                {
+                    return Err(Error::new("invalid key for packed array layout"));
+                }
+                next_index = next_index.max(n.saturating_add(1));
+            }
+            ("KEY", [_]) if packed_capacity.is_some() => {
+                return Err(Error::new("invalid key for packed array layout"));
             }
             ("KEY", [_]) => {}
             _ => return Err(Error::new("invalid array key")),
@@ -704,7 +743,7 @@ fn check_jump_table(
     code: &[Instruction<'_>],
 ) -> Result<()> {
     let [array] = fields(arena, literal, "LITERAL")?;
-    let [entries, _, _] = fields(arena, array, "ARRAY")?;
+    let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
     for &entry in get::list(arena, &entries)? {
         let [key, target] = fields(arena, entry, "ENTRY")?;
         let kind = case_fields(arena, key)?.0;

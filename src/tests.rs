@@ -70,7 +70,7 @@ body - {
   lines 1 1
   frame 0 cache 0
   size 1 literals 2 children 0
-  lit[0] = array#42(0 => array#7(0 => int(9)), 1 => array-ref(7))
+  lit[0] = array#42(mixed; 0 => array#7(packed=16; 0 => int(9)), 1 => array-ref(7))
   lit[1] = array-ref(42)
   code
     0: RETURN lit[1] | line=1
@@ -129,7 +129,11 @@ fn shared_arrays_require_a_completed_unique_definition() {
         assert!(parse_zop(&mut arena, &listing).is_err(), "{listing}");
     }
     let mut runner = test_spec::runner(&mut arena);
-    for name in ["conflicting_arrays", "bad_array_payload"] {
+    for name in [
+        "conflicting_arrays",
+        "conflicting_layouts",
+        "bad_array_payload",
+    ] {
         let unit = runner.eval_func(&mut arena, name, &[], &[]).result.unwrap();
         assert!(validate_unit(&arena, &unit).is_err());
         assert!(print_zop(&arena, &unit).is_err());
@@ -147,12 +151,62 @@ fn shared_arrays_cross_body_and_class_metadata() {
     validate_unit(&arena, &unit).unwrap();
     assert_eq!(print_zop(&arena, &unit).unwrap(), listing);
 
-    let statics = SHARED_ARRAYS.replace("  size", "  statics array(0 => array#8())\n  size");
+    let statics = SHARED_ARRAYS.replace(
+        "  size",
+        "  statics array(mixed; \"x\" => array#8())\n  size",
+    );
     let unit = parse_zop(&mut arena, &statics).unwrap();
     validate_unit(&arena, &unit).unwrap();
     let invalid = statics.replace("statics array(", "statics array#9(");
     let unit = parse_zop(&mut arena, &invalid).unwrap();
     assert!(validate_unit(&arena, &unit).is_err());
+    let mut runner = test_spec::runner(&mut arena);
+    let numeric_key = runner
+        .eval_func(&mut arena, "numeric_static_key", &[], &[])
+        .result
+        .unwrap();
+    test_spec::check_unit(&mut runner, &mut arena, numeric_key).unwrap();
+    assert!(validate_unit(&arena, &numeric_key).is_err());
+}
+
+#[test]
+fn literal_layout_bounds_and_keys() {
+    let mut arena = Arena::new();
+    for literal in [
+        "array(packed=8;)",
+        "array(packed=1073741824; next=7; cursor=0)",
+        "array(packed=16; 0 => true, 15 => false; next=20; cursor=2)",
+        "array(mixed;)",
+        "array(mixed; cursor=0)",
+        r#"array(mixed; 0 => true, "0" => false, -1 => null; cursor=1)"#,
+    ] {
+        let listing = BYTES_AND_LITERAL.replace("int(-7)", literal);
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit).unwrap();
+        assert_eq!(print_zop(&arena, &unit).unwrap(), listing);
+    }
+    for literal in [
+        "array(packed=4;)",
+        "array(packed=12;)",
+        "array(packed=2147483648;)",
+        "array(packed=8; -1 => true)",
+        "array(packed=8; 8 => true)",
+        "array(packed=8; 1 => true, 0 => false)",
+        "array(packed=8; 0 => true, 0 => false)",
+        r#"array(packed=8; "0" => true)"#,
+    ] {
+        let listing = BYTES_AND_LITERAL.replace("int(-7)", literal);
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        assert!(validate_unit(&arena, &unit).is_err(), "{literal}");
+    }
+    for literal in [
+        "array(mixed)",
+        "array(mixed;; next=4)",
+        "array(packed=8; mixed;)",
+    ] {
+        let listing = BYTES_AND_LITERAL.replace("int(-7)", literal);
+        assert!(parse_zop(&mut arena, &listing).is_err(), "{literal}");
+    }
 }
 
 #[test]
@@ -489,6 +543,8 @@ fn execution_checks_jump_tables() {
         r#"array(-1 => int(0), "-1" => int(2), "\x00\xff" => int(3); next=0; cursor=3)"#,
         "array(-4 => int(1); next=-3)",
         "array(9223372036854775807 => int(2); next=9223372036854775807)",
+        "array(packed=16; 0 => int(1), 12 => int(2))",
+        "array(mixed; 0 => int(0))",
     ] {
         validate(dispatch, valid).unwrap();
     }
