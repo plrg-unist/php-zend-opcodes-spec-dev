@@ -1,0 +1,1 @@
+constant lookup and global binding share an incompatible cache slot

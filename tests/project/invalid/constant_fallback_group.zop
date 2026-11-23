@@ -1,0 +1,14 @@
+zend-opcodes
+file "constant_fallback_group.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 8
+  size 2 literals 2 children 0
+  lit[0] = "N\\A"
+  lit[1] = "n\\A"
+  code
+    0: T0 = FETCH_CONSTANT 2048, lit[0] | line=1
+    1: RETURN T0 | line=1
+}
+end

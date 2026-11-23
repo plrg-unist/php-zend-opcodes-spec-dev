@@ -14,7 +14,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
 
 /// Checks the unit and returns all bodies, including closures inside deferred expressions.
 pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<Vec<Value>> {
-    let [filename, _, _, main, functions, classes] = fields(arena, *unit, "UNIT")?;
+    let [filename, _, globals, main, functions, classes] = fields(arena, *unit, "UNIT")?;
     let filename = get::list(arena, &filename)?;
     if filename.is_empty() {
         return Err(Error::new("empty unit filename"));
@@ -22,6 +22,18 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
     for &byte in filename {
         if !(1..=255).contains(&index(arena, byte)?) {
             return Err(Error::new("invalid byte in unit filename"));
+        }
+    }
+    let mut autoglobals = HashSet::new();
+    for &global in get::list(arena, &globals)? {
+        let name = get::list(arena, &global)?
+            .iter()
+            .map(|&n| u8::try_from(index(arena, n)?).map_err(|_| Error::new("invalid name byte")))
+            .collect::<Result<Vec<_>>>()?;
+        if !matches!(name.as_slice(), b"_ENV" | b"_SERVER" | b"_REQUEST")
+            || !autoglobals.insert(name)
+        {
+            return Err(Error::new("unknown or repeated autoglobal"));
         }
     }
     let mut pending = vec![classes, functions, main];
@@ -32,7 +44,7 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
         match arena.value.kind(value.node) {
             ValueKind::Case(_) => match case_fields(arena, value)? {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
-                    let [temps, _, locals, statics] = fields(arena, frame, "FRAME")?;
+                    let [temps, cache, locals, statics] = fields(arena, frame, "FRAME")?;
                     if let Some(table) = get::opt(arena, &statics)? {
                         let [entries, _, _, layout] = fields(arena, table, "ARRAY")?;
                         if let Some(layout) = get::opt(arena, &layout)?
@@ -48,7 +60,19 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
                             }
                         }
                     }
-                    let locals = get::list(arena, &locals)?.len();
+                    let locals = get::list(arena, &locals)?;
+                    let mut local_names = HashSet::new();
+                    if locals
+                        .iter()
+                        .any(|name| !local_names.insert(arena.value.canon_id(name.node)))
+                    {
+                        return Err(Error::new("duplicate compiled variable name"));
+                    }
+                    let locals = locals.len();
+                    let cache_size = index(arena, cache)?;
+                    if !cache_size.is_multiple_of(8) {
+                        return Err(Error::new("unaligned runtime cache size"));
+                    }
                     let slots = locals + index(arena, temps)?;
                     // On the pinned 64-bit ABI, offsets use 16-byte zvals after five call-frame slots.
                     if slots > (u32::MAX / 16 - 5) as usize {
@@ -57,6 +81,7 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
                     let layout = Layout {
                         locals,
                         slots,
+                        cache_size,
                         pool: get::list(arena, &pool)?,
                     };
                     let code = get::list(arena, &code)?;
@@ -346,6 +371,26 @@ impl<'a> Instruction<'a> {
             "ISSET_ISEMPTY_CV" => {
                 matches!(left, Operand::Cv(_)) && right == unused && result.slot()
             }
+            "FETCH_R" | "FETCH_W" | "FETCH_RW" | "FETCH_IS" | "FETCH_UNSET"
+            | "ISSET_ISEMPTY_VAR" => left.rvalue() && right == unused && result.slot(),
+            "UNSET_VAR" => left.value() && right == unused && result == unused,
+            "BIND_GLOBAL" => {
+                matches!(left, Operand::Cv(_))
+                    && matches!(right, Operand::Literal(_))
+                    && result == unused
+            }
+            "FETCH_GLOBALS" => left == unused && right == unused && result.slot(),
+            "DECLARE_CONST" => {
+                matches!(left, Operand::Literal(_))
+                    && matches!(right, Operand::Literal(_))
+                    && result == unused
+            }
+            "FETCH_CONSTANT" => {
+                matches!(left, Operand::Immediate(_))
+                    && matches!(right, Operand::Literal(_))
+                    && result.slot()
+            }
+            "DEFINED" => matches!(left, Operand::Literal(_)) && right == unused && result.slot(),
             "QM_ASSIGN" => left.value() && right == unused && result.slot(),
             "COPY_TMP" => {
                 matches!(left, Operand::Tmp(_) | Operand::Var(_))
@@ -388,6 +433,31 @@ impl<'a> Instruction<'a> {
         };
         if !valid {
             return Err(Error::new(format!("wrong operands for {name}")));
+        }
+        let names = match (name, left, right) {
+            (
+                "FETCH_R" | "FETCH_W" | "FETCH_RW" | "FETCH_IS" | "FETCH_UNSET"
+                | "ISSET_ISEMPTY_VAR" | "UNSET_VAR" | "DECLARE_CONST" | "DEFINED",
+                Operand::Literal(n),
+                _,
+            )
+            | ("BIND_GLOBAL", _, Operand::Literal(n)) => n..n + 1,
+            ("FETCH_CONSTANT", Operand::Immediate(flags), Operand::Literal(n)) => {
+                n..n + if flags & 2048 != 0 { 3 } else { 2 }
+            }
+            _ => 0..0,
+        };
+        for n in names {
+            if layout.literal_tag(arena, n)? != "STRING" {
+                return Err(Error::new(format!(
+                    "expected a name string in lit[{n}] for {name}"
+                )));
+            }
+        }
+        if matches!(name, "DEFINED" | "FETCH_CONSTANT" | "BIND_GLOBAL")
+            && (!extended_value.is_multiple_of(8) || extended_value >= layout.cache_size)
+        {
+            return Err(Error::new(format!("invalid runtime cache slot for {name}")));
         }
         if name == "CONCAT" && matches!((left, right), (Operand::Literal(_), Operand::Literal(_))) {
             return Err(Error::new("CONCAT has no two-literal handler"));
@@ -517,6 +587,7 @@ impl<'a> Instruction<'a> {
 struct Layout<'a> {
     locals: usize,
     slots: usize,
+    cache_size: usize,
     pool: &'a [Value],
 }
 
@@ -645,7 +716,18 @@ impl Layout<'_> {
         }
         let mut needs_data = false;
         let mut tables = HashSet::new();
+        let mut name_cache_slots = HashMap::new();
         for (i, op) in code.iter().enumerate() {
+            let global = op.name == "BIND_GLOBAL";
+            if (global || matches!(op.name, "FETCH_CONSTANT" | "DEFINED"))
+                && name_cache_slots
+                    .insert(op.extended_value, global)
+                    .is_some_and(|prior| prior != global)
+            {
+                return Err(Error::new(
+                    "constant lookup and global binding share an incompatible cache slot",
+                ));
+            }
             if (op.name == "OP_DATA") != needs_data {
                 return Err(Error::new(format!("unpaired OP_DATA at instruction {i}")));
             }

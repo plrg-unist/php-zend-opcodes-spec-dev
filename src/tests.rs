@@ -1011,3 +1011,97 @@ fn execution_checks_reference_and_foreach_shapes() {
         assert!(validate(row).is_err(), "{row}");
     }
 }
+
+#[test]
+fn execution_checks_variable_and_constant_shapes() {
+    let template = r#"zend-opcodes
+file "names.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 16
+  locals 1 ["x"]
+  size 3 literals 4 children 0
+  lit[0] = "N\\A"
+  lit[1] = "n\\A"
+  lit[2] = "A"
+  lit[3] = int(7)
+  code
+    0: NOP
+    1: JMPZ T1, @2
+    2: RETURN lit[3]
+}
+end
+"#;
+    let mut arena = Arena::new();
+    let mut validate = |text: &str| {
+        let unit = parse_zop(&mut arena, text).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for row in [
+        "T1 = FETCH_R CV0 | ext=4",
+        "V1 = FETCH_W T2 | ext=8",
+        "V1 = FETCH_RW lit[0] | ext=2",
+        "T1 = FETCH_IS T2",
+        "V1 = FETCH_UNSET CV0 | ext=4",
+        "T1 = ISSET_ISEMPTY_VAR lit[0] | ext=3 smart=JMPZ",
+        "UNSET_VAR V1 | ext=4",
+        "BIND_GLOBAL CV0, lit[0] | ext=8",
+        "T1 = FETCH_GLOBALS",
+        "DECLARE_CONST lit[2], lit[3]",
+        "T1 = FETCH_CONSTANT 0, lit[1] | ext=8",
+        "V1 = FETCH_CONSTANT 2048, lit[0]",
+        "T1 = DEFINED lit[2] | smart=JMPZ",
+    ] {
+        validate(&template.replace("NOP", row)).unwrap_or_else(|err| panic!("{row}: {err}"));
+    }
+    for row in [
+        "T1 = FETCH_R V2",
+        "V1 = FETCH_W lit[3]",
+        "V1 = FETCH_RW",
+        "T1 = FETCH_IS CV0, CV0",
+        "V1 = FETCH_UNSET V2",
+        "T1 = ISSET_ISEMPTY_VAR V2",
+        "T1 = UNSET_VAR T2",
+        "BIND_GLOBAL CV0, lit[3]",
+        "BIND_GLOBAL CV0, lit[0] | ext=1",
+        "BIND_GLOBAL V1, lit[0]",
+        "FETCH_GLOBALS",
+        "T1 = FETCH_GLOBALS CV0",
+        "DECLARE_CONST lit[3], lit[2]",
+        "DECLARE_CONST lit[2], CV0",
+        "T1 = FETCH_CONSTANT _, lit[0]",
+        "T1 = FETCH_CONSTANT 2048, lit[1]",
+        "T1 = FETCH_CONSTANT 0, lit[3]",
+        "T1 = FETCH_CONSTANT 0, lit[0] | ext=16",
+        "T1 = FETCH_CONSTANT 0, lit[0] | cache=8",
+        "T1 = DEFINED lit[2] | ext=4",
+        "T1 = DEFINED CV0",
+    ] {
+        assert!(validate(&template.replace("NOP", row)).is_err(), "{row}");
+    }
+    for (from, to) in [
+        ("cache 16", "cache 7"),
+        (r#"1 ["x"]"#, r#"2 ["x", "\x78"]"#),
+        ("main\n", "autoglobal \"_GET\"\nmain\n"),
+        (
+            "main\n",
+            "autoglobal \"_SERVER\"\nautoglobal \"_SERVER\"\nmain\n",
+        ),
+        (
+            "NOP\n    1: JMPZ T1, @2",
+            "BIND_GLOBAL CV0, lit[2]\n    1: T1 = DEFINED lit[0]",
+        ),
+        (
+            "NOP\n    1: JMPZ T1, @2",
+            "T1 = FETCH_CONSTANT 0, lit[0]\n    1: BIND_GLOBAL CV0, lit[2]",
+        ),
+    ] {
+        assert!(validate(&template.replace(from, to)).is_err(), "{to}");
+    }
+    validate(&template.replace(
+        "main\n",
+        "autoglobal \"_REQUEST\"\nautoglobal \"_ENV\"\nmain\n",
+    ))
+    .unwrap();
+}

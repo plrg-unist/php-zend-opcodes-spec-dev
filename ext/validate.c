@@ -134,12 +134,12 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(FE_RESET_RW, value, unused, temp),
     SHAPE(FE_FETCH_R, temp, slot, optional_slot),
     SHAPE(FE_FETCH_RW, var, slot, optional_slot),
-    SHAPE(FETCH_R, value, unused, slot),
-    SHAPE(FETCH_W, value, unused, slot),
-    SHAPE(FETCH_RW, value, unused, slot),
-    SHAPE(FETCH_IS, value, unused, slot),
+    SHAPE(FETCH_R, rvalue, unused, slot),
+    SHAPE(FETCH_W, rvalue, unused, slot),
+    SHAPE(FETCH_RW, rvalue, unused, slot),
+    SHAPE(FETCH_IS, rvalue, unused, slot),
     SHAPE(FETCH_FUNC_ARG, value, unused, slot),
-    SHAPE(FETCH_UNSET, value, unused, slot),
+    SHAPE(FETCH_UNSET, rvalue, unused, slot),
     SHAPE(FETCH_DIM_R, value, rvalue, slot),
     SHAPE(FETCH_DIM_W, writable, rvalue | unused, slot),
     SHAPE(FETCH_DIM_RW, writable, rvalue | unused, slot),
@@ -172,7 +172,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(CATCH, literal, unused, cv | unused),
     SHAPE(THROW, value, unused, unused),
     SHAPE(CLONE, optional, unused, slot),
-    SHAPE(ISSET_ISEMPTY_VAR, value, unused, slot),
+    SHAPE(ISSET_ISEMPTY_VAR, rvalue, unused, slot),
     SHAPE(ISSET_ISEMPTY_DIM_OBJ, rvalue, rvalue, slot),
     SHAPE(ISSET_ISEMPTY_PROP_OBJ, optional, value, slot),
     SHAPE(ISSET_ISEMPTY_CV, cv, unused, slot),
@@ -635,6 +635,25 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
     }
 }
 
+static void check_name_cache_slots(zo_reader *r, const zend_op_array *body)
+{
+    HashTable slots;
+    zend_hash_init(&slots, 8, NULL, NULL, false);
+    for (uint32_t i = 0; i < body->last; i++) {
+        const zend_op *op = &body->opcodes[i];
+        bool global = op->opcode == ZEND_BIND_GLOBAL;
+        if (!global && op->opcode != ZEND_FETCH_CONSTANT && op->opcode != ZEND_DEFINED) continue;
+        zval *previous = zend_hash_index_lookup(&slots, op->extended_value);
+        if (Z_TYPE_P(previous) == IS_NULL) {
+            ZVAL_BOOL(previous, global);
+        } else if ((Z_TYPE_P(previous) == IS_TRUE) != global) {
+            zend_hash_destroy(&slots);
+            invalid(r, body, op, "constant lookup and global binding share an incompatible cache slot");
+        }
+    }
+    zend_hash_destroy(&slots);
+}
+
 void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable)
 {
     uint32_t params = body->num_args + !!(body->fn_flags & ZEND_ACC_VARIADIC);
@@ -655,6 +674,7 @@ void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable)
         check_names_and_cache(r, body, op);
         check_body_instruction(r, body, op);
     }
+    check_name_cache_slots(r, body);
     const zend_op *last = &body->opcodes[executable - 1];
     for (uint32_t i = 0; i < body->last_try_catch; ++i) {
         const zend_try_catch_element *region = &body->try_catch_array[i];

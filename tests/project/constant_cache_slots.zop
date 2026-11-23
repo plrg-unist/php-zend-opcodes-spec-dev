@@ -1,0 +1,36 @@
+zend-opcodes
+file "constant_cache_slots.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 16
+  size 15 literals 11 children 0
+  lit[0] = "A"
+  lit[1] = int(11)
+  lit[2] = "B"
+  lit[3] = int(22)
+  lit[4] = "A"
+  lit[5] = "A"
+  lit[6] = "B"
+  lit[7] = "B"
+  lit[8] = "|"
+  lit[9] = "\x0a"
+  lit[10] = "MISSING_CONSTANT"
+  code
+    0: DECLARE_CONST lit[0], lit[1] | line=1
+    1: DECLARE_CONST lit[2], lit[3] | line=1
+    2: T0 = FETCH_CONSTANT 0, lit[4] | line=1
+    3: ECHO T0 | line=1
+    4: ECHO lit[8] | line=1
+    5: T0 = FETCH_CONSTANT 0, lit[6] | line=1
+    6: ECHO T0 | line=1
+    7: ECHO lit[8] | line=1
+    8: T0 = FETCH_CONSTANT 0, lit[6] | line=1 ext=8
+    9: ECHO T0 | line=1
+    10: ECHO lit[8] | line=1
+    11: T0 = DEFINED lit[10] | line=1
+    12: ECHO T0 | line=1
+    13: ECHO lit[9] | line=1
+    14: RETURN lit[1] | line=1
+}
+end

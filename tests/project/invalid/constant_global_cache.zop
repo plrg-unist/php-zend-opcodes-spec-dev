@@ -1,0 +1,15 @@
+zend-opcodes
+file "constant_global_cache.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 8
+  locals 1 ["x"]
+  size 3 literals 1 children 0
+  lit[0] = "x"
+  code
+    0: T1 = DEFINED lit[0] | line=1
+    1: BIND_GLOBAL CV0, lit[0] | line=1
+    2: RETURN T1 | line=1
+}
+end

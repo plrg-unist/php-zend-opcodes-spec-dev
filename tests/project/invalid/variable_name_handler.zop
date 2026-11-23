@@ -1,0 +1,13 @@
+zend-opcodes
+file "variable_name_handler.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  size 2 literals 1 children 0
+  lit[0] = null
+  code
+    0: V0 = FETCH_W V1 | line=1 ext=4
+    1: RETURN lit[0] | line=1
+}
+end

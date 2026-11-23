@@ -454,6 +454,17 @@ static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
         }
         zo_expect(r, "]");
         zo_eol(r);
+        if (count > 1) {
+            HashTable names;
+            zend_hash_init(&names, count, NULL, NULL, false);
+            for (uint32_t i = 0; i < count; i++) {
+                if (!zend_hash_add_empty_element(&names, body->vars[i])) {
+                    zend_hash_destroy(&names);
+                    zo_fail(r, "duplicate compiled variable name");
+                }
+            }
+            zend_hash_destroy(&names);
+        }
     }
     if ((uint64_t)body->last_var + body->T + ZEND_CALL_FRAME_SLOT > UINT32_MAX / sizeof(zval)) {
         zo_fail(r, "frame exceeds Zend stack slot range");
