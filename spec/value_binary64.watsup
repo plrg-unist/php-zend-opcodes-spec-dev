@@ -1,0 +1,7 @@
+;; FLOAT payloads are the 64 bits of an IEEE 754 double. Decimal tokens have already
+;; passed the spec's numeric grammar. Formatting uses 14 significant digits or -1 for shortest.
+extern dec $f64_from_int(int) : nat
+extern dec $f64_binary(opcode, nat, nat) : nat
+extern dec $f64_trunc(nat) : int
+extern dec $f64_parse(bytes) : nat
+extern dec $f64_format(nat, int) : bytes

@@ -1,0 +1,24 @@
+<?php
+$zero = -0.0;
+$tiny = 5.0e-324;
+$normal = 2.2250738585072014e-308;
+$max = 1.7976931348623157e308;
+$one = $argc;
+$lo = 0.0001 / $one;
+$lower = $lo / 10;
+$hi = 10000000000000.0 * $one;
+$higher = $hi * 10;
+$round = 9.99999999999996;
+$even = 1.23456789012345;
+$decimalTie = 100000000000005.0 * $one;
+$belowTie = 100000000000004.0 * $one;
+echo $zero, ":", $tiny, ":", $normal, ":", $max, "\n";
+echo $lo, ":", $lower, ":", $hi, ":", $higher, ":", $round, ":", $even, "\n";
+echo $decimalTie, ":", $belowTie, "\n";
+$inf = INF;
+$negativeInf = -INF;
+$nan = NAN;
+echo $inf, ":", $negativeInf, ":", $nan, "\n";
+echo "$zero/$round/$max", ":", strlen($tiny), ":", (string) $negativeInf, "\n";
+$x = "[";
+echo ($x .= $even), ":", $x . $higher, ":", "$inf$nan", "\n";

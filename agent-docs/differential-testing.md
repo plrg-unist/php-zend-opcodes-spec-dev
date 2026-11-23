@@ -21,6 +21,8 @@ Combine hit IDs from cases that met their expectations across fixtures, stdin va
 
 At milestone review, check the [promised behaviors](semantics-roadmap.md) independently of the hit count. Identify what output or status would change for an incorrect result, which relevant operand and control-flow combinations the fixtures exercise, and which Zend behavior might lack a spec rule altogether.
 
+The SL coverage report counts the spec instructions that call Rust primitives. Check each primitive's implementation separately with `cargo test` and with end-to-end cases against Zend. For binary64, exercise both sides of a rounding boundary and verify the printed bytes under ordinary output and diagnostics. [Rust numeric primitives and tests](../src/binary64.rs)
+
 ## Future VM observations
 
 With the ordinary `php` executable alone, a fixture can explicitly print values or call `get_defined_vars()` in the scope of interest. Automatic VM checkpoints in an unmodified fixture need instrumentation. The existing extension could host an observer. For interactive inspection, the separate `phpdbg` executable supports `set stepping opcode` and `info vars`. [Scope variables](../../php-src/Zend/zend_builtin_functions.c#L1506) · [Debugger stepping](../../php-src/sapi/phpdbg/phpdbg_set.c#L216) · [Debugger variables](../../php-src/sapi/phpdbg/phpdbg_info.c#L36)

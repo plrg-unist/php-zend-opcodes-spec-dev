@@ -835,11 +835,13 @@ dependencies = [
 name = "zend-opcodes"
 version = "0.0.0"
 dependencies = [
+ "num-bigint",
  "p4spectec",
  "serde",
  "serde_json",
  "stacker",
  "tempfile",
+ "zmij",
 ]
 
 [[package]]

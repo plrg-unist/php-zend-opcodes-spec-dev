@@ -1,3 +1,5 @@
+mod binary64;
+
 use std::{
     env,
     error::Error,
@@ -18,7 +20,7 @@ use p4spectec::{
             value::flat::{get, make},
         },
     },
-    runner::{Config, NullExtern, NullInterface, Runner, Spec},
+    runner::{Config, build_sl},
 };
 use serde::Serialize;
 use zend_opcodes::{Arena, Value, parse_zop, validate_unit};
@@ -93,14 +95,8 @@ fn execute(arena: &mut Arena, unit: Value, input: &[u8]) -> Result<Outcome> {
     let spec = p4spectec::structure(&[dir], true).map_err(|report| diagnostic(&report))?;
     let coverage_path = env::var_os("ZEND_SPEC_COVERAGE").map(PathBuf::from);
     let config = Config::new(false, true, false, coverage_path.is_none());
-    let mut runner = Runner::new(
-        arena,
-        Spec::Sl(spec.clone()),
-        config,
-        NullInterface,
-        NullExtern,
-    )
-    .map_err(|report| diagnostic(&report))?;
+    let mut runner = build_sl(arena, spec.clone(), config, binary64::Binary64)
+        .map_err(|report| diagnostic(&report))?;
     let coverage = coverage_path.map(|path| {
         let cover = Cover::new(&spec);
         let hits = Hits::new(cover.len());
