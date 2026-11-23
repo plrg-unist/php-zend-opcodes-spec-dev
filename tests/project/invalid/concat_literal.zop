@@ -1,0 +1,16 @@
+zend-opcodes
+file "invalid.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 1 ["x"]
+  size 3 literals 2 children 0
+  lit[0] = null
+  lit[1] = int(7)
+  code
+    0: RETURN lit[0] | line=1
+    1: T1 = CONCAT CV0, lit[1] | line=1
+    2: RETURN lit[0] | line=1
+}
+end

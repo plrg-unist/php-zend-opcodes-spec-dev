@@ -1,0 +1,26 @@
+zend-opcodes
+file "rope_indices.php"
+main
+body - {
+  lines 1 1
+  frame 4 cache 0
+  size 9 literals 7 children 0
+  lit[0] = "A"
+  lit[1] = "B"
+  lit[2] = "C"
+  lit[3] = "D"
+  lit[4] = "x"
+  lit[5] = "y"
+  lit[6] = int(1)
+  code
+    0: T1 = ROPE_INIT _, lit[0] | line=1 ext=4
+    1: T3 = ROPE_INIT _, lit[4] | line=1 ext=2
+    2: T1 = ROPE_ADD T1, lit[2] | line=1 ext=2
+    3: T1 = ROPE_ADD T1, lit[1] | line=1 ext=1
+    4: T0 = ROPE_END T3, lit[5] | line=1 ext=1
+    5: ECHO T0 | line=1
+    6: T0 = ROPE_END T1, lit[3] | line=1 ext=3
+    7: ECHO T0 | line=1
+    8: RETURN lit[6] | line=1
+}
+end

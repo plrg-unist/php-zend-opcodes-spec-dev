@@ -7,7 +7,16 @@ use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
 
 /// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
 pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
-    let [_, _, _, main, functions, classes] = fields(arena, *unit, "UNIT")?;
+    let [filename, _, _, main, functions, classes] = fields(arena, *unit, "UNIT")?;
+    let filename = get::list(arena, &filename)?;
+    if filename.is_empty() {
+        return Err(Error::new("empty unit filename"));
+    }
+    for &byte in filename {
+        if !(1..=255).contains(&index(arena, byte)?) {
+            return Err(Error::new("invalid byte in unit filename"));
+        }
+    }
     let mut pending = vec![classes, functions, main];
     while let Some(value) = pending.pop() {
         match arena.value.kind(value.node) {
@@ -95,6 +104,10 @@ impl Operand {
     fn value(self) -> bool {
         self.slot() || matches!(self, Self::Literal(_))
     }
+
+    fn rvalue(self) -> bool {
+        matches!(self, Self::Literal(_) | Self::Tmp(_) | Self::Cv(_))
+    }
 }
 
 struct Instruction<'a> {
@@ -136,6 +149,10 @@ impl<'a> Instruction<'a> {
             Some(("EXT_TARGET", &[n])) => Some(index(arena, n)?),
             _ => None,
         };
+        let extended_value = match ext {
+            Some(("EXT_VALUE", &[n])) => index(arena, n)?,
+            _ => 0,
+        };
         let row = Self {
             name,
             result,
@@ -151,26 +168,64 @@ impl<'a> Instruction<'a> {
         let writable = matches!(left, Operand::Cv(_) | Operand::Var(_));
         let valid = match name {
             "NOP" => left == unused && right == unused && result == unused,
-            "ASSIGN" => writable && right.value(),
+            "ASSIGN" | "ASSIGN_OP" => writable && right.rvalue(),
             "PRE_INC" => writable && right == unused,
             "IS_SMALLER" => left.value() && right.value() && result.slot(),
+            "BOOL" | "BOOL_NOT" | "CAST" | "GET_TYPE" | "STRLEN" | "TYPE_CHECK" => {
+                left.rvalue() && right == unused && result.slot()
+            }
+            "BOOL_XOR" | "CONCAT" | "FAST_CONCAT" => {
+                left.rvalue() && right.rvalue() && result.slot()
+            }
+            "CHECK_VAR" => matches!(left, Operand::Cv(_)) && right == unused && result == unused,
+            "QM_ASSIGN" => left.value() && right == unused && result.slot(),
+            "COPY_TMP" => {
+                matches!(left, Operand::Tmp(_) | Operand::Var(_))
+                    && right == unused
+                    && result.slot()
+            }
+            "FREE" => {
+                let expected = if extended_value & 1 != 0 {
+                    Operand::Immediate
+                } else {
+                    unused
+                };
+                matches!(left, Operand::Tmp(_) | Operand::Var(_))
+                    && right == expected
+                    && result == unused
+            }
+            "ROPE_INIT" => left == unused && right.rvalue() && matches!(result, Operand::Tmp(_)),
+            "ROPE_ADD" => matches!(left, Operand::Tmp(_)) && right.rvalue() && result == left,
+            "ROPE_END" => matches!(left, Operand::Tmp(_)) && right.rvalue() && result.slot(),
             "JMP" => matches!(left, Operand::Target(_)) && right == unused && result == unused,
             "JMPZ" | "JMPNZ" => {
-                left.value() && matches!(right, Operand::Target(_)) && result == unused
+                left.rvalue() && matches!(right, Operand::Target(_)) && result == unused
             }
-            "ECHO" | "RETURN" => left.value() && right == unused && result == unused,
+            "ECHO" | "RETURN" => left.rvalue() && right == unused && result == unused,
             _ => return Ok(row),
         };
         if !valid {
             return Err(Error::new(format!("wrong operands for {name}")));
         }
+        if name == "CONCAT" && matches!((left, right), (Operand::Literal(_), Operand::Literal(_))) {
+            return Err(Error::new("CONCAT has no two-literal handler"));
+        }
         for operand in [left, right] {
-            if let Operand::Literal(n) = operand
-                && case_fields(arena, layout.pool[n])?.0 != "LITERAL"
-            {
-                return Err(Error::new(format!(
-                    "expected a value in lit[{n}] for {name}"
-                )));
+            if let Operand::Literal(n) = operand {
+                let ("LITERAL", &[value]) = case_fields(arena, layout.pool[n])? else {
+                    return Err(Error::new(format!(
+                        "expected a value in lit[{n}] for {name}"
+                    )));
+                };
+                if matches!(
+                    name,
+                    "CONCAT" | "FAST_CONCAT" | "ROPE_INIT" | "ROPE_ADD" | "ROPE_END"
+                ) && case_fields(arena, value)?.0 != "STRING"
+                {
+                    return Err(Error::new(format!(
+                        "expected a string in lit[{n}] for {name}"
+                    )));
+                }
             }
         }
         if !matches!(ext, None | Some(("EXT_VALUE", [_])))
@@ -180,6 +235,31 @@ impl<'a> Instruction<'a> {
             || get::bool(arena, &numeric)?
         {
             return Err(Error::new(format!("unexpected metadata for {name}")));
+        }
+        match (name, result, left) {
+            ("CAST", _, _) if !(4..=8).contains(&extended_value) => {
+                return Err(Error::new("invalid cast type"));
+            }
+            ("ASSIGN_OP", _, _) if !(1..=12).contains(&extended_value) => {
+                return Err(Error::new("unknown compound assignment operator"));
+            }
+            // The pinned ABI stores two zend_string pointers per temporary zval slot.
+            ("ROPE_INIT", Operand::Tmp(base), _)
+                if extended_value == 0 || extended_value.div_ceil(2) > layout.slots - base =>
+            {
+                return Err(Error::new("invalid rope storage"));
+            }
+            ("ROPE_ADD" | "ROPE_END", _, Operand::Tmp(base))
+                if extended_value / 2 >= layout.slots - base =>
+            {
+                return Err(Error::new("invalid rope storage"));
+            }
+            ("ROPE_END", Operand::Tmp(dst) | Operand::Var(dst), Operand::Tmp(base))
+                if dst >= base && dst - base <= extended_value / 2 =>
+            {
+                return Err(Error::new("rope result overlaps its storage"));
+            }
+            _ => {}
         }
         Ok(row)
     }

@@ -161,6 +161,82 @@ fn execution_checks_slots_and_smart_branch_pairs() {
 }
 
 #[test]
+fn execution_checks_scalar_instruction_forms() {
+    let template = BRANCH_AND_ARRAY
+        .replace("frame 0", "frame 3")
+        .replace("float(-0.0)", r#""s""#);
+    let mut arena = Arena::new();
+    let mut validate = |row: &str| {
+        let listing = template.replace("ASSIGN CV0, lit[0] | line=7", row);
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for row in [
+        "T1 = CHECK_VAR CV0",
+        "T1 = BOOL V2",
+        "T1 = BOOL_NOT CV0, CV0",
+        "T1 = BOOL_XOR lit[0]",
+        "TYPE_CHECK CV0 | ext=16",
+        "T1 = GET_TYPE CV0 | cache=0",
+        "T1 = STRLEN V2",
+        "T1 = CAST CV0 | ext=3",
+        "ASSIGN_OP CV0, lit[0] | ext=13",
+        "T1 = QM_ASSIGN",
+        "T1 = COPY_TMP CV0",
+        "FREE CV0",
+        "FREE T1 | ext=1",
+        "FREE T1, 0",
+        "T1 = CONCAT lit[0], lit[0]",
+        "T1 = CONCAT CV0, lit[1]",
+        "T1 = FAST_CONCAT lit[1], CV0",
+        "T1 = ROPE_INIT _, lit[1] | ext=3",
+        "T1 = ROPE_INIT _, CV0 | ext=0",
+        "T2 = ROPE_INIT _, CV0 | ext=5",
+        "T2 = ROPE_ADD T1, CV0 | ext=1",
+        "T3 = ROPE_ADD T3, CV0 | ext=2",
+        "T2 = ROPE_END T1, CV0 | ext=2",
+        "T1 = ROPE_END T3, CV0 | ext=2",
+    ] {
+        assert!(validate(row).is_err(), "{row}");
+    }
+    for row in [
+        "T1 = BOOL lit[1]",
+        "CHECK_VAR CV0",
+        "T1 = TYPE_CHECK CV0 | ext=4294967295",
+        "T1 = CAST CV0 | ext=7",
+        "ASSIGN_OP V1, lit[1] | ext=1",
+        "T1 = QM_ASSIGN V2",
+        "T1 = COPY_TMP V2",
+        "FREE V2, 0 | ext=1",
+        "T1 = CONCAT CV0, lit[0]",
+        "T1 = FAST_CONCAT lit[0], lit[0]",
+        "T2 = ROPE_INIT _, CV0 | ext=4",
+        "T2 = ROPE_ADD T2, lit[0] | ext=3",
+        "T1 = ROPE_END T2, CV0 | ext=3",
+        "T3 = ROPE_END T1, CV0 | ext=3",
+    ] {
+        validate(row).unwrap_or_else(|error| panic!("{row}: {error}"));
+    }
+}
+
+#[test]
+fn execution_checks_logical_filename() {
+    let mut arena = Arena::new();
+    for (filename, valid) in [
+        (r#""""#, false),
+        (r#""ab\x00c""#, false),
+        (r#""\xff\x0a""#, true),
+    ] {
+        let unit = parse_zop(
+            &mut arena,
+            &BRANCH_AND_ARRAY.replace(r#"file "c""#, &format!("file {filename}")),
+        )
+        .unwrap();
+        assert_eq!(validate_unit(&arena, &unit).is_ok(), valid, "{filename}");
+    }
+}
+
+#[test]
 fn execution_validates_bodies_inside_deferred_attribute_arguments() {
     let closure = "ast(closure(0 2\nbody \"f\" {\nlines 2 2\nframe 0 cache 0\n\
         size 1 literals 1 children 0\nlit[0] = null\ncode\n0: RETURN lit[0]\n}\n))";

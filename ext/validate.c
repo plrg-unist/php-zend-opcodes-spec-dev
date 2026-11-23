@@ -12,6 +12,7 @@ enum operand_set {
     temp = tmp | var,
     slot = temp | cv,
     value = slot | literal,
+    rvalue = literal | tmp | cv,
     writable = cv | var,
     optional = value | unused,
     optional_slot = slot | unused,
@@ -37,15 +38,15 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(MOD, value, value, slot),
     SHAPE(SL, value, value, slot),
     SHAPE(SR, value, value, slot),
-    SHAPE(CONCAT, value, value, slot),
-    SHAPE(FAST_CONCAT, value, value, slot),
+    SHAPE(CONCAT, rvalue, rvalue, slot),
+    SHAPE(FAST_CONCAT, rvalue, rvalue, slot),
     SHAPE(BW_OR, value, value, slot),
     SHAPE(BW_AND, value, value, slot),
     SHAPE(BW_XOR, value, value, slot),
     SHAPE(POW, value, value, slot),
     SHAPE(BW_NOT, value, unused, slot),
-    SHAPE(BOOL_NOT, value, unused, slot),
-    SHAPE(BOOL_XOR, value, value, slot),
+    SHAPE(BOOL_NOT, rvalue, unused, slot),
+    SHAPE(BOOL_XOR, rvalue, rvalue, slot),
     SHAPE(IS_IDENTICAL, value, value, slot),
     SHAPE(IS_NOT_IDENTICAL, value, value, slot),
     SHAPE(IS_EQUAL, value, value, slot),
@@ -53,11 +54,11 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(IS_SMALLER, value, value, slot),
     SHAPE(IS_SMALLER_OR_EQUAL, value, value, slot),
     SHAPE(SPACESHIP, value, value, slot),
-    SHAPE(ASSIGN, writable, value, optional_slot),
+    SHAPE(ASSIGN, writable, rvalue, optional_slot),
     SHAPE(ASSIGN_DIM, writable, optional, optional_slot),
     SHAPE(ASSIGN_OBJ, writable | unused, value, optional_slot),
     SHAPE(ASSIGN_STATIC_PROP, value, class_ref, optional_slot),
-    SHAPE(ASSIGN_OP, writable, value, optional_slot),
+    SHAPE(ASSIGN_OP, writable, rvalue, optional_slot),
     SHAPE(ASSIGN_DIM_OP, writable, optional, optional_slot),
     SHAPE(ASSIGN_OBJ_OP, writable | unused, value, optional_slot),
     SHAPE(ASSIGN_STATIC_PROP_OP, value, class_ref, optional_slot),
@@ -74,18 +75,18 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(POST_INC_STATIC_PROP, value, class_ref, slot),
     SHAPE(POST_DEC_STATIC_PROP, value, class_ref, slot),
     SHAPE(JMP, unused, unused, unused),
-    SHAPE(JMPZ, value, unused, unused),
-    SHAPE(JMPNZ, value, unused, unused),
+    SHAPE(JMPZ, rvalue, unused, unused),
+    SHAPE(JMPNZ, rvalue, unused, unused),
     SHAPE(JMPZ_EX, value, unused, slot),
     SHAPE(JMPNZ_EX, value, unused, slot),
     SHAPE(CASE, temp, value, slot),
     SHAPE(CASE_STRICT, temp, value, slot),
     SHAPE(CHECK_VAR, cv, unused, unused),
-    SHAPE(CAST, value, unused, slot),
-    SHAPE(BOOL, value, unused, slot),
-    SHAPE(ROPE_INIT, unused, value, tmp),
-    SHAPE(ROPE_ADD, tmp, value, tmp),
-    SHAPE(ROPE_END, tmp, value, slot),
+    SHAPE(CAST, rvalue, unused, slot),
+    SHAPE(BOOL, rvalue, unused, slot),
+    SHAPE(ROPE_INIT, unused, rvalue, tmp),
+    SHAPE(ROPE_ADD, tmp, rvalue, tmp),
+    SHAPE(ROPE_END, tmp, rvalue, slot),
     SHAPE(BEGIN_SILENCE, unused, unused, tmp),
     SHAPE(END_SILENCE, tmp, unused, unused),
     SHAPE(INIT_FCALL_BY_NAME, unused, literal, unused),
@@ -99,7 +100,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(DO_ICALL, unused, unused, optional_slot),
     SHAPE(DO_UCALL, unused, unused, optional_slot),
     SHAPE(DO_FCALL_BY_NAME, unused, unused, optional_slot),
-    SHAPE(RETURN, value, unused, unused),
+    SHAPE(RETURN, rvalue, unused, unused),
     SHAPE(RETURN_BY_REF, value, unused, unused),
     SHAPE(RECV, unused, unused, cv),
     SHAPE(RECV_INIT, unused, literal, cv),
@@ -177,16 +178,16 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(ISSET_ISEMPTY_CV, cv, unused, slot),
     SHAPE(ISSET_ISEMPTY_STATIC_PROP, value, class_ref, slot),
     SHAPE(ISSET_ISEMPTY_THIS, unused, unused, slot),
-    SHAPE(STRLEN, value, unused, slot),
+    SHAPE(STRLEN, rvalue, unused, slot),
     SHAPE(DEFINED, literal, unused, slot),
-    SHAPE(TYPE_CHECK, value, unused, slot),
+    SHAPE(TYPE_CHECK, rvalue, unused, slot),
     SHAPE(VERIFY_RETURN_TYPE, optional, unused, optional_slot),
     SHAPE(VERIFY_NEVER_TYPE, unused, unused, unused),
     SHAPE(PRE_INC_OBJ, writable | unused, value, optional_slot),
     SHAPE(PRE_DEC_OBJ, writable | unused, value, optional_slot),
     SHAPE(POST_INC_OBJ, writable | unused, value, slot),
     SHAPE(POST_DEC_OBJ, writable | unused, value, slot),
-    SHAPE(ECHO, value, unused, unused),
+    SHAPE(ECHO, rvalue, unused, unused),
     SHAPE(OP_DATA, value, unused, unused),
     SHAPE(INSTANCEOF, slot, class_ref, slot),
     SHAPE(GENERATOR_CREATE, unused, unused, unused),
@@ -222,7 +223,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(COUNT, value, unused, slot),
     SHAPE(GET_CLASS, optional, unused, slot),
     SHAPE(GET_CALLED_CLASS, unused, unused, slot),
-    SHAPE(GET_TYPE, value, unused, slot),
+    SHAPE(GET_TYPE, rvalue, unused, slot),
     SHAPE(ARRAY_KEY_EXISTS, value, value, slot),
     SHAPE(MATCH_ERROR, value, unused, unused),
     SHAPE(JMP_NULL, value, unused, slot),
@@ -514,6 +515,16 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
                 invalid(r, b, op, "invalid cast type");
             }
             break;
+        case ZEND_CONCAT:
+        case ZEND_FAST_CONCAT:
+            if (op->opcode == ZEND_CONCAT && op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
+                invalid(r, b, op, "CONCAT has no two-literal handler");
+            }
+            if ((op->op1_type == IS_CONST && Z_TYPE_P(RT_CONSTANT(op, op->op1)) != IS_STRING)
+                    || (op->op2_type == IS_CONST && Z_TYPE_P(RT_CONSTANT(op, op->op2)) != IS_STRING)) {
+                invalid(r, b, op, "expected a string concatenation literal");
+            }
+            break;
         case ZEND_INCLUDE_OR_EVAL:
             if (ext != ZEND_EVAL && ext != ZEND_INCLUDE && ext != ZEND_INCLUDE_ONCE
                     && ext != ZEND_REQUIRE && ext != ZEND_REQUIRE_ONCE) {
@@ -527,7 +538,9 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
             uint64_t available = (uint64_t)(b->last_var + b->T - EX_VAR_TO_NUM(pos)) * sizeof(zval);
             uint64_t count = op->opcode == ZEND_ROPE_INIT ? ext : (uint64_t)ext + 1;
             if (!count || count * sizeof(zend_string *) > available
-                    || (op->opcode == ZEND_ROPE_ADD && op->result.var != pos)) {
+                    || (op->opcode == ZEND_ROPE_ADD && op->result.var != pos)
+                    || (op->opcode == ZEND_ROPE_END && op->result.var >= pos
+                        && op->result.var - pos < count * sizeof(zend_string *))) {
                 invalid(r, b, op, "invalid rope storage");
             }
             if (op->op2_type == IS_CONST) name_literals(r, b, op, op->op2, 1);
