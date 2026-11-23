@@ -539,6 +539,14 @@ static void read_instruction(zo_reader *r, zend_op_array *body, uint32_t i)
     }
     if (smart && result.kind != ZO_TMP) zo_fail(r, "smart branch requires a temporary result");
     op->result_type |= smart;
+    if (dimension_key(op->opcode) && op->opcode != ZEND_UNSET_DIM
+            && b.kind == ZO_LITERAL && Z_ISUNDEF(body->literals[b.value])) {
+        zo_fail(r, "undef dimension key must be a compiled variable");
+    }
+    if ((op->opcode == ZEND_FETCH_DIM_R || op->opcode == ZEND_FETCH_LIST_R || op->opcode == ZEND_FETCH_DIM_FUNC_ARG)
+            && a.kind == ZO_LITERAL && Z_ISUNDEF(body->literals[a.value])) {
+        zo_fail(r, "undef dimension source must be a compiled variable");
+    }
     if (numeric_key) {
         if (!dimension_key(op->opcode) || b.kind != ZO_LITERAL || b.value + 1 >= (uint32_t)body->last_literal ||
             Z_TYPE(body->literals[b.value]) != IS_LONG || Z_TYPE(body->literals[b.value + 1]) != IS_STRING) {

@@ -55,11 +55,11 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(IS_SMALLER_OR_EQUAL, value, value, slot),
     SHAPE(SPACESHIP, rvalue, rvalue, slot),
     SHAPE(ASSIGN, writable, rvalue, optional_slot),
-    SHAPE(ASSIGN_DIM, writable, optional, optional_slot),
+    SHAPE(ASSIGN_DIM, writable, rvalue | unused, optional_slot),
     SHAPE(ASSIGN_OBJ, writable | unused, value, optional_slot),
     SHAPE(ASSIGN_STATIC_PROP, value, class_ref, optional_slot),
     SHAPE(ASSIGN_OP, writable, rvalue, optional_slot),
-    SHAPE(ASSIGN_DIM_OP, writable, optional, optional_slot),
+    SHAPE(ASSIGN_DIM_OP, writable, rvalue | unused, optional_slot),
     SHAPE(ASSIGN_OBJ_OP, writable | unused, value, optional_slot),
     SHAPE(ASSIGN_STATIC_PROP_OP, value, class_ref, optional_slot),
     SHAPE(ASSIGN_REF, writable, writable, optional_slot),
@@ -126,7 +126,7 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(ADD_ARRAY_UNPACK, value, unused, slot),
     SHAPE(INCLUDE_OR_EVAL, value, unused, optional_slot),
     SHAPE(UNSET_VAR, value, unused, unused),
-    SHAPE(UNSET_DIM, writable, value, unused),
+    SHAPE(UNSET_DIM, writable, rvalue, unused),
     SHAPE(UNSET_OBJ, writable | unused, value, unused),
     SHAPE(UNSET_CV, cv, unused, unused),
     SHAPE(UNSET_STATIC_PROP, value, class_ref, unused),
@@ -141,19 +141,19 @@ static const operand_shape shapes[ZEND_VM_LAST_OPCODE + 1] = {
     SHAPE(FETCH_FUNC_ARG, value, unused, slot),
     SHAPE(FETCH_UNSET, value, unused, slot),
     SHAPE(FETCH_DIM_R, value, rvalue, slot),
-    SHAPE(FETCH_DIM_W, writable, optional, slot),
-    SHAPE(FETCH_DIM_RW, writable, optional, slot),
+    SHAPE(FETCH_DIM_W, writable, rvalue | unused, slot),
+    SHAPE(FETCH_DIM_RW, writable, rvalue | unused, slot),
     SHAPE(FETCH_DIM_IS, value, rvalue, slot),
-    SHAPE(FETCH_DIM_FUNC_ARG, value, optional, slot),
-    SHAPE(FETCH_DIM_UNSET, writable, value, slot),
+    SHAPE(FETCH_DIM_FUNC_ARG, value, rvalue | unused, slot),
+    SHAPE(FETCH_DIM_UNSET, writable, rvalue, slot),
     SHAPE(FETCH_OBJ_R, optional, value, slot),
     SHAPE(FETCH_OBJ_W, writable | unused, value, slot),
     SHAPE(FETCH_OBJ_RW, writable | unused, value, slot),
     SHAPE(FETCH_OBJ_IS, optional, value, slot),
     SHAPE(FETCH_OBJ_FUNC_ARG, optional, value, slot),
     SHAPE(FETCH_OBJ_UNSET, writable | unused, value, slot),
-    SHAPE(FETCH_LIST_R, value, value, slot),
-    SHAPE(FETCH_LIST_W, var, value, slot),
+    SHAPE(FETCH_LIST_R, value, rvalue, slot),
+    SHAPE(FETCH_LIST_W, var, rvalue, slot),
     SHAPE(FETCH_CONSTANT, unused, literal, slot),
     SHAPE(FETCH_CLASS_CONSTANT, class_ref, value, slot),
     SHAPE(FETCH_CLASS, unused, optional, slot),
@@ -515,9 +515,41 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
                 invalid(r, b, op, "unknown compound assignment operator");
             }
             break;
+        case ZEND_FETCH_DIM_W:
+        case ZEND_FETCH_DIM_RW:
+        case ZEND_FETCH_DIM_UNSET:
+        case ZEND_FETCH_DIM_FUNC_ARG:
+            if (ext > ZEND_FETCH_DIM_INCDEC) invalid(r, b, op, "unknown dimension fetch mode");
+            break;
+        case ZEND_OP_DATA: {
+            const zend_op *owner = op - 1; /* fix_targets has already checked pairing. */
+            switch (owner->opcode) {
+                case ZEND_ASSIGN_DIM:
+                case ZEND_ASSIGN_OBJ:
+                case ZEND_ASSIGN_STATIC_PROP:
+                    if (!(rvalue & op->op1_type)) invalid(r, b, op, "wrong OP_DATA operand for assignment");
+                    break;
+                case ZEND_ASSIGN_OBJ_REF:
+                case ZEND_ASSIGN_STATIC_PROP_REF:
+                    if (!(writable & op->op1_type)) invalid(r, b, op, "reference assignment requires a writable OP_DATA operand");
+                    break;
+            }
+            if ((owner->opcode == ZEND_ASSIGN_DIM || owner->opcode == ZEND_ASSIGN_DIM_OP)
+                    && op->op1_type == IS_CONST && Z_ISUNDEF_P(RT_CONSTANT(op, op->op1))) {
+                invalid(r, b, op, "undef cannot be a dimension assignment value");
+            }
+            break;
+        }
         case ZEND_CAST:
             if (ext != IS_LONG && ext != IS_DOUBLE && ext != IS_STRING && ext != IS_ARRAY && ext != IS_OBJECT) {
                 invalid(r, b, op, "invalid cast type");
+            }
+            if (ext != IS_ARRAY) break;
+            ZEND_FALLTHROUGH;
+        case ZEND_INIT_ARRAY:
+        case ZEND_ADD_ARRAY_ELEMENT:
+            if (op->op1_type == IS_CONST && Z_ISUNDEF_P(RT_CONSTANT(op, op->op1))) {
+                invalid(r, b, op, "undef cannot be an array element");
             }
             break;
         case ZEND_CONCAT:
@@ -551,12 +583,6 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
             if (op->op2_type == IS_CONST) name_literals(r, b, op, op->op2, 1);
             break;
         }
-        case ZEND_INIT_ARRAY:
-        case ZEND_ADD_ARRAY_ELEMENT:
-            if (op->op1_type == IS_CONST && Z_ISUNDEF_P(RT_CONSTANT(op, op->op1))) {
-                invalid(r, b, op, "undef cannot be an array element");
-            }
-            break;
         case ZEND_IN_ARRAY: {
             zval *lookup = RT_CONSTANT(op, op->op2);
             if (Z_TYPE_P(lookup) != IS_ARRAY) invalid(r, b, op, "expected a lookup array");
@@ -619,12 +645,14 @@ void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable)
         check_body_instruction(r, body, op);
     }
     const zend_op *last = &body->opcodes[executable - 1];
-    if (executable < body->last) {
-        for (uint32_t i = 0; i < body->last_try_catch; ++i) {
-            const zend_try_catch_element *region = &body->try_catch_array[i];
-            if (region->catch_op >= executable || region->finally_op >= executable) {
-                invalid(r, body, last, "exception handler enters trailing cleanup");
-            }
+    for (uint32_t i = 0; i < body->last_try_catch; ++i) {
+        const zend_try_catch_element *region = &body->try_catch_array[i];
+        if (region->catch_op >= executable || region->finally_op >= executable) {
+            invalid(r, body, last, "exception handler enters trailing cleanup");
+        }
+        if (body->opcodes[region->catch_op].opcode == ZEND_OP_DATA
+                || body->opcodes[region->finally_op].opcode == ZEND_OP_DATA) {
+            invalid(r, body, last, "exception handler enters OP_DATA");
         }
     }
     switch (last->opcode) {

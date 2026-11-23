@@ -542,9 +542,20 @@ fn execution_checks_array_operands_and_dimension_keys() {
         "T1 = INIT_ARRAY CV0, lit[4]",
         "T1 = ADD_ARRAY_ELEMENT lit[2], lit[4]",
         "T1 = ADD_ARRAY_ELEMENT CV0 | ext=1",
+        "T1 = CAST lit[4] | ext=6",
+        "T1 = CAST CV0 | ext=7",
         "T1 = ADD_ARRAY_UNPACK V2",
         "V1 = FETCH_DIM_R V2, T3",
         "T1 = FETCH_DIM_IS V2, lit[2] | numeric-string-key",
+        "V1 = FETCH_DIM_W CV0",
+        "V1 = FETCH_DIM_RW V2, lit[2] | ext=4 numeric-string-key",
+        "V1 = FETCH_DIM_UNSET V2, T3 | ext=2",
+        "V1 = FETCH_DIM_FUNC_ARG lit[0], lit[2] | numeric-string-key",
+        "T1 = FETCH_LIST_R V2, lit[2] | numeric-string-key",
+        "V1 = FETCH_LIST_W V2, CV0",
+        "UNSET_DIM V2, lit[2] | numeric-string-key",
+        "UNSET_DIM CV0, lit[4]",
+        "UNSET_CV CV0",
         "T1 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[2] | numeric-string-key ext=1",
         "T1 = ISSET_ISEMPTY_CV CV0 | ext=4294967295",
         "T1 = ARRAY_KEY_EXISTS T2, CV0",
@@ -557,12 +568,30 @@ fn execution_checks_array_operands_and_dimension_keys() {
         "T1 = INIT_ARRAY CV0, V2",
         "T1 = INIT_ARRAY lit[4]",
         "T1 = ADD_ARRAY_ELEMENT lit[4], lit[2]",
+        "T1 = CAST lit[4] | ext=7",
         "T1 = ADD_ARRAY_ELEMENT",
         "T1 = ADD_ARRAY_ELEMENT CV0, V2",
         "T1 = ADD_ARRAY_UNPACK",
         "T1 = ADD_ARRAY_UNPACK CV0, CV0",
         "T1 = FETCH_DIM_R CV0, V2",
         "T1 = FETCH_DIM_IS CV0",
+        "T1 = FETCH_DIM_R lit[4], CV0",
+        "V1 = FETCH_DIM_W CV0, V2",
+        "V1 = FETCH_DIM_RW T2, CV0",
+        "FETCH_DIM_RW CV0, CV0",
+        "V1 = FETCH_DIM_W CV0 | ext=5",
+        "V1 = FETCH_DIM_UNSET CV0",
+        "V1 = FETCH_DIM_UNSET CV0, V2",
+        "T1 = FETCH_LIST_R CV0, V2",
+        "T1 = FETCH_LIST_R lit[4], CV0",
+        "T1 = FETCH_DIM_IS CV0, lit[4]",
+        "T1 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[4]",
+        "T1 = FETCH_LIST_R CV0, lit[3] | numeric-string-key",
+        "UNSET_DIM CV0",
+        "UNSET_DIM CV0, V2",
+        "T1 = UNSET_DIM V2, CV0",
+        "UNSET_CV V2",
+        "UNSET_CV CV0, CV0",
         "T1 = ISSET_ISEMPTY_DIM_OBJ V2, CV0",
         "T1 = ISSET_ISEMPTY_CV T2",
         "ISSET_ISEMPTY_CV CV0",
@@ -578,6 +607,72 @@ fn execution_checks_array_operands_and_dimension_keys() {
         "T1 = ARRAY_KEY_EXISTS CV0, lit[2] | numeric-string-key",
     ] {
         assert!(validate(row).is_err(), "{row}");
+    }
+}
+
+#[test]
+fn execution_checks_dimension_assignment_and_op_data_owners() {
+    let template = BRANCH_AND_ARRAY
+        .replace("frame 0 cache 0", "frame 3 cache 48")
+        .replace("literals 2", "literals 5")
+        .replace(
+            "  code",
+            "  lit[2] = int(1)\n  lit[3] = \"3\"\n  lit[4] = undef\n  code",
+        );
+    let mut arena = Arena::new();
+    let mut validate = |owner: &str, data: &str| {
+        let mut listing = template
+            .replace("ASSIGN CV0, lit[0] | line=7", owner)
+            .replace("JMPZ CV0, @3 | line=7", data);
+        if data.contains("lit[5]") {
+            listing = listing.replace("literals 5", "literals 6").replace(
+                "  code",
+                "  lit[5] = attributes {\n  attribute \"A\" 0 7 0 0 none\n  }\n  code",
+            );
+        }
+        let unit = parse_zop(&mut arena, &listing).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    for (owner, data) in [
+        ("ASSIGN_DIM CV0", "OP_DATA T1"),
+        (
+            "CV0 = ASSIGN_DIM V2, lit[2] | numeric-string-key",
+            "OP_DATA lit[0]",
+        ),
+        ("T3 = ASSIGN_DIM CV0, T2", "OP_DATA CV0"),
+        ("CV0 = ASSIGN_DIM_OP V2, CV0 | ext=12", "OP_DATA V1"),
+        ("ASSIGN_DIM_OP CV0 | ext=1", "OP_DATA lit[0]"),
+        (
+            "T1 = FETCH_LIST_R CV0, lit[2] | numeric-string-key",
+            "UNSET_DIM CV0, lit[2]",
+        ),
+        ("DECLARE_ATTRIBUTED_CONST lit[3], lit[0]", "OP_DATA lit[5]"),
+        ("ASSIGN_OBJ_REF CV0, lit[3]", "OP_DATA V2"),
+        ("ASSIGN_OBJ_OP CV0, lit[3] | ext=1", "OP_DATA V1 | ext=24"),
+    ] {
+        validate(owner, data).unwrap_or_else(|err| panic!("{owner} / {data}: {err}"));
+    }
+    for (owner, data) in [
+        ("ASSIGN_DIM T2, CV0", "OP_DATA T1"),
+        ("ASSIGN_DIM CV0, V2", "OP_DATA CV0"),
+        ("ASSIGN_DIM CV0", "OP_DATA V2"),
+        ("ASSIGN_DIM CV0, lit[4]", "OP_DATA CV0"),
+        ("ASSIGN_DIM CV0", "OP_DATA lit[4]"),
+        ("ASSIGN_DIM CV0", "OP_DATA lit[5]"),
+        ("ASSIGN_DIM CV0", "T2 = OP_DATA CV0"),
+        ("ASSIGN_DIM CV0", "OP_DATA CV0, T2"),
+        ("ASSIGN_DIM CV0", "OP_DATA"),
+        ("ASSIGN_DIM_OP CV0 | ext=13", "OP_DATA CV0"),
+        ("ASSIGN_DIM_OP CV0, CV0", "OP_DATA CV0"),
+        (
+            "ASSIGN_DIM_OP V2, lit[3] | ext=1 numeric-string-key",
+            "OP_DATA CV0",
+        ),
+        ("DECLARE_ATTRIBUTED_CONST lit[3], lit[0]", "OP_DATA lit[0]"),
+        ("ASSIGN_STATIC_PROP_REF lit[3]", "OP_DATA T1"),
+        ("ASSIGN_OBJ CV0, lit[3]", "OP_DATA V1"),
+    ] {
+        assert!(validate(owner, data).is_err(), "{owner} / {data}");
     }
 }
 

@@ -1,0 +1,17 @@
+zend-opcodes
+file "dimension_undef_data.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 1 ["a"]
+  size 4 literals 2 children 0
+  lit[0] = int(0)
+  lit[1] = undef
+  code
+    0: RETURN lit[0]
+    1: ASSIGN_DIM CV0
+    2: OP_DATA lit[1]
+    3: RETURN lit[0]
+}
+end

@@ -42,8 +42,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                         pool: get::list(arena, &pool)?,
                     };
                     let code = get::list(arena, &code)?;
-                    let executable = layout.validate_code(arena, code)?;
-                    layout.validate_ranges(arena, tries, ranges, code.len(), executable)?;
+                    layout.validate_code(arena, code, tries, ranges)?;
                     // Deferred expressions anywhere in declarations or values can contain another body.
                     pending.extend([decl, frame, pool, children]);
                 }
@@ -189,6 +188,24 @@ impl<'a> Instruction<'a> {
         matches!(self.name, "SWITCH_LONG" | "SWITCH_STRING" | "MATCH")
     }
 
+    fn uses_dimension_key(&self) -> bool {
+        matches!(
+            self.name,
+            "ASSIGN_DIM"
+                | "ASSIGN_DIM_OP"
+                | "UNSET_DIM"
+                | "FETCH_DIM_R"
+                | "FETCH_DIM_W"
+                | "FETCH_DIM_RW"
+                | "FETCH_DIM_IS"
+                | "FETCH_DIM_UNSET"
+                | "FETCH_DIM_FUNC_ARG"
+                | "FETCH_LIST_R"
+                | "FETCH_LIST_W"
+                | "ISSET_ISEMPTY_DIM_OBJ"
+        )
+    }
+
     fn read(arena: &'a Arena, row: Value, layout: &Layout<'_>) -> Result<Self> {
         let [
             op,
@@ -236,9 +253,13 @@ impl<'a> Instruction<'a> {
             return Err(Error::new("expected a result slot"));
         }
         let writable = matches!(left, Operand::Cv(_) | Operand::Var(_));
+        let optional_key = right.rvalue() || right == unused;
         let valid = match name {
             "NOP" => left == unused && right == unused && result == unused,
             "ASSIGN" | "ASSIGN_OP" => writable && right.rvalue(),
+            "ASSIGN_DIM" | "ASSIGN_DIM_OP" => writable && optional_key,
+            "UNSET_DIM" => writable && right.rvalue() && result == unused,
+            "OP_DATA" => left.value() && right == unused && result == unused,
             "PRE_INC" | "PRE_DEC" => writable && right == unused,
             "POST_INC" | "POST_DEC" => writable && right == unused && result.slot(),
             "ADD"
@@ -274,9 +295,17 @@ impl<'a> Instruction<'a> {
                     && result.slot()
             }
             "ADD_ARRAY_UNPACK" => left.value() && right == unused && result.slot(),
-            "FETCH_DIM_R" | "FETCH_DIM_IS" => left.value() && right.rvalue() && result.slot(),
+            "FETCH_DIM_R" | "FETCH_DIM_IS" | "FETCH_LIST_R" => {
+                left.value() && right.rvalue() && result.slot()
+            }
+            "FETCH_DIM_W" | "FETCH_DIM_RW" => writable && optional_key && result.slot(),
+            "FETCH_DIM_UNSET" => writable && right.rvalue() && result.slot(),
+            "FETCH_DIM_FUNC_ARG" => left.value() && optional_key && result.slot(),
+            "FETCH_LIST_W" => matches!(left, Operand::Var(_)) && right.rvalue() && result.slot(),
             "IN_ARRAY" => left.rvalue() && matches!(right, Operand::Literal(_)) && result.slot(),
-            "CHECK_VAR" => matches!(left, Operand::Cv(_)) && right == unused && result == unused,
+            "CHECK_VAR" | "UNSET_CV" => {
+                matches!(left, Operand::Cv(_)) && right == unused && result == unused
+            }
             "ISSET_ISEMPTY_CV" => {
                 matches!(left, Operand::Cv(_)) && right == unused && result.slot()
             }
@@ -323,6 +352,10 @@ impl<'a> Instruction<'a> {
         }
         for operand in [left, right] {
             if let Operand::Literal(n) = operand {
+                if name == "OP_DATA" {
+                    // Its owner's operand contract also accepts an attribute table for DECLARE_ATTRIBUTED_CONST.
+                    continue;
+                }
                 let ("LITERAL", &[value]) = case_fields(arena, layout.pool[n])? else {
                     return Err(Error::new(format!(
                         "expected a value in lit[{n}] for {name}"
@@ -357,14 +390,21 @@ impl<'a> Instruction<'a> {
                     "numeric-string-key requires a dimension literal",
                 ));
             };
-            if !matches!(
-                name,
-                "FETCH_DIM_R" | "FETCH_DIM_IS" | "ISSET_ISEMPTY_DIM_OBJ"
-            ) || layout.literal_tag(arena, n)? != "INT"
+            if !row.uses_dimension_key()
+                || layout.literal_tag(arena, n)? != "INT"
                 || layout.literal_tag(arena, n + 1)? != "STRING"
             {
                 return Err(Error::new("invalid numeric-string-key literal pair"));
             }
+        }
+        if row.uses_dimension_key()
+            && name != "UNSET_DIM"
+            && let Operand::Literal(n) = right
+            && layout.literal_tag(arena, n)? == "UNDEF"
+        {
+            return Err(Error::new(
+                "undef dimension key must be a compiled variable",
+            ));
         }
         if let ("IN_ARRAY", Operand::Literal(n)) = (name, right) {
             let [value] = fields(arena, layout.pool[n], "LITERAL")?;
@@ -383,8 +423,9 @@ impl<'a> Instruction<'a> {
             }
         }
         match (name, result, left) {
-            ("INIT_ARRAY" | "ADD_ARRAY_ELEMENT", _, Operand::Literal(n))
-                if layout.literal_tag(arena, n)? == "UNDEF" =>
+            ("INIT_ARRAY" | "ADD_ARRAY_ELEMENT" | "CAST", _, Operand::Literal(n))
+                if (name != "CAST" || extended_value == 7)
+                    && layout.literal_tag(arena, n)? == "UNDEF" =>
             {
                 return Err(Error::new("undef cannot be an array element"));
             }
@@ -394,8 +435,20 @@ impl<'a> Instruction<'a> {
             ("CAST", _, _) if !(4..=8).contains(&extended_value) => {
                 return Err(Error::new("invalid cast type"));
             }
-            ("ASSIGN_OP", _, _) if !(1..=12).contains(&extended_value) => {
+            ("ASSIGN_OP" | "ASSIGN_DIM_OP", _, _) if !(1..=12).contains(&extended_value) => {
                 return Err(Error::new("unknown compound assignment operator"));
+            }
+            ("FETCH_DIM_W" | "FETCH_DIM_RW" | "FETCH_DIM_UNSET" | "FETCH_DIM_FUNC_ARG", _, _)
+                if extended_value > 4 =>
+            {
+                return Err(Error::new("unknown dimension fetch mode"));
+            }
+            ("FETCH_DIM_R" | "FETCH_LIST_R" | "FETCH_DIM_FUNC_ARG", _, Operand::Literal(n))
+                if layout.literal_tag(arena, n)? == "UNDEF" =>
+            {
+                return Err(Error::new(
+                    "undef dimension source must be a compiled variable",
+                ));
             }
             // The pinned ABI stores two zend_string pointers per temporary zval slot.
             ("ROPE_INIT", Operand::Tmp(base), _)
@@ -440,7 +493,7 @@ impl Layout<'_> {
         arena: &Arena,
         tries: Value,
         ranges: Value,
-        count: usize,
+        code: &[Instruction<'_>],
         executable: usize,
     ) -> Result<()> {
         let mut previous = 0;
@@ -452,9 +505,13 @@ impl Layout<'_> {
                 index(arena, finally)?,
                 index(arena, end)?,
             );
-            if [start, catch, finally, end].into_iter().any(|n| n >= count)
+            if [start, catch, finally, end]
+                .into_iter()
+                .any(|n| n >= code.len())
                 || catch >= executable
                 || finally >= executable
+                || code[catch].name == "OP_DATA"
+                || code[finally].name == "OP_DATA"
                 || start < previous
                 || (catch != 0 && catch < start)
                 || (finally != 0 && finally < start.max(catch))
@@ -473,7 +530,7 @@ impl Layout<'_> {
                 || index(arena, kind)? > 4
                 || start < previous
                 || start >= end
-                || end > count
+                || end > code.len()
             {
                 return Err(Error::new("invalid live range"));
             }
@@ -482,7 +539,38 @@ impl Layout<'_> {
         Ok(())
     }
 
-    fn validate_code(&self, arena: &Arena, rows: &[Value]) -> Result<usize> {
+    fn validate_data(&self, arena: &Arena, owner: &str, operand: Operand) -> Result<()> {
+        let valid = match owner {
+            "ASSIGN_DIM" | "ASSIGN_OBJ" | "ASSIGN_STATIC_PROP" => operand.rvalue(),
+            "ASSIGN_OBJ_REF" | "ASSIGN_STATIC_PROP_REF" => {
+                matches!(operand, Operand::Var(_) | Operand::Cv(_))
+            }
+            "DECLARE_ATTRIBUTED_CONST" => matches!(operand, Operand::Literal(_)),
+            _ => operand.value(),
+        };
+        if !valid {
+            return Err(Error::new(format!("wrong OP_DATA operand for {owner}")));
+        }
+        if let Operand::Literal(n) = operand {
+            if owner == "DECLARE_ATTRIBUTED_CONST" {
+                fields::<1>(arena, self.pool[n], "ATTRIBUTES")?;
+            } else {
+                let tag = self.literal_tag(arena, n)?;
+                if matches!(owner, "ASSIGN_DIM" | "ASSIGN_DIM_OP") && tag == "UNDEF" {
+                    return Err(Error::new("undef cannot be a dimension assignment value"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_code(
+        &self,
+        arena: &Arena,
+        rows: &[Value],
+        tries: Value,
+        ranges: Value,
+    ) -> Result<()> {
         let code: Vec<_> = rows
             .iter()
             .map(|&row| Instruction::read(arena, row, self))
@@ -518,6 +606,9 @@ impl Layout<'_> {
         for (i, op) in code.iter().enumerate() {
             if (op.name == "OP_DATA") != needs_data {
                 return Err(Error::new(format!("unpaired OP_DATA at instruction {i}")));
+            }
+            if needs_data {
+                self.validate_data(arena, code[i - 1].name, op.left)?;
             }
             needs_data = matches!(
                 op.name,
@@ -567,7 +658,7 @@ impl Layout<'_> {
                 check_jump_table(arena, self.pool[n], op.name, executable)?;
             }
         }
-        Ok(executable.len())
+        self.validate_ranges(arena, tries, ranges, &code, executable.len())
     }
 }
 
