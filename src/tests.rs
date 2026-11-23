@@ -237,6 +237,52 @@ fn execution_checks_logical_filename() {
 }
 
 #[test]
+fn trailing_switch_cleanup_must_be_unreachable() {
+    let listing = BRANCH_AND_ARRAY
+        .replace("frame 0", "frame 1")
+        .replace("JMPZ CV0, @3", "JMPZ CV0, @2")
+        .replace("RETURN lit[1] | line=9", "FREE T1 | ext=2");
+    let mut arena = Arena::new();
+    let mut validate = |source: &str| {
+        let unit = parse_zop(&mut arena, source).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    validate(&listing).unwrap();
+    let paired = listing
+        .replace("ASSIGN CV0, lit[0]", "ASSIGN_DIM CV0, lit[0]")
+        .replace("JMPZ CV0, @2", "OP_DATA lit[0]");
+    validate(&paired).unwrap();
+
+    let table = listing
+        .replace(
+            "array(\"0\" => float(nan:0xfff8000000000042), -3 => true; next=0; cursor=1)",
+            "array(0 => int(2))",
+        )
+        .replace("JMPZ CV0, @2 | line=7", "MATCH CV0, lit[1] | ext=@2");
+    validate(&table).unwrap();
+    for invalid in [
+        listing.replace("JMPZ CV0, @2", "ASSIGN_DIM CV0, lit[0]"),
+        listing.replace("ASSIGN CV0, lit[0]", "OP_DATA lit[0]"),
+        listing.replace("FREE T1 | ext=2", "FREE T1"),
+        listing.replace("RETURN lit[0]", "ECHO lit[0]"),
+        listing.replace("RETURN lit[0]", "DO_UCALL"),
+        listing.replace("JMPZ CV0, @2", "JMPZ CV0, @3"),
+        listing.replace(
+            "  code",
+            "  tries 1\n  try @0 catch @3 finally @0 end @0\n  code",
+        ),
+        listing.replace(
+            "  code",
+            "  tries 1\n  try @0 catch @0 finally @3 end @3\n  code",
+        ),
+        table.replace("ext=@2", "ext=@3"),
+        table.replace("0 => int(2)", "0 => int(3)"),
+    ] {
+        assert!(validate(&invalid).is_err(), "{invalid}");
+    }
+}
+
+#[test]
 fn execution_validates_bodies_inside_deferred_attribute_arguments() {
     let closure = "ast(closure(0 2\nbody \"f\" {\nlines 2 2\nframe 0 cache 0\n\
         size 1 literals 1 children 0\nlit[0] = null\ncode\n0: RETURN lit[0]\n}\n))";

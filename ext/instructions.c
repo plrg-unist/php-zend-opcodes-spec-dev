@@ -551,7 +551,8 @@ static void read_instruction(zo_reader *r, zend_op_array *body, uint32_t i)
 
 static void validate_target(zo_reader *r, const zend_op_array *body, uint32_t i, uint32_t target)
 {
-    if (target >= body->last || body->opcodes[target].opcode == ZEND_OP_DATA) {
+    if (target >= body->last || body->opcodes[target].opcode == ZEND_OP_DATA
+            || (target == body->last - 1 && body->opcodes[target].opcode == ZEND_FREE)) {
         zo_fail(r, "instruction %u references invalid jump target @%u", i, target);
     }
 }

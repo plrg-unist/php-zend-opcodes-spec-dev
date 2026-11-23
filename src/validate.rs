@@ -35,8 +35,8 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                         pool: get::list(arena, &pool)?,
                     };
                     let code = get::list(arena, &code)?;
-                    layout.validate_ranges(arena, tries, ranges, code.len())?;
-                    layout.validate_code(arena, code)?;
+                    let executable = layout.validate_code(arena, code)?;
+                    layout.validate_ranges(arena, tries, ranges, code.len(), executable)?;
                     // Deferred expressions anywhere in declarations or values can contain another body.
                     pending.extend([decl, frame, pool, children]);
                 }
@@ -117,6 +117,7 @@ struct Instruction<'a> {
     right: Operand,
     smart: Option<&'a str>,
     extended_target: Option<usize>,
+    extended_value: usize,
 }
 
 impl<'a> Instruction<'a> {
@@ -160,6 +161,7 @@ impl<'a> Instruction<'a> {
             right,
             smart,
             extended_target,
+            extended_value,
         };
         let unused = Operand::Unused;
         if result != unused && !result.slot() {
@@ -278,6 +280,7 @@ impl Layout<'_> {
         tries: Value,
         ranges: Value,
         count: usize,
+        executable: usize,
     ) -> Result<()> {
         let mut previous = 0;
         for &region in get::list(arena, &tries)? {
@@ -289,6 +292,8 @@ impl Layout<'_> {
                 index(arena, end)?,
             );
             if [start, catch, finally, end].into_iter().any(|n| n >= count)
+                || catch >= executable
+                || finally >= executable
                 || start < previous
                 || (catch != 0 && catch < start)
                 || (finally != 0 && finally < start.max(catch))
@@ -316,12 +321,21 @@ impl Layout<'_> {
         Ok(())
     }
 
-    fn validate_code(&self, arena: &Arena, rows: &[Value]) -> Result<()> {
+    fn validate_code(&self, arena: &Arena, rows: &[Value]) -> Result<usize> {
         let code: Vec<_> = rows
             .iter()
             .map(|&row| Instruction::read(arena, row, self))
             .collect::<Result<_>>()?;
-        let Some(last) = code.last() else {
+        // OPcache can leave an unreachable FREE marked ZEND_FREE_SWITCH after the final return.
+        let executable = match code.split_last() {
+            Some((last, before))
+                if !before.is_empty() && last.name == "FREE" && last.extended_value == 2 =>
+            {
+                before
+            }
+            _ => &code,
+        };
+        let Some(last) = executable.last() else {
             return Err(Error::new("body has no instructions"));
         };
         if !matches!(
@@ -335,19 +349,35 @@ impl Layout<'_> {
                 | "MATCH"
                 | "MATCH_ERROR"
                 | "VERIFY_NEVER_TYPE"
-                | "DO_ICALL"
-                | "DO_UCALL"
-        ) {
+        ) && !(executable.len() == code.len() && matches!(last.name, "DO_ICALL" | "DO_UCALL"))
+        {
             return Err(Error::new("body can fall past its final instruction"));
         }
+        let mut needs_data = false;
         for (i, op) in code.iter().enumerate() {
+            if (op.name == "OP_DATA") != needs_data {
+                return Err(Error::new(format!("unpaired OP_DATA at instruction {i}")));
+            }
+            needs_data = matches!(
+                op.name,
+                "ASSIGN_DIM"
+                    | "ASSIGN_DIM_OP"
+                    | "ASSIGN_OBJ"
+                    | "ASSIGN_OBJ_OP"
+                    | "ASSIGN_OBJ_REF"
+                    | "ASSIGN_STATIC_PROP"
+                    | "ASSIGN_STATIC_PROP_OP"
+                    | "ASSIGN_STATIC_PROP_REF"
+                    | "DECLARE_ATTRIBUTED_CONST"
+                    | "FRAMELESS_ICALL_3"
+            );
             for operand in [op.left, op.right] {
                 if let Operand::Target(target) = operand {
-                    check_target(&code, target)?;
+                    check_target(executable, target)?;
                 }
             }
             if let Some(target) = op.extended_target {
-                check_target(&code, target)?;
+                check_target(executable, target)?;
             }
             if let Some(smart) = op.smart {
                 let jump = match smart {
@@ -375,11 +405,11 @@ impl Layout<'_> {
                 for &entry in get::list(arena, &entries)? {
                     let [_, target] = fields(arena, entry, "ENTRY")?;
                     let [target] = fields(arena, target, "INT")?;
-                    check_target(&code, index(arena, target)?)?;
+                    check_target(executable, index(arena, target)?)?;
                 }
             }
         }
-        Ok(())
+        Ok(executable.len())
     }
 }
 

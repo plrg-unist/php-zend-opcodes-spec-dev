@@ -600,6 +600,17 @@ void zo_validate_code(zo_reader *r, zend_op_array *body)
         check_body_instruction(r, body, op);
     }
     const zend_op *last = &body->opcodes[body->last - 1];
+    /* OPcache can leave the switch's unused cleanup immediately after its final return. */
+    bool trailing_cleanup = last->opcode == ZEND_FREE && last->extended_value == ZEND_FREE_SWITCH;
+    if (trailing_cleanup && body->last > 1) {
+        for (uint32_t i = 0; i < body->last_try_catch; ++i) {
+            const zend_try_catch_element *region = &body->try_catch_array[i];
+            if (region->catch_op == body->last - 1 || region->finally_op == body->last - 1) {
+                invalid(r, body, last, "exception handler enters trailing cleanup");
+            }
+        }
+        --last;
+    }
     switch (last->opcode) {
         case ZEND_RETURN:
         case ZEND_RETURN_BY_REF:
@@ -610,9 +621,11 @@ void zo_validate_code(zo_reader *r, zend_op_array *body)
         case ZEND_MATCH:
         case ZEND_MATCH_ERROR:
         case ZEND_VERIFY_NEVER_TYPE:
+            break;
         case ZEND_DO_ICALL:
         case ZEND_DO_UCALL:
-            break;
+            if (!trailing_cleanup) break;
+            ZEND_FALLTHROUGH;
         default:
             invalid(r, body, last, "body can fall past its final instruction");
     }
