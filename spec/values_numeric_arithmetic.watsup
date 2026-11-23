@@ -1,0 +1,141 @@
+;; On integer overflow Zend rounds each input to binary64 before doing the operation.
+dec $fits_long(int) : bool
+def $fits_long(i) = $(i >= -9223372036854775808) /\ $(i <= 9223372036854775807)
+
+dec $exact_integer(opcode, int, int) : int
+def $exact_integer(ADD, i_l, i_r) = $(i_l + i_r)
+def $exact_integer(SUB, i_l, i_r) = $(i_l - i_r)
+def $exact_integer(MUL, i_l, i_r) = $(i_l * i_r)
+
+dec $integer_operation(opcode, int, int) : zval
+def $integer_operation(opcode, i_l, i_r) = INT i_result
+  -- if i_result = $exact_integer(opcode, i_l, i_r)
+  -- if $fits_long(i_result)
+def $integer_operation(opcode, i_l, i_r) = FLOAT $f64_binary(opcode, $f64_from_int(i_l), $f64_from_int(i_r))
+  -- if ~$fits_long($exact_integer(opcode, i_l, i_r))
+
+;; Integer powers keep their integer intermediates up to the first overflowing multiply.
+dec $integer_power(int, int, nat) : zval
+dec $power_accumulated(zval, int, nat) : zval
+dec $power_squared(int, zval, nat) : zval
+
+def $integer_power(i_acc, _, 0) = INT i_acc
+def $integer_power(i_acc, i_base, n) = $power_accumulated($integer_operation(MUL, i_acc, i_base), i_base, n')
+  -- if $(n \ 2 = 1)
+  -- if n' = $(n - 1)
+def $integer_power(i_acc, i_base, n) = $power_squared(i_acc, $integer_operation(MUL, i_base, i_base), $(n / 2))
+  -- if $(n > 0) /\ $(n \ 2 = 0)
+
+def $power_accumulated(INT i_acc, i_base, n) = $integer_power(i_acc, i_base, n)
+def $power_accumulated(FLOAT n_acc, i_base, n) =
+  FLOAT $f64_binary(MUL, n_acc, $f64_binary(POW, $f64_from_int(i_base), $f64_from_int(n)))
+
+def $power_squared(i_acc, INT i_base, n) = $integer_power(i_acc, i_base, n)
+def $power_squared(i_acc, FLOAT n_base, n) =
+  FLOAT $f64_binary(MUL, $f64_from_int(i_acc), $f64_binary(POW, n_base, $f64_from_int(n)))
+
+dec $power_diagnostic(nat, nat, numericResult) : numericResult
+;; Power of base 0 and negative exponent is deprecated.
+def $power_diagnostic(n_l, n_r, numericResult) =
+  NUM_DEPRECATED ([ 80, 111, 119, 101, 114, 32, 111, 102, 32, 98, 97, 115, 101, 32, 48, 32, 97, 110,
+                    100, 32, 110, 101, 103, 97, 116, 105, 118, 101, 32, 101, 120, 112, 111, 110, 101, 110,
+                    116, 32 ]
+                  ++ [ 105, 115, 32, 100, 101, 112, 114, 101, 99, 97, 116, 101, 100 ])
+                 numericResult
+  -- if $float_magnitude(n_l) = 0
+  -- if $(n_r > 0x8000_0000_0000_0000) /\ $(n_r <= 0xFFF0_0000_0000_0000)
+def $power_diagnostic(_, _, numericResult) = numericResult
+  -- otherwise
+
+dec $floating_operation(opcode, nat, nat) : numericResult
+;; DivisionByZeroError: Division by zero
+def $floating_operation(DIV, _, n_r) =
+  NUM_ERROR ([ 68, 105, 118, 105, 115, 105, 111, 110, 66, 121, 90, 101, 114, 111, 69, 114, 114, 111, 114, 58, 32 ]
+             ++ [ 68, 105, 118, 105, 115, 105, 111, 110, 32, 98, 121, 32, 122, 101, 114, 111 ])
+  -- if $float_magnitude(n_r) = 0
+def $floating_operation(POW, n_l, n_r) =
+  $power_diagnostic(n_l, n_r, NUM_VALUE (FLOAT $f64_binary(POW, n_l, n_r)))
+def $floating_operation(opcode, n_l, n_r) = NUM_VALUE (FLOAT $f64_binary(opcode, n_l, n_r))
+  -- if opcode =/= POW
+  -- if opcode =/= DIV \/ $float_magnitude(n_r) =/= 0
+
+dec $long_quotient(int, int) : bool
+def $long_quotient(_, 0) = false
+def $long_quotient(i_l, i_r) = $(i_l \ i_r = 0) /\ $fits_long($(i_l / i_r))
+  -- if i_r =/= 0
+
+dec $bitwise_integers(opcode, int, int) : numericResult
+dec $arithmetic_numbers(opcode, zval, zval) : numericResult
+def $arithmetic_numbers(opcode, INT i_l, INT i_r) = NUM_VALUE $integer_operation(opcode, i_l, i_r)
+  -- if opcode <- [ ADD, SUB, MUL ]
+def $arithmetic_numbers(DIV, INT i_l, INT i_r) = NUM_VALUE (INT $(i_l / i_r))
+  -- if $long_quotient(i_l, i_r)
+def $arithmetic_numbers(DIV, INT i_l, INT i_r) = $floating_operation(DIV, $f64_from_int(i_l), $f64_from_int(i_r))
+  -- if ~$long_quotient(i_l, i_r)
+def $arithmetic_numbers(POW, INT i_l, INT i_r) = NUM_VALUE $integer_power(1, i_l, n)
+  -- if $(i_r >= 0)
+  -- if n = i_r
+def $arithmetic_numbers(POW, INT i_l, INT i_r) = $floating_operation(POW, $f64_from_int(i_l), $f64_from_int(i_r))
+  -- if $(i_r < 0)
+;; DivisionByZeroError: Modulo by zero
+def $arithmetic_numbers(MOD, INT _, INT 0) =
+  NUM_ERROR ([ 68, 105, 118, 105, 115, 105, 111, 110, 66, 121, 90, 101, 114, 111, 69, 114, 114, 111, 114, 58, 32 ]
+             ++ [ 77, 111, 100, 117, 108, 111, 32, 98, 121, 32, 122, 101, 114, 111 ])
+def $arithmetic_numbers(MOD, INT i_l, INT i_r) = NUM_VALUE (INT $(i_l \ i_r))
+  -- if i_r =/= 0
+def $arithmetic_numbers(opcode, INT i_l, INT i_r) = $bitwise_integers(opcode, i_l, i_r)
+  -- if opcode <- [ SL, SR, BW_OR, BW_AND, BW_XOR ]
+def $arithmetic_numbers(opcode, INT i_l, FLOAT n_r) = $floating_operation(opcode, $f64_from_int(i_l), n_r)
+def $arithmetic_numbers(opcode, FLOAT n_l, zval_r) = $floating_operation(opcode, n_l, $number_bits(zval_r))
+
+dec $operator_symbol(opcode) : bytes
+def $operator_symbol(ADD) = [ 43 ]
+def $operator_symbol(SUB) = [ 45 ]
+def $operator_symbol(MUL) = [ 42 ]
+def $operator_symbol(DIV) = [ 47 ]
+def $operator_symbol(MOD) = [ 37 ]
+def $operator_symbol(POW) = [ 42, 42 ]
+def $operator_symbol(SL) = [ 60, 60 ]
+def $operator_symbol(SR) = [ 62, 62 ]
+def $operator_symbol(BW_OR) = [ 124 ]
+def $operator_symbol(BW_AND) = [ 38 ]
+def $operator_symbol(BW_XOR) = [ 94 ]
+
+dec $operand_type_name(slotValue) : bytes
+def $operand_type_name(slotValue) = [ 98, 111, 111, 108 ]
+  -- if slotValue = TRUE \/ slotValue = FALSE
+def $operand_type_name(slotValue) = $value_name(slotValue)
+  -- if slotValue =/= TRUE /\ slotValue =/= FALSE
+
+;; TypeError: Unsupported operand types: <left type> <operator> <right type>
+dec $operand_type_error(opcode, slotValue, slotValue) : numericResult
+def $operand_type_error(opcode, slotValue_l, slotValue_r) =
+  NUM_ERROR ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 85, 110, 115, 117, 112, 112, 111,
+               114, 116, 101, 100, 32, 111, 112, 101, 114, 97, 110, 100, 32, 116, 121, 112, 101, 115,
+               58, 32 ]
+    ++ $operand_type_name(slotValue_l) ++ [32] ++ $operator_symbol(opcode) ++ [32] ++ $operand_type_name(slotValue_r))
+  -- if $simple_value(slotValue_l) /\ $simple_value(slotValue_r)
+def $operand_type_error(_, _, _) = NUM_UNSUPPORTED
+  -- otherwise
+
+dec $arithmetic_operand(opcode, slotValue, numericResult) : numericResult
+def $arithmetic_operand(opcode, slotValue, numericResult_error) = $integer_operand(slotValue, numericResult_error)
+  -- if opcode <- [ MOD, SL, SR, BW_OR, BW_AND, BW_XOR ]
+def $arithmetic_operand(opcode, slotValue, numericResult_error) = $number_operand(slotValue, numericResult_error)
+  -- if opcode <- [ ADD, SUB, MUL, DIV, POW ]
+
+;; A failed left conversion stops before the right operand is converted.
+syntax numericStage = CONVERT_RIGHT opcode slotValue numericResult | APPLY_BINARY opcode zval
+dec $finish_operand(numericStage, numericResult) : numericResult
+def $finish_operand(CONVERT_RIGHT opcode slotValue_r numericResult_error, NUM_VALUE zval_l) =
+  $finish_operand(APPLY_BINARY opcode zval_l, $arithmetic_operand(opcode, slotValue_r, numericResult_error))
+def $finish_operand(APPLY_BINARY opcode zval_l, NUM_VALUE zval_r) = $arithmetic_numbers(opcode, zval_l, zval_r)
+def $finish_operand(numericStage, NUM_WARNING bytes numericResult) = NUM_WARNING bytes $finish_operand(numericStage, numericResult)
+def $finish_operand(numericStage, NUM_DEPRECATED bytes numericResult) = NUM_DEPRECATED bytes $finish_operand(numericStage, numericResult)
+def $finish_operand(_, numericResult) = numericResult
+  -- otherwise
+
+dec $numeric_binary(opcode, slotValue, slotValue) : numericResult
+def $numeric_binary(opcode, slotValue_l, slotValue_r) =
+  $finish_operand(CONVERT_RIGHT opcode slotValue_r numericResult_error, $arithmetic_operand(opcode, slotValue_l, numericResult_error))
+  -- if numericResult_error = $operand_type_error(opcode, slotValue_l, slotValue_r)

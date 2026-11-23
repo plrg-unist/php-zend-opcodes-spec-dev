@@ -1,0 +1,270 @@
+;; Recognize the decimal prefix in PHP byte strings before choosing an integer
+;; or binary64 result. Decimal conversion receives only the recognized token.
+syntax numericByteClass = DECIMAL_DIGIT | DECIMAL_SPACE | DECIMAL_ZERO
+dec $numeric_byte(numericByteClass, nat) : bool
+def $numeric_byte(DECIMAL_DIGIT, n) = $(48 <= n) /\ $(n <= 57)
+def $numeric_byte(DECIMAL_SPACE, n) = (n = 32) \/ ($(9 <= n) /\ $(n <= 13))
+def $numeric_byte(DECIMAL_ZERO, n) = n = 48
+
+;; Find the first false entry in a prefix using a logarithmic recursion depth.
+dec $prefix_end(bool*, nat, nat) : nat
+dec $prefix_half(bool*, nat, nat, nat, bool) : nat
+def $prefix_end(b*, n, n) = n
+def $prefix_end(b*, n_lo, n_hi) = $prefix_half(b*, n_lo, n_mid, n_hi, b_bad)
+  -- if $(n_lo < n_hi)
+  -- if n_mid = $((n_lo + n_hi + 1) / 2)
+  -- if n_length = $(n_mid - n_lo)
+  -- if b_bad = (false <- b*[n_lo : n_length])
+def $prefix_half(b*, n_lo, n_mid, _, true) = $prefix_end(b*, n_lo, n_before)
+  -- if n_before = $(n_mid - 1)
+def $prefix_half(b*, _, n_mid, n_hi, false) = $prefix_end(b*, n_mid, n_hi)
+
+dec $byte_span(numericByteClass, bytes) : nat
+def $byte_span(numericByteClass, n :: bytes) = $(1 + $prefix_end(b*, 0, |b*|))
+  -- if $numeric_byte(numericByteClass, n)
+  -- if n_rest* = bytes
+  -- if b* = ($numeric_byte(numericByteClass, n_rest))*
+def $byte_span(_, _) = 0
+  -- otherwise
+
+dec $numeric_tail(bytes, nat) : bytes
+def $numeric_tail(bytes, n) = bytes[n : n_length]
+  -- if n_length = $(|bytes| - n)
+
+dec $sign_tail(bytes) : bytes
+def $sign_tail(n :: bytes) = bytes
+  -- if n = 43 \/ n = 45
+def $sign_tail(bytes) = bytes
+  -- otherwise
+
+dec $fraction_tail(bytes) : bytes
+def $fraction_tail(46 :: bytes) = $numeric_tail(bytes, $byte_span(DECIMAL_DIGIT, bytes))
+def $fraction_tail(bytes) = bytes
+  -- otherwise
+
+dec $exponent_tail(bytes) : bytes
+def $exponent_tail(n :: bytes) = $numeric_tail(bytes_digits, n_digits)
+  -- if n = 69 \/ n = 101
+  -- if bytes_digits = $sign_tail(bytes)
+  -- if n_digits = $byte_span(DECIMAL_DIGIT, bytes_digits)
+  -- if $(n_digits > 0)
+def $exponent_tail(bytes) = bytes
+  -- otherwise
+
+;; Original signed token, significant whole digits, unconsumed suffix, fraction/exponent present.
+syntax decimalLexeme = DECIMAL_TOKEN bytes bytes bytes bool
+dec $decimal_token(bytes) : decimalLexeme?
+def $decimal_token(bytes_input) = DECIMAL_TOKEN bytes_token bytes_significant bytes_end b_float
+  -- if bytes_text = $numeric_tail(bytes_input, $byte_span(DECIMAL_SPACE, bytes_input))
+  -- if bytes_body = $sign_tail(bytes_text)
+  -- if n_whole = $byte_span(DECIMAL_DIGIT, bytes_body)
+  -- if bytes_whole = bytes_body[0 : n_whole]
+  -- if bytes_suffix = $numeric_tail(bytes_body, n_whole)
+  -- if bytes_fraction = $fraction_tail(bytes_suffix)
+  -- if $(n_whole > 0) \/ $(|bytes_suffix| > |bytes_fraction| + 1)
+  -- if bytes_end = $exponent_tail(bytes_fraction)
+  -- if n_token = $(|bytes_text| - |bytes_end|)
+  -- if bytes_token = bytes_text[0 : n_token]
+  -- if bytes_significant = $numeric_tail(bytes_whole, $byte_span(DECIMAL_ZERO, bytes_whole))
+  -- if b_float = |bytes_end| =/= |bytes_suffix|
+def $decimal_token(_) = eps
+  -- otherwise
+
+dec $number_sign(bytes) : int
+def $number_sign(45 :: _) = -1
+def $number_sign(_) = 1
+  -- otherwise
+
+dec $signed64(int) : int
+def $signed64(i) = $((i_unsigned + 0x8000_0000_0000_0000) \ 0x1_0000_0000_0000_0000 - 0x8000_0000_0000_0000)
+  -- if i_unsigned = $(((i \ 0x1_0000_0000_0000_0000) + 0x1_0000_0000_0000_0000) \ 0x1_0000_0000_0000_0000)
+
+;; At most 19 significant decimal digits are accumulated into an integer.
+dec $decimal_magnitude(bytes, nat) : nat
+def $decimal_magnitude(eps, n) = n
+def $decimal_magnitude(n_digit :: bytes, n) = $decimal_magnitude(bytes, n_next)
+  -- if n_next = $(n * 10 + n_digit - 48)
+
+;; The pinned scanner compares the original 19-digit spelling with the
+;; magnitude of INT_MIN up to its NUL terminator. An incomplete signed
+;; exponent moves that comparison one byte forward.
+dec $range_key_shifted(bytes) : bool
+def $range_key_shifted(n_e :: (n_sign :: _)) = (n_e = 69 \/ n_e = 101) /\ (n_sign = 43 \/ n_sign = 45)
+def $range_key_shifted(_) = false
+  -- otherwise
+
+dec $starts_nul_or_empty(bytes) : bool
+def $starts_nul_or_empty(eps) = true
+def $starts_nul_or_empty(0 :: _) = true
+def $starts_nul_or_empty(_) = false
+  -- otherwise
+
+dec $integer_spelling_overflows(nat, nat, bytes, int) : bool
+def $integer_spelling_overflows(19, n, bytes_end, _) = $((n \ 1_000_000_000_000_000_000) >= 922337203685477580)
+  -- if $range_key_shifted(bytes_end)
+def $integer_spelling_overflows(19, n, bytes_end, i_sign) =
+    $(n > 0x8000_0000_0000_0000) \/ (n = 0x8000_0000_0000_0000 /\ (i_sign = 1 \/ ~$starts_nul_or_empty(bytes_end)))
+  -- if ~$range_key_shifted(bytes_end)
+def $integer_spelling_overflows(_, _, _, _) = false
+  -- otherwise
+
+;; The final fields distinguish trailing data and the sign of integer overflow.
+;; Zend uses the latter to distinguish strings rounded to the same double.
+syntax parsedNumber = NONNUMERIC | NUMERIC zval bool int
+
+dec $integer_token(bytes, nat, bool, int, bool) : parsedNumber
+def $integer_token(bytes_token, _, b_trailing, i_sign, true) =
+    NUMERIC (FLOAT $f64_parse(bytes_token)) b_trailing i_sign
+def $integer_token(_, n, b_trailing, i_sign, false) =
+    NUMERIC (INT $signed64($(i_sign * n))) b_trailing 0
+
+dec $classify_token(decimalLexeme, bool) : parsedNumber
+def $classify_token(DECIMAL_TOKEN bytes_token bytes_whole _ _, b_trailing) =
+    NUMERIC (FLOAT $f64_parse(bytes_token)) b_trailing ($number_sign(bytes_token))
+  -- if $(|bytes_whole| >= 20)
+def $classify_token(DECIMAL_TOKEN bytes_token bytes_whole _ true, b_trailing) =
+    NUMERIC (FLOAT $f64_parse(bytes_token)) b_trailing 0
+  -- if $(|bytes_whole| < 20)
+def $classify_token(DECIMAL_TOKEN bytes_token bytes_whole bytes_end false, b_trailing) =
+    $integer_token(bytes_token, n, b_trailing, i_sign, $integer_spelling_overflows(|bytes_whole|, n, bytes_end, i_sign))
+  -- if $(|bytes_whole| < 20)
+  -- if n = $decimal_magnitude(bytes_whole, 0)
+  -- if i_sign = $number_sign(bytes_token)
+
+dec $numeric_string(bytes) : parsedNumber
+def $numeric_string(bytes) = $classify_token(decimalLexeme, b_trailing)
+  -- if decimalLexeme = $decimal_token(bytes)
+  -- if DECIMAL_TOKEN _ _ bytes_end _ = decimalLexeme
+  -- if b_trailing = $byte_span(DECIMAL_SPACE, bytes_end) =/= |bytes_end|
+def $numeric_string(_) = NONNUMERIC
+  -- otherwise
+
+dec $complete_number(parsedNumber) : zval?
+def $complete_number(NUMERIC zval false _) = zval
+def $complete_number(_) = eps
+  -- otherwise
+
+dec $number_bits(zval) : nat
+def $number_bits(INT i) = $f64_from_int(i)
+def $number_bits(FLOAT n) = n
+
+dec $plain_number(slotValue) : zval
+def $plain_number(NULL) = INT 0
+def $plain_number(FALSE) = INT 0
+def $plain_number(TRUE) = INT 1
+def $plain_number(INT i) = INT i
+def $plain_number(FLOAT n) = FLOAT n
+
+dec $leading_numeric(bool, numericResult) : numericResult
+def $leading_numeric(false, numericResult) = numericResult
+;; A non-numeric value encountered
+def $leading_numeric(true, numericResult) = NUM_WARNING
+    ([ 65, 32, 110, 111, 110, 45, 110, 117, 109, 101, 114, 105, 99, 32, 118, 97,
+       108, 117, 101, 32, 101, 110, 99, 111, 117, 110, 116, 101, 114, 101, 100 ]) numericResult
+
+dec $string_number(parsedNumber, numericResult) : numericResult
+def $string_number(NONNUMERIC, numericResult) = numericResult
+def $string_number(NUMERIC zval b _, _) = $leading_numeric(b, NUM_VALUE zval)
+
+dec $number_operand(slotValue, numericResult) : numericResult
+def $number_operand(STRING bytes, numericResult) = $string_number($numeric_string(bytes), numericResult)
+def $number_operand(slotValue, _) = NUM_VALUE zval
+  -- if zval = $plain_number(slotValue)
+def $number_operand(_, _) = NUM_UNSUPPORTED
+  -- otherwise
+
+;; Zend uses the shortest decimal spelling in float diagnostics.
+dec $float_precision_message(nat) : bytes
+;; Implicit conversion from float <value> to int loses precision
+def $float_precision_message(n) =
+    [ 73, 109, 112, 108, 105, 99, 105, 116, 32, 99, 111, 110, 118, 101, 114, 115, 105, 111,
+      110, 32, 102, 114, 111, 109, 32, 102, 108, 111, 97, 116, 32 ] ++ $f64_format(n, -1)
+    ++ [ 32, 116, 111, 32, 105, 110, 116, 32, 108, 111, 115, 101, 115, 32, 112, 114, 101,
+         99, 105, 115, 105, 111, 110 ]
+
+dec $float_range_message(nat) : bytes
+;; The float <value> is not representable as an int, cast occurred
+def $float_range_message(n) = [ 84, 104, 101, 32, 102, 108, 111, 97, 116, 32 ] ++ $f64_format(n, -1)
+    ++ [ 32, 105, 115, 32, 110, 111, 116, 32, 114, 101, 112, 114, 101, 115, 101, 110, 116, 97,
+         98, 108, 101, 32, 97, 115, 32, 97, 110, 32, 105, 110, 116, 44, 32, 99, 97, 115,
+         116, 32, 111, 99, 99, 117, 114, 114, 101, 100 ]
+
+dec $string_precision_message(bytes) : bytes
+;; Implicit conversion from float-string "<original bytes>" to int loses precision
+def $string_precision_message(bytes) =
+    [ 73, 109, 112, 108, 105, 99, 105, 116, 32, 99, 111, 110, 118, 101, 114, 115, 105, 111,
+      110, 32, 102, 114, 111, 109, 32, 102, 108, 111, 97, 116, 45, 115, 116, 114, 105, 110,
+      103, 32, 34 ] ++ bytes
+    ++ [ 34, 32, 116, 111, 32, 105, 110, 116, 32, 108, 111, 115, 101, 115, 32, 112, 114, 101,
+         99, 105, 115, 105, 111, 110 ]
+
+;; A float operand wraps on overflow. NaN and infinities yield zero.
+dec $integer_precision(bool, nat, int) : numericResult
+dec $float_integer(nat, bool) : numericResult
+def $float_integer(n, true) = NUM_WARNING ($float_range_message(n))
+    (NUM_DEPRECATED ($float_precision_message(n)) (NUM_VALUE (INT 0)))
+  -- if $is_nan(FLOAT n)
+def $float_integer(n, b) = NUM_WARNING ($float_range_message(n)) (NUM_VALUE (INT 0))
+  -- if $float_magnitude(n) = 0x7FF0_0000_0000_0000 \/ (~b /\ $is_nan(FLOAT n))
+def $float_integer(n, _) = NUM_WARNING ($float_range_message(n)) (NUM_VALUE (INT $signed64(i)))
+  -- if $($float_magnitude(n) < 0x7FF0_0000_0000_0000)
+  -- if i = $f64_trunc(n)
+  -- if $(i < -9223372036854775808) \/ $(i > 9223372036854775807)
+def $float_integer(n, b) = $integer_precision(b_loss, n, i)
+  -- if $($float_magnitude(n) < 0x7FF0_0000_0000_0000)
+  -- if i = $f64_trunc(n)
+  -- if $(-9223372036854775808 <= i) /\ $(i <= 9223372036854775807)
+  -- if b_loss = (b /\ ($float_magnitude(n) =/= $float_magnitude($f64_from_int(i))))
+
+def $integer_precision(true, n, i) = NUM_DEPRECATED ($float_precision_message(n)) (NUM_VALUE (INT i))
+def $integer_precision(false, _, i) = NUM_VALUE (INT i)
+
+;; Conversion from a decimal string saturates at integer limits. Parsing a
+;; string whose double value is infinite gives zero in this conversion.
+dec $capped_integer(nat) : int
+def $capped_integer(n) = 0
+  -- if $float_magnitude(n) = 0x7FF0_0000_0000_0000
+def $capped_integer(n) = 9223372036854775807
+  -- if $(0x43E0_0000_0000_0000 <= n) /\ $(n < 0x7FF0_0000_0000_0000)
+def $capped_integer(n) = -9223372036854775808
+  -- if $(0xC3E0_0000_0000_0000 < n) /\ $(n < 0xFFF0_0000_0000_0000)
+def $capped_integer(n) = $f64_trunc(n)
+  -- if $(n < 0x43E0_0000_0000_0000) \/ ($(0x8000_0000_0000_0000 <= n) /\ $(n <= 0xC3E0_0000_0000_0000))
+
+dec $parsed_integer(zval, bytes, bool) : numericResult
+def $parsed_integer(INT i, _, _) = NUM_VALUE (INT i)
+def $parsed_integer(FLOAT n, bytes, b_implicit) = NUM_DEPRECATED ($string_precision_message(bytes)) (NUM_VALUE (INT i))
+  -- if b_implicit
+  -- if i = $capped_integer(n)
+  -- if $float_magnitude(n) =/= $float_magnitude($f64_from_int(i))
+def $parsed_integer(FLOAT n, _, b_implicit) = NUM_VALUE (INT i)
+  -- if i = $capped_integer(n)
+  -- if ~b_implicit \/ $float_magnitude(n) = $float_magnitude($f64_from_int(i))
+
+dec $string_integer(parsedNumber, bytes, bool, numericResult) : numericResult
+def $string_integer(NONNUMERIC, _, _, numericResult) = numericResult
+def $string_integer(NUMERIC zval b_trailing _, bytes, b_implicit, _) =
+    $leading_numeric((b_implicit /\ b_trailing), $parsed_integer(zval, bytes, b_implicit))
+
+dec $integer_operand(slotValue, numericResult) : numericResult
+def $integer_operand(STRING bytes, numericResult) = $string_integer($numeric_string(bytes), bytes, true, numericResult)
+def $integer_operand(FLOAT n, _) = $float_integer(n, true)
+def $integer_operand(slotValue, _) = NUM_VALUE (INT i)
+  -- if INT i = $plain_number(slotValue)
+def $integer_operand(_, _) = NUM_UNSUPPORTED
+  -- otherwise
+
+dec $cast_string_float(decimalLexeme?) : nat
+def $cast_string_float(DECIMAL_TOKEN bytes _ _ _) = $f64_parse(bytes)
+def $cast_string_float(eps) = 0
+
+dec $numeric_cast(nat, slotValue) : numericResult
+def $numeric_cast(4, STRING bytes) = $string_integer($numeric_string(bytes), bytes, false, NUM_VALUE (INT 0))
+def $numeric_cast(4, FLOAT n) = $float_integer(n, false)
+def $numeric_cast(4, slotValue) = NUM_VALUE (INT i)
+  -- if INT i = $plain_number(slotValue)
+def $numeric_cast(5, STRING bytes) = NUM_VALUE (FLOAT $cast_string_float($decimal_token(bytes)))
+def $numeric_cast(5, slotValue) = NUM_VALUE (FLOAT $number_bits(zval))
+  -- if zval = $plain_number(slotValue)
+def $numeric_cast(_, _) = NUM_UNSUPPORTED
+  -- otherwise

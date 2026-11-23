@@ -1,0 +1,117 @@
+dec $int_order(int, int) : int
+def $int_order(i_l, i_r) = -1 -- if $(i_l < i_r)
+def $int_order(i_l, i_r) = 1 -- if $(i_l > i_r)
+def $int_order(i, i) = 0
+
+;; Numeric order of a non-NaN binary64 bit pattern, including equal signed zeros.
+dec $float_order_key(nat) : int
+def $float_order_key(n) = n -- if $(n < 0x8000_0000_0000_0000)
+def $float_order_key(n) = $(-$float_magnitude(n)) -- if $(n >= 0x8000_0000_0000_0000)
+
+dec $number_order(zval, zval) : int
+def $number_order(INT i_l, INT i_r) = $int_order(i_l, i_r)
+def $number_order(zval_l, zval_r) = $int_order($float_order_key($number_bits(zval_l)), $float_order_key($number_bits(zval_r)))
+  -- if $scalar_type_bit(zval_l) = 32 \/ $scalar_type_bit(zval_r) = 32
+
+builtin dec $min_nat(nat*) : nat
+dec $byte_order_at(bytes, bytes, nat, nat) : int
+def $byte_order_at(bytes_l, bytes_r, n, n) = $int_order(|bytes_l|, |bytes_r|)
+def $byte_order_at(bytes_l, bytes_r, n, n_limit) = $int_order(bytes_l[n], bytes_r[n])
+  -- if $(n < n_limit)
+
+;; The first differing byte decides. If one string is a prefix, compare lengths.
+dec $byte_order(bytes, bytes) : int
+def $byte_order(bytes_l, bytes_r) = $byte_order_at(bytes_l, bytes_r, $prefix_end(b*, 0, n), n)
+  -- if n = $min_nat([ |bytes_l|, |bytes_r| ])
+  -- if n_l* = bytes_l[0 : n]
+  -- if n_r* = bytes_r[0 : n]
+  -- if b* = (n_l = n_r)*
+
+;; String-to-string comparison retains the scanner's integer-overflow direction.
+;; Rounded equal overflowed numbers and equal infinities can require a byte comparison.
+syntax stringOrder = AS_BYTES | AS_NUMBERS zval zval | BY_OVERFLOW int
+dec $numeric_text_order(zval, int, zval, int) : stringOrder
+def $numeric_text_order(INT _, _, FLOAT _, i_r) = BY_OVERFLOW $(-i_r)
+  -- if i_r =/= 0
+def $numeric_text_order(FLOAT _, i_l, INT _, _) = BY_OVERFLOW i_l
+  -- if i_l =/= 0
+def $numeric_text_order(FLOAT n_l, i_l, FLOAT n_r, i_r) = AS_BYTES
+  -- if $float_order_key(n_l) = $float_order_key(n_r)
+  -- if (i_l =/= 0 /\ i_l = i_r) \/ ($float_magnitude(n_l) = 0x7FF0_0000_0000_0000)
+def $numeric_text_order(zval_l, _, zval_r, _) = AS_NUMBERS zval_l zval_r
+  -- otherwise
+
+dec $string_pair_order(parsedNumber, parsedNumber) : stringOrder
+def $string_pair_order(NUMERIC zval_l false i_l, NUMERIC zval_r false i_r) = $numeric_text_order(zval_l, i_l, zval_r, i_r)
+def $string_pair_order(_, _) = AS_BYTES
+  -- otherwise
+
+dec $text_order(bytes, bytes, stringOrder) : int
+def $text_order(bytes_l, bytes_r, AS_BYTES) = $byte_order(bytes_l, bytes_r)
+def $text_order(_, _, AS_NUMBERS zval_l zval_r) = $number_order(zval_l, zval_r)
+def $text_order(_, _, BY_OVERFLOW i) = i
+
+dec $number_string_order(zval, bytes, zval?) : int
+def $number_string_order(zval, _, zval_r) = $number_order(zval, zval_r)
+def $number_string_order(zval, bytes, eps) = $byte_order($scalar_bytes(zval), bytes)
+
+dec $is_number(zval) : bool
+def $is_number(zval) = (n = 16) \/ (n = 32)
+  -- if n = $scalar_type_bit(zval)
+
+dec $number_or_string_order(zval, zval) : int
+def $number_or_string_order(STRING bytes_l, STRING bytes_r) =
+  $text_order(bytes_l, bytes_r, $string_pair_order($numeric_string(bytes_l), $numeric_string(bytes_r)))
+def $number_or_string_order(zval_l, STRING bytes_r) = $number_string_order(zval_l, bytes_r, $complete_number($numeric_string(bytes_r)))
+  -- if $is_number(zval_l)
+def $number_or_string_order(STRING bytes_l, zval_r) = $(-$number_string_order(zval_r, bytes_l, $complete_number($numeric_string(bytes_l))))
+  -- if $is_number(zval_r)
+def $number_or_string_order(zval_l, zval_r) = $number_order(zval_l, zval_r)
+  -- if $is_number(zval_l) /\ $is_number(zval_r)
+
+;; When compared with null, only the empty string is equal. A boolean operand
+;; instead uses ordinary truth, with NaN treated as true without a warning.
+dec $comparison_truth(zval, zval) : bool
+def $comparison_truth(STRING bytes, NULL) = bytes =/= eps
+def $comparison_truth(zval, zval_other) = $truth(zval)
+  -- if $scalar_type_bit(zval) =/= 64 \/ zval_other =/= NULL
+
+dec $bool_order(bool, bool) : int
+def $bool_order(false, true) = -1
+def $bool_order(true, false) = 1
+def $bool_order(b, b) = 0
+
+dec $scalar_order(zval, zval) : int
+def $scalar_order(zval_l, zval_r) = $bool_order($comparison_truth(zval_l, zval_r), $comparison_truth(zval_r, zval_l))
+  -- if $($scalar_type_bit(zval_l) < 16) \/ $($scalar_type_bit(zval_r) < 16)
+;; PHP reports unordered comparisons as 1 in either direction.
+def $scalar_order(zval_l, zval_r) = 1
+  -- if $($scalar_type_bit(zval_l) >= 16) /\ $($scalar_type_bit(zval_r) >= 16)
+  -- if $is_nan(zval_l) \/ $is_nan(zval_r)
+def $scalar_order(zval_l, zval_r) = $number_or_string_order(zval_l, zval_r)
+  -- if $($scalar_type_bit(zval_l) >= 16) /\ $($scalar_type_bit(zval_r) >= 16)
+  -- if ~($is_nan(zval_l) \/ $is_nan(zval_r))
+
+dec $identical_scalar(zval, zval) : bool
+def $identical_scalar(FLOAT n_l, FLOAT n_r) = ~$is_nan(FLOAT n_l) /\ ($float_order_key(n_l) = $float_order_key(n_r))
+def $identical_scalar(zval_l, zval_r) = zval_l = zval_r
+  -- otherwise
+
+dec $order_result(opcode, int) : zval
+def $order_result(SPACESHIP, i) = INT i
+def $order_result(IS_EQUAL, i) = $zend_bool(i = 0)
+def $order_result(IS_NOT_EQUAL, i) = $zend_bool(i =/= 0)
+def $order_result(IS_SMALLER, i) = $zend_bool($(i < 0))
+def $order_result(IS_SMALLER_OR_EQUAL, i) = $zend_bool($(i <= 0))
+
+dec $scalar_compare_value(opcode, zval, zval) : zval
+def $scalar_compare_value(opcode, zval_l, zval_r) = $zend_bool($identical_scalar(zval_l, zval_r) = (opcode = IS_IDENTICAL))
+  -- if opcode = IS_IDENTICAL \/ opcode = IS_NOT_IDENTICAL
+def $scalar_compare_value(opcode, zval_l, zval_r) = $order_result(opcode, $scalar_order(zval_l, zval_r))
+  -- if opcode =/= IS_IDENTICAL /\ opcode =/= IS_NOT_IDENTICAL
+
+dec $numeric_compare(opcode, slotValue, slotValue) : numericResult
+def $numeric_compare(opcode, zval_l, zval_r) = NUM_VALUE $scalar_compare_value(opcode, zval_l, zval_r)
+  -- if $simple_value(zval_l) /\ $simple_value(zval_r)
+def $numeric_compare(_, _, _) = NUM_UNSUPPORTED
+  -- otherwise

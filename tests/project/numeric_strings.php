@@ -1,0 +1,24 @@
+<?php
+$decimal = " \t\n\r\v\f-0012 ";
+$exp = "+12.5e-1";
+$dot = ".125E+2";
+$whole = "3.";
+$emptyExponent = "17e+!";
+$binaryTail = "-2.5\0ignored";
+$bad = "word";
+$hex = "0x10";
+$underscores = "3_000";
+echo $decimal + $argc, ":", $exp + $argc, ":", $dot + $argc, ":", $whole + $argc, "\n";
+echo $emptyExponent + $argc, ":", $binaryTail + $argc, ":", $hex + $argc, ":", $underscores + $argc, "\n";
+echo (int) $decimal, ":", (float) $exp, ":", (int) $emptyExponent, ":", (float) $binaryTail, "\n";
+echo (int) $bad, ":", (float) $bad, ":", (int) $hex, ":", (float) $underscores, "\n";
+$negZero = " -000";
+echo (float) $negZero, ":", $negZero + 0, ":", $negZero + 0.0, "\n";
+$a = "5x";
+$b = "6?";
+echo $a + $b, ":", $a - $b, "\n";
+echo $missing + $b, "\n";
+$null = null;
+$f = false;
+$t = true;
+echo $null + $argc, ":", $f - $argc, ":", $t * $argc, "\n";

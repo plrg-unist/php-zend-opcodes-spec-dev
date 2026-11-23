@@ -1,0 +1,23 @@
+<?php
+$within = "9223372036854775807";
+$over = "9223372036854775808";
+$under = "-9223372036854775809";
+$farUnder = "-18446744073709551616";
+$large = 9223372036854775808.0;
+$wide = 18446744073709555712.0;
+$infinity = INF;
+$nan = NAN;
+$frac = -12.75;
+echo (int) $within, ":", (int) $over, ":", (int) $under, "\n";
+echo (int) $farUnder, ":", ($nan % $argc), "\n";
+echo (int) $large, ":", (int) $wide, ":", (int) $infinity, ":", (int) $nan, ":", (int) $frac, "\n";
+echo (float) $within, ":", (float) $over, ":", (float) $under, "\n";
+$nil = null;
+$yes = true;
+$no = false;
+echo (int) $nil, ":", (int) $yes, ":", (int) $no, ":", (float) $nil, ":", (float) $yes, ":", (float) $no, "\n";
+$one = $argc;
+echo gettype((float) $one), ":", (float) $one, ":", gettype((int) $frac), "\n";
+$tail = " \t+.375e2tail";
+$fracString = "10000000.0009";
+echo (int) $tail, ":", (float) $tail, ":", (int) $fracString, ":", (float) $fracString, "\n";

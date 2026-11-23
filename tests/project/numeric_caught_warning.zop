@@ -1,0 +1,29 @@
+zend-opcodes
+file "caught.php"
+main
+body - {
+  lines 1 10
+  frame 3 cache 8
+  locals 3 ["left", "right", "e"]
+  size 9 literals 7 children 0
+  lit[0] = "5x"
+  lit[1] = "bad"
+  lit[2] = "T"
+  lit[3] = "TypeError"
+  lit[4] = "typeerror"
+  lit[5] = "caught"
+  lit[6] = int(1)
+  tries 1
+  try @3 catch @6 finally @0 end @0
+  code
+    0: ASSIGN CV0, lit[0] | line=2
+    1: ASSIGN CV1, lit[1] | line=3
+    2: ECHO lit[2] | line=4
+    3: T5 = DIV CV0, CV1 | line=6
+    4: ECHO T5 | line=6
+    5: JMP @8 | line=6
+    6: CV2 = CATCH lit[3] | line=7 ext=1
+    7: ECHO lit[5] | line=8
+    8: RETURN lit[6] | line=10 ext=4294967295
+}
+end

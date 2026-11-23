@@ -1,0 +1,22 @@
+<?php
+$a = $argc;
+echo $a++, ":", $a, ":", ++$a, ":", $a--, ":", $a, ":", --$a, "\n";
+$a = $a++;
+echo $a, ":", gettype($a), "\n";
+$a = PHP_INT_MAX;
+$old = $a++;
+echo gettype($old), ":", $old, ":", gettype($a), ":", $a, "\n";
+$a = PHP_INT_MIN;
+$old = $a--;
+echo gettype($old), ":", $old, ":", gettype($a), ":", $a, "\n";
+$a = -2.5;
+echo ++$a, ":", $a--, ":", gettype($a), ":", $a, "\n";
+$a = null;
+$old = $a++;
+echo gettype($old), ":", gettype($a), ":", $a, "\n";
+$old = $missing--;
+echo gettype($old), ":", gettype($missing), "\n";
+$a = true;
+echo ++$a, ":", $a--, ":", gettype($a), ":", $a, "\n";
+$a = false;
+echo --$a, ":", $a++, ":", gettype($a), ":", $a, "\n";

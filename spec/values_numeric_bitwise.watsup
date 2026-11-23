@@ -1,0 +1,70 @@
+builtin dec $band(int, int) : int
+builtin dec $bor(int, int) : int
+builtin dec $bxor(int, int) : int
+builtin dec $bneg(int) : int
+builtin dec $shl(int, int) : int
+builtin dec $shr(int, int) : int
+
+dec $combine_bits(opcode, int, int) : int
+def $combine_bits(BW_AND, i_l, i_r) = $band(i_l, i_r)
+def $combine_bits(BW_OR, i_l, i_r) = $bor(i_l, i_r)
+def $combine_bits(BW_XOR, i_l, i_r) = $bxor(i_l, i_r)
+
+;; AND and XOR end at the shorter string, whereas OR retains the longer tail.
+dec $bit_tail(opcode, bytes) : bytes
+def $bit_tail(BW_OR, bytes) = bytes
+def $bit_tail(opcode, _) = eps
+  -- if opcode = BW_AND \/ opcode = BW_XOR
+
+dec $bit_strings(opcode, bytes, bytes) : bytes
+def $bit_strings(opcode, bytes_l, bytes_r) = $bit_strings(opcode, bytes_r, bytes_l)
+  -- if $(|bytes_l| > |bytes_r|)
+def $bit_strings(opcode, n_l*, bytes_r) = n_out* ++ $bit_tail(opcode, bytes_tail)
+  -- if $(|n_l*| <= |bytes_r|)
+  -- if n_r* = bytes_r[0 : |n_l*|]
+  -- if (n_out = $combine_bits(opcode, n_l, n_r))*
+  -- if n_tail = $(|bytes_r| - |n_l*|)
+  -- if bytes_tail = bytes_r[|n_l*| : n_tail]
+
+def $bitwise_integers(opcode, i_l, i_r) = NUM_VALUE (INT $combine_bits(opcode, i_l, i_r))
+  -- if opcode <- [ BW_AND, BW_OR, BW_XOR ]
+;; ArithmeticError: Bit shift by negative number
+def $bitwise_integers(opcode, _, i_r) = NUM_ERROR
+    ([ 65, 114, 105, 116, 104, 109, 101, 116, 105, 99, 69, 114, 114, 111, 114, 58, 32,
+      66, 105, 116, 32, 115, 104, 105, 102, 116, 32, 98, 121, 32, 110, 101, 103, 97,
+      116, 105, 118, 101, 32, 110, 117, 109, 98, 101, 114 ])
+  -- if opcode = SL \/ opcode = SR
+  -- if $(i_r < 0)
+def $bitwise_integers(opcode, i_l, i_r) = NUM_VALUE (INT 0)
+  -- if $(i_r >= 64)
+  -- if opcode = SL \/ (opcode = SR /\ $(i_l >= 0))
+def $bitwise_integers(SR, i_l, i_r) = NUM_VALUE (INT (-1))
+  -- if $(i_r >= 64) /\ $(i_l < 0)
+def $bitwise_integers(SL, i_l, i_r) = NUM_VALUE (INT $signed64($shl(i_l, i_r)))
+  -- if $(i_r >= 0) /\ $(i_r < 64)
+def $bitwise_integers(SR, i_l, i_r) = NUM_VALUE (INT $shr(i_l, i_r))
+  -- if $(i_l >= 0) /\ $(i_r >= 0) /\ $(i_r < 64)
+;; Shifting a negative operand copies the sign bits even when its magnitude is odd.
+def $bitwise_integers(SR, i_l, i_r) = NUM_VALUE (INT $bneg($shr($bneg(i_l), i_r)))
+  -- if $(i_l < 0) /\ $(i_r >= 0) /\ $(i_r < 64)
+
+dec $bitwise(opcode, slotValue, slotValue) : numericResult
+def $bitwise(BW_NOT, STRING n*, _) = NUM_VALUE (STRING n_out*)
+  -- if (n_out = $(255 - n))*
+;; XOR with all ones complements the integer after its ordinary operand conversion.
+def $bitwise(BW_NOT, slotValue, _) = $numeric_binary(BW_XOR, slotValue, INT (-1))
+  -- if $scalar_type_bit(slotValue) <- [ 16, 32 ]
+;; TypeError: Cannot perform bitwise not on <value name>
+def $bitwise(BW_NOT, slotValue, _) = NUM_ERROR
+    ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32,
+       112, 101, 114, 102, 111, 114, 109, 32, 98, 105, 116, 119, 105, 115, 101, 32,
+       110, 111, 116, 32, 111, 110, 32 ] ++ $value_name(slotValue))
+  -- if slotValue <- [ NULL, FALSE, TRUE ]
+def $bitwise(BW_NOT, slotValue, _) = NUM_UNSUPPORTED
+  -- if ~$simple_value(slotValue)
+def $bitwise(opcode, STRING bytes_l, STRING bytes_r) =
+    NUM_VALUE (STRING $bit_strings(opcode, bytes_l, bytes_r))
+  -- if opcode <- [ BW_AND, BW_OR, BW_XOR ]
+def $bitwise(opcode, slotValue_l, slotValue_r) = $numeric_binary(opcode, slotValue_l, slotValue_r)
+  -- if opcode = SL \/ opcode = SR \/ (opcode <- [ BW_AND, BW_OR, BW_XOR ] /\
+      ($scalar_type_bit(slotValue_l) =/= 64 \/ $scalar_type_bit(slotValue_r) =/= 64))

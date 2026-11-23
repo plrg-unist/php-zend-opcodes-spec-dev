@@ -67,15 +67,20 @@ def $read_value(frame, _, slotValue) = (frame, slotValue)
 dec $read_operand(frame, operand) : (frame, slotValue)
 def $read_operand(frame, operand) = $read_value(frame, operand, $read(frame, operand))
 
-;; Warning: unexpected NAN value was coerced to bool
-dec $truth_frame(frame, slotValue) : frame
-def $truth_frame(frame, slotValue) = $report(frame, WARNING,
+;; Warning: unexpected NAN value was coerced to <type>
+dec $nan_frame(frame, slotValue, bytes) : frame
+def $nan_frame(frame, slotValue, bytes_type) = $report(frame, WARNING,
       [ 117, 110, 101, 120, 112, 101, 99, 116, 101, 100, 32, 78, 65, 78, 32, 118, 97, 108,
-        117, 101, 32, 119, 97, 115, 32, 99, 111, 101, 114, 99, 101, 100, 32, 116, 111, 32,
-        98, 111, 111, 108 ])
+        117, 101, 32, 119, 97, 115, 32, 99, 111, 101, 114, 99, 101, 100, 32, 116, 111, 32 ] ++ bytes_type)
   -- if $is_nan(slotValue)
-def $truth_frame(frame, _) = frame
+def $nan_frame(frame, _, _) = frame
   -- otherwise
+
+dec $truth_frame(frame, slotValue) : frame
+def $truth_frame(frame, slotValue) = $nan_frame(frame, slotValue, [ 98, 111, 111, 108 ])
+
+dec $string_frame(frame, slotValue) : frame
+def $string_frame(frame, slotValue) = $nan_frame(frame, slotValue, [ 115, 116, 114, 105, 110, 103 ])
 
 ;; PC already points to the fallthrough instruction.
 dec $branch(frame, opcode, bool, nat) : frame
@@ -93,53 +98,78 @@ dec $protected(tryregion, nat) : bool
 def $protected(TRY n_start n_catch _ n_end, n_pc) =
   $(n_start <= n_pc) /\ ($(n_pc < n_catch) \/ $(n_pc <= n_end))
 
-dec $length_result(frame, operand, lengthResult) : transition
-def $length_result(frame, operand, LENGTH n) = CONTINUE $write(frame, operand, INT n)
+;; An uncaught exception in main contributes one stack frame. An active handler
+;; or finally region requires PHP exception unwinding.
+dec $raise(frame, bytes) : transition
+def $raise(frame, bytes_exception) = FINISH (PHP frame'.STDOUT eps 255)
+  -- if tryregion* = frame.TRIES
+  -- if n_pc = $(frame.PC - 1)
+  -- if ~(true <- ($protected(tryregion, n_pc))*)
+  -- if bytes_msg = [ 85, 110, 99, 97, 117, 103, 104, 116, 32 ] ++ bytes_exception
+      ++ [ 32, 105, 110, 32 ] ++ frame.FILE ++ [58] ++ $digits(frame.LINE)
+      ++ [ 10, 83, 116, 97, 99, 107, 32, 116, 114, 97, 99, 101, 58, 10, 35, 48, 32, 123,
+           109, 97, 105, 110, 125, 10, 32, 32, 116, 104, 114, 111, 119, 110 ]
+  -- if frame' = $report(frame, FATAL, bytes_msg)
+def $raise(frame, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+dec $length_result(frame, operand, slotValue, lengthResult) : transition
+def $length_result(frame, operand, slotValue, LENGTH n) = CONTINUE $write($string_frame(frame, slotValue), operand, INT n)
 ;; strlen(): Passing null to parameter #1 ($string) of type string is deprecated
-def $length_result(frame, operand, NULL_LENGTH) = CONTINUE $write(frame', operand, INT 0)
+def $length_result(frame, operand, _, NULL_LENGTH) = CONTINUE $write(frame', operand, INT 0)
   -- if frame' = $report(frame, DEPRECATED,
       [ 115, 116, 114, 108, 101, 110, 40, 41, 58, 32, 80, 97, 115, 115, 105, 110, 103, 32,
         110, 117, 108, 108, 32, 116, 111, 32, 112, 97, 114, 97, 109, 101, 116, 101, 114, 32,
         35, 49, 32, 40, 36, 115, 116, 114, 105, 110, 103, 41, 32, 111, 102, 32, 116, 121,
         112, 101, 32, 115, 116, 114, 105, 110, 103, 32, 105, 115, 32, 100, 101, 112, 114, 101,
         99, 97, 116, 101, 100 ])
-;; Uncaught TypeError: strlen(): Argument #1 ($string) must be of type string, <type> given
-;; The main frame contributes one #0 {main} stack trace entry.
-def $length_result(frame, _, LENGTH_ERROR bytes_type) = FINISH (PHP frame'.STDOUT eps 255)
-  -- if tryregion* = frame.TRIES
-  -- if n_pc = $(frame.PC - 1)
-  -- if ~(true <- ($protected(tryregion, n_pc))*)
+;; TypeError: strlen(): Argument #1 ($string) must be of type string, <type> given
+def $length_result(frame, _, _, LENGTH_ERROR bytes_type) = $raise(frame, bytes_msg)
   -- if bytes_msg =
-      [ 85, 110, 99, 97, 117, 103, 104, 116, 32, 84, 121, 112, 101, 69, 114, 114, 111, 114,
-        58, 32, 115, 116, 114, 108, 101, 110, 40, 41, 58, 32, 65, 114, 103, 117, 109, 101,
+      [ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 115, 116, 114, 108, 101, 110,
+        40, 41, 58, 32, 65, 114, 103, 117, 109, 101,
         110, 116, 32, 35, 49, 32, 40, 36, 115, 116, 114, 105, 110, 103, 41, 32, 109, 117,
         115, 116, 32, 98, 101, 32, 111, 102, 32, 116, 121, 112, 101, 32, 115, 116, 114, 105,
         110, 103, 44, 32 ]
-      ++ bytes_type ++ [ 32, 103, 105, 118, 101, 110, 32, 105, 110, 32 ] ++ frame.FILE ++ [58] ++ $digits(frame.LINE)
-      ++ [ 10, 83, 116, 97, 99, 107, 32, 116, 114, 97, 99, 101, 58, 10, 35, 48, 32, 123,
-           109, 97, 105, 110, 125, 10, 32, 32, 116, 104, 114, 111, 119, 110 ]
-  -- if frame' = $report(frame, FATAL, bytes_msg)
-def $length_result(frame, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
-  -- otherwise
+      ++ bytes_type ++ [ 32, 103, 105, 118, 101, 110 ]
+def $length_result(frame, _, _, LENGTH_UNSUPPORTED) = FINISH (UNSUPPORTED frame.STDOUT eps)
 
 dec $store_result(frame, operand, operand, slotValue) : transition
 def $store_result(frame, operand_r, operand_dst, slotValue) =
   CONTINUE $write($write(frame, operand_dst, slotValue), operand_r, slotValue)
 
+dec $apply_numeric(frame, operand, operand, smartbranch?, numericResult) : transition
+def $apply_numeric(frame, operand_r, operand_dst, eps, NUM_VALUE zval) = $store_result(frame, operand_r, operand_dst, zval)
+def $apply_numeric(frame, operand_r, _, smartbranch, NUM_VALUE zval) =
+  CONTINUE $comparison(frame, operand_r, smartbranch, zval = TRUE)
+def $apply_numeric(frame, _, _, _, NUM_ERROR bytes) = $raise(frame, bytes)
+def $apply_numeric(frame, operand_r, operand_dst, smartbranch?, NUM_WARNING bytes numericResult) =
+  $apply_numeric($report(frame, WARNING, bytes), operand_r, operand_dst, smartbranch?, numericResult)
+def $apply_numeric(frame, operand_r, operand_dst, smartbranch?, NUM_DEPRECATED bytes numericResult) =
+  $apply_numeric($report(frame, DEPRECATED, bytes), operand_r, operand_dst, smartbranch?, numericResult)
+def $apply_numeric(frame, _, _, _, NUM_UNSUPPORTED) = FINISH (UNSUPPORTED frame.STDOUT eps)
+
 dec $unary(frame, opcode, operand, operand, operand, slotValue) : transition
 def $unary(frame, ASSIGN, operand_r, operand_dst, _, slotValue) = $store_result(frame, operand_r, operand_dst, slotValue)
   -- if $simple_value(slotValue)
-def $unary(frame, PRE_INC, operand_r, operand_dst, _, INT i) = $store_result(frame, operand_r, operand_dst, INT $(i + 1))
-  -- if $(i < 9223372036854775807)
-def $unary(frame, PRE_INC, operand_r, operand_dst, _, NULL) = $store_result(frame, operand_r, operand_dst, INT 1)
+def $unary(frame, opcode, operand_r, operand_dst, _, slotValue) =
+  $apply_numeric(frame, operand_r, operand_dst, eps, $numeric_incdec(opcode, slotValue))
+  -- if opcode = PRE_INC \/ opcode = PRE_DEC
+;; Zend copies the old value before updating the lvalue, even when both share a slot.
+def $unary(frame, opcode, operand_r, operand_dst, _, slotValue) =
+  $apply_numeric($write(frame, operand_r, slotValue), UNUSED, operand_dst, eps, $numeric_incdec(opcode, slotValue))
+  -- if opcode = POST_INC \/ opcode = POST_DEC
+def $unary(frame, BW_NOT, operand_r, _, _, slotValue) =
+  $apply_numeric(frame, operand_r, UNUSED, eps, $bitwise(BW_NOT, slotValue, NULL))
 def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
   -- if opcode = QM_ASSIGN \/ opcode = COPY_TMP
   -- if $simple_value(slotValue)
 def $unary(frame, FREE, _, _, _, slotValue) = CONTINUE frame
   -- if $simple_value(slotValue)
 def $unary(frame, CHECK_VAR, _, _, _, _) = CONTINUE frame
-def $unary(frame, ECHO, _, _, _, slotValue) = CONTINUE frame[.STDOUT = frame.STDOUT ++ $scalar_bytes(slotValue)]
-  -- if $has_scalar_bytes(slotValue)
+def $unary(frame, ECHO, _, _, _, slotValue) = CONTINUE frame'[.STDOUT = frame'.STDOUT ++ $scalar_bytes(slotValue)]
+  -- if $simple_value(slotValue)
+  -- if frame' = $string_frame(frame, slotValue)
 def $unary(frame, RETURN, _, _, _, slotValue) = FINISH (PHP frame.STDOUT eps 0)
   -- if $simple_value(slotValue)
 def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write($truth_frame(frame, slotValue), operand_r, $zend_bool(b))
@@ -151,7 +181,7 @@ def $unary(frame, opcode, _, _, TARGET n, slotValue) = CONTINUE $branch($truth_f
   -- if $simple_value(slotValue)
 def $unary(frame, GET_TYPE, operand_r, _, _, slotValue) = CONTINUE $write(frame, operand_r, STRING $gettype(slotValue))
   -- if $simple_value(slotValue)
-def $unary(frame, STRLEN, operand_r, _, _, slotValue) = $length_result(frame, operand_r, $strlen(slotValue, frame.STRICT))
+def $unary(frame, STRLEN, operand_r, _, _, slotValue) = $length_result(frame, operand_r, slotValue, $strlen(slotValue, frame.STRICT))
 def $unary(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
@@ -162,14 +192,69 @@ def $xor_right(frame, operand_r, b_l, slotValue) = CONTINUE $write($truth_frame(
 def $xor_right(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
-;; BOOL_XOR reads both operands before converting either to a boolean.
-dec $binary(frame, opcode, operand, slotValue, slotValue, smartbranch?) : transition
-def $binary(frame, BOOL_XOR, operand_r, slotValue_l, slotValue_r, _) =
+dec $xor(frame, operand, slotValue, slotValue) : transition
+def $xor(frame, operand_r, slotValue_l, slotValue_r) =
   $xor_right($truth_frame(frame, slotValue_l), operand_r, $truth(slotValue_l), slotValue_r)
   -- if $simple_value(slotValue_l)
-def $binary(frame, IS_SMALLER, operand_r, INT i_l, INT i_r, smartbranch?) =
-  CONTINUE $comparison(frame, operand_r, smartbranch?, $(i_l < i_r))
-def $binary(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+def $xor(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+;; Zend normalizes these commutative instruction operands when loading a listing.
+;; Their order is observable through conversion diagnostics and type-error messages.
+dec $operand_rank(operand) : nat
+def $operand_rank(LIT _) = 1
+def $operand_rank(TMP _) = 2
+def $operand_rank(VAR _) = 4
+def $operand_rank(CV _) = 8
+
+dec $operand_order(opcode, operand, operand) : (operand, operand)
+def $operand_order(opcode, operand_l, operand_h) = (operand_h, operand_l)
+  -- if opcode <- [MUL, BW_OR, BW_AND, BW_XOR, BOOL_XOR, IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL]
+  -- if $($operand_rank(operand_l) < $operand_rank(operand_h))
+def $operand_order(_, operand_l, operand_h) = (operand_l, operand_h)
+  -- otherwise
+
+dec $binary_inputs(frame, opcode, operand, operand) : (frame, slotValue, slotValue)
+def $binary_inputs(frame, opcode, operand_a, operand_b) = (frame'', slotValue_l, slotValue_h)
+  -- if (operand_l, operand_h) = $operand_order(opcode, operand_a, operand_b)
+  -- if (frame', slotValue_l) = $read_operand(frame, operand_l)
+  -- if (frame'', slotValue_h) = $read_operand(frame', operand_h)
+
+syntax binaryKind = ARITHMETIC | BITWISE | COMPARISON
+dec $binary_kind(opcode) : binaryKind?
+def $binary_kind(opcode) = ARITHMETIC
+  -- if opcode <- [ADD, SUB, MUL, DIV, MOD, POW]
+def $binary_kind(opcode) = BITWISE
+  -- if opcode <- [SL, SR, BW_OR, BW_AND, BW_XOR]
+def $binary_kind(opcode) = COMPARISON
+  -- if opcode <- [IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL, IS_SMALLER, IS_SMALLER_OR_EQUAL, SPACESHIP]
+def $binary_kind(_) = eps
+  -- otherwise
+
+dec $operate(binaryKind, opcode, slotValue, slotValue) : numericResult
+def $operate(ARITHMETIC, opcode, slotValue_l, slotValue_h) = $numeric_binary(opcode, slotValue_l, slotValue_h)
+def $operate(BITWISE, opcode, slotValue_l, slotValue_h) = $bitwise(opcode, slotValue_l, slotValue_h)
+def $operate(COMPARISON, opcode, slotValue_l, slotValue_h) = $numeric_compare(opcode, slotValue_l, slotValue_h)
+
+dec $concat_result(frame, operand, operand, slotValue, slotValue) : transition
+
+dec $compound(frame, operand, operand, nat, slotValue, slotValue) : transition
+def $compound(frame, operand_r, operand_dst, 8, slotValue_l, slotValue_h) =
+  $concat_result(frame, operand_r, operand_dst, slotValue_l, slotValue_h)
+def $compound(frame, operand_r, operand_dst, n, slotValue_l, slotValue_h) =
+  $apply_numeric(frame, operand_r, operand_dst, eps, $operate(binaryKind, opcode, slotValue_l, slotValue_h))
+  -- if n =/= 8
+  -- if opcode_ops* = [NOP, ADD, SUB, MUL, DIV, MOD, SL, SR, CONCAT, BW_OR, BW_AND, BW_XOR, POW]
+  -- if opcode = opcode_ops*[n]
+  -- if binaryKind = $binary_kind(opcode)
+
+dec $cast(frame, operand, nat, slotValue) : transition
+def $cast(frame, operand_r, n, slotValue) = $apply_numeric(frame, operand_r, UNUSED, eps, $numeric_cast(n, slotValue))
+  -- if n = 4 \/ n = 5
+def $cast(frame, operand_r, 6, slotValue) =
+  CONTINUE $write($string_frame(frame, slotValue), operand_r, STRING $scalar_bytes(slotValue))
+  -- if $simple_value(slotValue)
+def $cast(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
 ;; TYPE_CHECK tests the raw tag first. Mask bit zero matches an undefined CV
@@ -189,13 +274,23 @@ def $step(frame, JMP, _, TARGET n, _, _, _) = CONTINUE frame[.PC = n]
 def $step(frame, ASSIGN, operand_r, operand_dst, operand_src, _, _) =
   $unary(frame', ASSIGN, operand_r, operand_dst, UNUSED, slotValue)
   -- if (frame', slotValue) = $read_operand(frame, operand_src)
+;; Compound assignment fetches its right operand before the read/write destination.
+def $step(frame, ASSIGN_OP, operand_r, operand_dst, operand_src, extension?, _) =
+  $compound(frame'', operand_r, operand_dst, $ext_value(extension?), slotValue_l, slotValue_h)
+  -- if (frame', slotValue_h) = $read_operand(frame, operand_src)
+  -- if (frame'', slotValue_l) = $read_operand(frame', operand_dst)
 def $step(frame, opcode, operand_r, operand_a, operand_b, _, _) = $unary(frame', opcode, operand_r, operand_a, operand_b, slotValue)
-  -- if opcode <- [PRE_INC, QM_ASSIGN, COPY_TMP, FREE, CHECK_VAR, ECHO, RETURN, BOOL, BOOL_NOT, JMPZ, JMPNZ, GET_TYPE, STRLEN]
+  -- if opcode <- [PRE_INC, PRE_DEC, POST_INC, POST_DEC, BW_NOT, QM_ASSIGN, COPY_TMP, FREE, CHECK_VAR,
+                   ECHO, RETURN, BOOL, BOOL_NOT, JMPZ, JMPNZ, GET_TYPE, STRLEN]
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
-def $step(frame, opcode, operand_r, operand_a, operand_b, _, smartbranch?) = $binary(frame'', opcode, operand_r, slotValue_l, slotValue_r, smartbranch?)
-  -- if opcode = BOOL_XOR \/ opcode = IS_SMALLER
-  -- if (frame', slotValue_l) = $read_operand(frame, operand_a)
-  -- if (frame'', slotValue_r) = $read_operand(frame', operand_b)
+def $step(frame, CAST, operand_r, operand_a, _, extension?, _) = $cast(frame', operand_r, $ext_value(extension?), slotValue)
+  -- if (frame', slotValue) = $read_operand(frame, operand_a)
+def $step(frame, BOOL_XOR, operand_r, operand_a, operand_b, _, _) = $xor(frame', operand_r, slotValue_l, slotValue_h)
+  -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, BOOL_XOR, operand_a, operand_b)
+def $step(frame, opcode, operand_r, operand_a, operand_b, _, smartbranch?) =
+  $apply_numeric(frame', operand_r, UNUSED, smartbranch?, $operate(binaryKind, opcode, slotValue_l, slotValue_h))
+  -- if binaryKind = $binary_kind(opcode)
+  -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, opcode, operand_a, operand_b)
 def $step(frame, TYPE_CHECK, operand_r, operand_a, _, extension?, smartbranch?) =
   CONTINUE $comparison(frame', operand_r, smartbranch?, $type_check(slotValue', n_mask))
   -- if slotValue = $read(frame, operand_a)
@@ -203,7 +298,7 @@ def $step(frame, TYPE_CHECK, operand_r, operand_a, _, extension?, smartbranch?) 
   -- if n_mask = $ext_value(extension?)
   -- if (frame', slotValue') = $type_operand(frame, operand_a, slotValue, n_mask)
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) = transition
-  -- if opcode <- [CAST, CONCAT, FAST_CONCAT, ASSIGN_OP, ROPE_INIT, ROPE_ADD, ROPE_END]
+  -- if opcode <- [CONCAT, FAST_CONCAT, ROPE_INIT, ROPE_ADD, ROPE_END]
   -- StringStep: frame; opcode; operand_r; operand_a; operand_b; extension? ~> transition
 def $step(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise

@@ -1,0 +1,26 @@
+<?php
+$plain = "10";
+$decimal = "1e1";
+$leading = "0010";
+$tail = "10 ";
+$binary = "10\0";
+$high = "\xff";
+echo ($plain == $decimal), ":", ($decimal <=> $leading), ":", ($leading === $plain), ":", ($tail == $plain), "\n";
+echo ($binary == $plain), ":", ($binary <=> $plain), ":", ($high <=> $binary), ":", ("10\0\x00" <=> $binary), "\n";
+$max = "9223372036854775807";
+$big = "9223372036854775808";
+$alsoBig = "9223372036854775809";
+$small = "-9223372036854775809";
+$alsoSmall = "-9223372036854775810";
+echo ($max <=> $big), ":", ($big <=> $max), ":", ($big == $alsoBig), ":", ($big <=> $alsoBig), "\n";
+echo ($small <=> $max), ":", ($max <=> $small), ":", ($small == $alsoSmall), ":", ($small <=> $alsoSmall), "\n";
+$inf = "1e400";
+$larger = "1e500";
+echo ($inf == $larger), ":", ($inf <=> $larger), ":", ("-1e400" <=> $larger), "\n";
+$scaled = "10000000000000000000e-20";
+echo ($scaled <=> 2), ":", ($scaled <=> "2"), ":", ($scaled <=> "2.0"), "\n";
+$tiny = "0e400";
+echo ($tiny == "0e4"), ":", ($tiny === "0e4"), "\n";
+$n = 9007199254740993;
+$d = 9007199254740992.0;
+echo ($n == $d), ":", ($n <=> $d), ":", ($n == "9007199254740992"), ":", ($d == "9007199254740993"), "\n";

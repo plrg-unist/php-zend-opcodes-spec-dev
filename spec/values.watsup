@@ -5,6 +5,11 @@ var b : bool
 ;; CLI-initialized array slots retain their presence without reading their contents.
 syntax slotValue = zval | CLI_ARRAY
 
+;; Conversions can emit several diagnostics before producing a value or raising an error.
+syntax numericResult =
+  | NUM_VALUE zval | NUM_ERROR bytes | NUM_WARNING bytes numericResult
+  | NUM_DEPRECATED bytes numericResult | NUM_UNSUPPORTED
+
 ;; Single-bit masks in the TYPE_CHECK instruction's extended value.
 dec $scalar_type_bit(slotValue) : nat
 def $scalar_type_bit(NULL) = 2
@@ -32,6 +37,15 @@ def $gettype(slotValue) = [ 98, 111, 111, 108, 101, 97, 110 ]           ;; boole
 def $gettype(INT _) = [ 105, 110, 116, 101, 103, 101, 114 ]        ;; integer
 def $gettype(FLOAT _) = [ 100, 111, 117, 98, 108, 101 ]            ;; double
 def $gettype(STRING _) = [ 115, 116, 114, 105, 110, 103 ]          ;; string
+
+;; Scalar names used by PHP exceptions; boolean literals have distinct names.
+dec $value_name(slotValue) : bytes
+def $value_name(NULL) = [ 110, 117, 108, 108 ]
+def $value_name(TRUE) = [ 116, 114, 117, 101 ]
+def $value_name(FALSE) = [ 102, 97, 108, 115, 101 ]
+def $value_name(INT _) = [ 105, 110, 116 ]
+def $value_name(FLOAT _) = [ 102, 108, 111, 97, 116 ]
+def $value_name(STRING _) = [ 115, 116, 114, 105, 110, 103 ]
 
 dec $zend_bool(bool) : zval
 def $zend_bool(true) = TRUE
@@ -72,13 +86,10 @@ def $decimal(i) = 45 :: $digits(n)
 dec $scalar_bytes(slotValue) : bytes
 def $scalar_bytes(STRING bytes) = bytes
 def $scalar_bytes(INT i) = $decimal(i)
+def $scalar_bytes(FLOAT n) = $f64_format(n, 14)
 def $scalar_bytes(TRUE) = [ 49 ]
 def $scalar_bytes(FALSE) = eps
 def $scalar_bytes(NULL) = eps
-
-dec $has_scalar_bytes(slotValue) : bool
-def $has_scalar_bytes(slotValue) = (n_bit =/= 0) /\ (n_bit =/= 32)
-  -- if n_bit = $scalar_type_bit(slotValue)
 
 syntax lengthResult = LENGTH nat | NULL_LENGTH | LENGTH_ERROR bytes | LENGTH_UNSUPPORTED
 
@@ -88,10 +99,8 @@ def $strlen(NULL, false) = NULL_LENGTH
 def $strlen(slotValue, false) = LENGTH $(|bytes|)
   -- if slotValue =/= NULL
   -- if bytes = $scalar_bytes(slotValue)
-def $strlen(NULL, true) = LENGTH_ERROR ([ 110, 117, 108, 108 ])       ;; null
-def $strlen(TRUE, true) = LENGTH_ERROR ([ 116, 114, 117, 101 ])       ;; true
-def $strlen(FALSE, true) = LENGTH_ERROR ([ 102, 97, 108, 115, 101 ])  ;; false
-def $strlen(INT _, true) = LENGTH_ERROR ([ 105, 110, 116 ])           ;; int
-def $strlen(FLOAT _, true) = LENGTH_ERROR ([ 102, 108, 111, 97, 116 ])  ;; float
+def $strlen(slotValue, true) = LENGTH_ERROR $value_name(slotValue)
+  -- if $simple_value(slotValue)
+  -- if $scalar_type_bit(slotValue) =/= 64
 def $strlen(_, _) = LENGTH_UNSUPPORTED
   -- otherwise

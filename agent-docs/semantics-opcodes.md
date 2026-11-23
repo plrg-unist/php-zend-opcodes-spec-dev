@@ -17,12 +17,18 @@ BOOL BOOL_NOT BOOL_XOR TYPE_CHECK GET_TYPE STRLEN CHECK_VAR QM_ASSIGN COPY_TMP F
 CAST CONCAT FAST_CONCAT ASSIGN_OP ROPE_INIT ROPE_ADD ROPE_END
 ```
 
-2B and 2C introduce the following instructions and extend earlier ones to more operands and operators.
+2B covers the scalar forms of these instructions. It also adds numeric casts, numeric and bitwise `ASSIGN_OP` variants, and the remaining scalar `PRE_INC` cases. The comparison rules serve both standalone results and fused conditional jumps.
 
 ```text
 ADD SUB MUL DIV MOD SL SR BW_OR BW_AND BW_XOR POW BW_NOT IS_IDENTICAL IS_NOT_IDENTICAL
-IS_EQUAL IS_NOT_EQUAL IS_SMALLER_OR_EQUAL PRE_DEC POST_INC POST_DEC JMPZ_EX JMPNZ_EX CASE
-JMP_SET COALESCE SPACESHIP SWITCH_LONG SWITCH_STRING MATCH CASE_STRICT JMP_NULL
+IS_EQUAL IS_NOT_EQUAL IS_SMALLER_OR_EQUAL SPACESHIP PRE_DEC POST_INC POST_DEC
+```
+
+2C adds control flow using the existing conversion and comparison rules.
+
+```text
+JMPZ_EX JMPNZ_EX CASE
+JMP_SET COALESCE SWITCH_LONG SWITCH_STRING MATCH CASE_STRICT JMP_NULL
 ```
 
 ## 3. Arrays, variables and references
