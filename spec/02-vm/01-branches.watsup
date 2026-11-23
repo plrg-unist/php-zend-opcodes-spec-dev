@@ -11,9 +11,10 @@ def $truth_branch(frame, opcode, operand_r, operand_a, n, UNDEF) = CONTINUE $bra
   -- if frame' = $truth_result(frame, opcode, operand_r, UNDEF, false)
   -- if (frame'', _) = $read_operand(frame', operand_a)
 def $truth_branch(frame, opcode, operand_r, _, n, slotValue) = CONTINUE $branch(frame', opcode, b, n)
-  -- if slotValue =/= UNDEF
+  -- if slotValue =/= UNDEF /\ $truth_known(slotValue)
   -- if b = $truth(slotValue)
   -- if frame' = $truth_result($truth_frame(frame, slotValue), opcode, operand_r, slotValue, b)
+def $truth_branch(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
 
 dec $nullish(slotValue) : bool
 def $nullish(slotValue) = (slotValue = NULL) \/ (slotValue = UNDEF)

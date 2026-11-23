@@ -1,0 +1,29 @@
+zend-opcodes
+file "server_compare_base_order_unknown.php"
+main
+body - {
+  lines 1 3
+  frame 6 cache 0
+  locals 2 ["l", "_SERVER"]
+  size 12 literals 6 children 0
+  lit[0] = "argc"
+  lit[1] = int(0)
+  lit[2] = "DOCUMENT_ROOT"
+  lit[3] = "x"
+  lit[4] = "B"
+  lit[5] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN_DIM CV0, lit[0] | line=2
+    2: OP_DATA lit[1] | line=2
+    3: ASSIGN_DIM CV0, lit[2] | line=2
+    4: OP_DATA lit[3] | line=2
+    5: T5 = IS_EQUAL CV0, CV1 | line=2
+    6: T6 = CAST T5 | line=2 ext=4
+    7: ECHO T6 | line=2
+    8: ECHO lit[4] | line=2
+    9: T7 = SPACESHIP CV0, CV1 | line=2
+    10: ECHO T7 | line=2
+    11: RETURN lit[5] | line=3 ext=4294967295
+}
+end

@@ -1,0 +1,18 @@
+zend-opcodes
+file "dimension_write_unset_undef_key.php"
+main
+body - {
+  lines 1 2
+  frame 0 cache 0
+  locals 1 ["a"]
+  size 4 literals 3 children 0
+  lit[0] = array("" => int(1))
+  lit[1] = undef
+  lit[2] = "start\x0a"
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: ECHO lit[2] | line=1
+    2: UNSET_DIM CV0, lit[1] | line=2
+    3: RETURN lit[0] | line=2
+}
+end

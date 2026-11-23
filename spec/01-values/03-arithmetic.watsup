@@ -114,9 +114,6 @@ def $operand_type_error(opcode, slotValue_l, slotValue_r) =
                114, 116, 101, 100, 32, 111, 112, 101, 114, 97, 110, 100, 32, 116, 121, 112, 101, 115,
                58, 32 ]
     ++ $operand_type_name(slotValue_l) ++ [32] ++ $operator_symbol(opcode) ++ [32] ++ $operand_type_name(slotValue_r))
-  -- if $simple_value(slotValue_l) /\ $simple_value(slotValue_r)
-def $operand_type_error(_, _, _) = NUM_UNSUPPORTED
-  -- otherwise
 
 dec $arithmetic_operand(opcode, slotValue, numericResult) : numericResult
 def $arithmetic_operand(opcode, slotValue, numericResult_error) = $integer_operand(slotValue, numericResult_error)

@@ -1,0 +1,126 @@
+zend-opcodes
+file "array_operator_host_updates.php"
+main
+body - {
+  lines 1 8
+  frame 2 cache 0
+  locals 6 ["_SERVER", "left", "right", "joined", "expected", "saved"]
+  size 98 literals 17 children 0
+  lit[0] = "argc"
+  lit[1] = "has.dot"
+  lit[2] = "keep.dot"
+  lit[3] = "last.dot"
+  lit[4] = "gone.dot"
+  lit[5] = "REQUEST_TIME"
+  lit[6] = array("argc" => int(-1), "has.dot" => "v", "REQUEST_TIME" => int(-1))
+  lit[7] = array()
+  lit[8] = int(1)
+  lit[9] = int(5)
+  lit[10] = int(7)
+  lit[11] = int(8)
+  lit[12] = int(9)
+  lit[13] = "|"
+  lit[14] = "\x0a"
+  lit[15] = "n.an"
+  lit[16] = float(nan:0x7ff8000000000001)
+  code
+    0: T6 = ADD CV0, lit[6] | line=1
+    1: ASSIGN CV3, T6 | line=1
+    2: T6 = FETCH_DIM_R CV3, lit[0] | line=1
+    3: ECHO T6 | line=1
+    4: T6 = FETCH_DIM_R CV3, lit[1] | line=1
+    5: ECHO T6 | line=1
+    6: T6 = ISSET_ISEMPTY_DIM_OBJ CV3, lit[5] | line=1
+    7: T7 = CAST T6 | line=1 ext=4
+    8: ECHO T7 | line=1
+    9: ECHO lit[13] | line=1
+    10: ASSIGN CV1, CV0 | line=2
+    11: UNSET_DIM CV1, lit[0] | line=2
+    12: ASSIGN_DIM CV1, lit[2] | line=2
+    13: OP_DATA lit[11] | line=2
+    14: ASSIGN CV2, CV0 | line=3
+    15: ASSIGN_DIM CV2, lit[3] | line=3
+    16: OP_DATA lit[10] | line=3
+    17: ASSIGN_DIM CV2, lit[2] | line=3
+    18: OP_DATA lit[12] | line=3
+    19: ASSIGN_DIM CV2, lit[1] | line=3
+    20: OP_DATA lit[9] | line=3
+    21: ASSIGN_DIM CV2, lit[4] | line=3
+    22: OP_DATA lit[8] | line=3
+    23: UNSET_DIM CV2, lit[4] | line=3
+    24: T6 = ADD CV1, CV2 | line=4
+    25: ASSIGN CV3, T6 | line=4
+    26: T6 = FETCH_DIM_R CV3, lit[0] | line=4
+    27: ECHO T6 | line=4
+    28: T6 = FETCH_DIM_R CV3, lit[2] | line=4
+    29: ECHO T6 | line=4
+    30: T6 = FETCH_DIM_R CV3, lit[3] | line=4
+    31: ECHO T6 | line=4
+    32: T6 = FETCH_DIM_R CV3, lit[1] | line=4
+    33: ECHO T6 | line=4
+    34: T6 = ISSET_ISEMPTY_DIM_OBJ CV3, lit[4] | line=4
+    35: T7 = CAST T6 | line=4 ext=4
+    36: ECHO T7 | line=4
+    37: ECHO lit[13] | line=4
+    38: ASSIGN CV4, CV1 | line=5
+    39: ASSIGN_DIM CV4, lit[0] | line=5
+    40: OP_DATA lit[8] | line=5
+    41: ASSIGN_DIM CV4, lit[3] | line=5
+    42: OP_DATA lit[10] | line=5
+    43: ASSIGN_DIM CV4, lit[1] | line=5
+    44: OP_DATA lit[9] | line=5
+    45: T6 = IS_IDENTICAL CV3, CV4 | line=5
+    46: T7 = CAST T6 | line=5 ext=4
+    47: ECHO T7 | line=5
+    48: ASSIGN CV4, CV1 | line=5
+    49: ASSIGN_DIM CV4, lit[0] | line=5
+    50: OP_DATA lit[8] | line=5
+    51: ASSIGN_DIM CV4, lit[1] | line=5
+    52: OP_DATA lit[9] | line=5
+    53: ASSIGN_DIM CV4, lit[3] | line=5
+    54: OP_DATA lit[10] | line=5
+    55: T6 = IS_IDENTICAL CV3, CV4 | line=5
+    56: T7 = CAST T6 | line=5 ext=4
+    57: ECHO T7 | line=5
+    58: ECHO lit[13] | line=5
+    59: T6 = ADD lit[7], CV2 | line=6
+    60: ASSIGN CV4, T6 | line=6
+    61: T6 = FETCH_DIM_R CV4, lit[2] | line=6
+    62: ECHO T6 | line=6
+    63: T6 = FETCH_DIM_R CV4, lit[3] | line=6
+    64: ECHO T6 | line=6
+    65: T6 = ISSET_ISEMPTY_DIM_OBJ CV4, lit[4] | line=6
+    66: T7 = CAST T6 | line=6 ext=4
+    67: ECHO T7 | line=6
+    68: T6 = ADD CV1, lit[7] | line=6
+    69: ASSIGN CV4, T6 | line=6
+    70: T6 = ISSET_ISEMPTY_DIM_OBJ CV4, lit[0] | line=6
+    71: T7 = CAST T6 | line=6 ext=4
+    72: ECHO T7 | line=6
+    73: T6 = FETCH_DIM_R CV4, lit[2] | line=6
+    74: ECHO T6 | line=6
+    75: ECHO lit[13] | line=6
+    76: ASSIGN_DIM CV3, lit[15] | line=7
+    77: OP_DATA lit[16] | line=7
+    78: ASSIGN CV5, CV3 | line=7
+    79: T6 = ASSIGN_OP CV3, CV3 | line=7 ext=1
+    80: T7 = IS_IDENTICAL T6, CV5 | line=7
+    81: ECHO T7 | line=7
+    82: T6 = IS_IDENTICAL CV3, CV5 | line=7
+    83: T7 = CAST T6 | line=7 ext=4
+    84: ECHO T7 | line=7
+    85: T6 = ADD CV3, lit[7] | line=7
+    86: T7 = IS_IDENTICAL T6, CV5 | line=7
+    87: T6 = CAST T7 | line=7 ext=4
+    88: ECHO T6 | line=7
+    89: ECHO lit[13] | line=7
+    90: ASSIGN CV4, CV1 | line=8
+    91: ASSIGN_OP CV4, lit[6] | line=8 ext=1
+    92: T6 = FETCH_DIM_R CV4, lit[0] | line=8
+    93: ECHO T6 | line=8
+    94: T6 = FETCH_DIM_R CV4, lit[1] | line=8
+    95: ECHO T6 | line=8
+    96: ECHO lit[14] | line=8
+    97: RETURN lit[8] | line=8
+}
+end

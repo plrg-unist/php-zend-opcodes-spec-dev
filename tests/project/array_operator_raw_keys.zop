@@ -1,0 +1,29 @@
+zend-opcodes
+file "array_operator_raw_keys.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  locals 1 ["joined"]
+  size 12 literals 6 children 0
+  lit[0] = array(0 => null, "1" => "text"; next=7)
+  lit[1] = array(1 => "integer", "1" => "ignored")
+  lit[2] = array(0 => null, "1" => "text", 1 => "integer")
+  lit[3] = "X"
+  lit[4] = int(7)
+  lit[5] = "\x0a"
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: ASSIGN_OP CV0, lit[1] | line=1 ext=1
+    2: T1 = IS_IDENTICAL CV0, lit[2] | line=1
+    3: ECHO T1 | line=1
+    4: T1 = COUNT CV0 | line=1
+    5: ECHO T1 | line=1
+    6: ASSIGN_DIM CV0 | line=2
+    7: OP_DATA lit[3] | line=2
+    8: T1 = FETCH_DIM_R CV0, lit[4] | line=3
+    9: ECHO T1 | line=3
+    10: ECHO lit[5] | line=3
+    11: RETURN lit[3] | line=3
+}
+end

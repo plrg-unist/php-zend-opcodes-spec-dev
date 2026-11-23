@@ -1,0 +1,20 @@
+zend-opcodes
+file "h"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  locals 3 ["_SERVER", "s", "r"]
+  size 7 literals 2 children 0
+  lit[0] = int(1)
+  lit[1] = "N"
+  code
+    0: ASSIGN CV1, CV0 | line=1
+    1: ECHO lit[1] | line=1
+    2: V3 = FETCH_DIM_W CV1 | line=1 ext=2
+    3: ASSIGN_DIM V3 | line=1
+    4: OP_DATA lit[0] | line=1
+    5: ECHO lit[0] | line=1
+    6: RETURN lit[0] | line=1
+}
+end

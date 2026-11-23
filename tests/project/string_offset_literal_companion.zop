@@ -1,0 +1,38 @@
+zend-opcodes
+file "string_offset_literal_companion.php"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  locals 1 ["s"]
+  size 21 literals 6 children 0
+  lit[0] = "ABC0"
+  lit[1] = int(1)
+  lit[2] = "3"
+  lit[3] = "ab"
+  lit[4] = "X"
+  lit[5] = "\x0a"
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: T1 = FETCH_DIM_R CV0, lit[1] | line=1
+    2: ECHO T1 | line=1
+    3: T1 = FETCH_DIM_R lit[0], lit[1] | line=1
+    4: ECHO T1 | line=1
+    5: T1 = FETCH_DIM_IS CV0, lit[1] | line=1
+    6: ECHO T1 | line=1
+    7: T1 = FETCH_DIM_IS lit[0], lit[1] | line=1
+    8: ECHO T1 | line=1
+    9: T1 = ISSET_ISEMPTY_DIM_OBJ lit[3], lit[1] | line=1
+    10: T2 = BOOL_NOT T1 | line=1
+    11: ECHO T2 | line=1
+    12: T1 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[1] | line=1 ext=1 numeric-string-key
+    13: ECHO T1 | line=1
+    14: T1 = ASSIGN_DIM CV0, lit[1] | line=1
+    15: OP_DATA lit[4] | line=1
+    16: ECHO T1 | line=1
+    17: ECHO CV0 | line=1
+    18: ECHO lit[0] | line=1
+    19: ECHO lit[5] | line=1
+    20: RETURN lit[1] | line=1
+}
+end

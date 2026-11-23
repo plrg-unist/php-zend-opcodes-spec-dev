@@ -1,0 +1,145 @@
+;; A mark on any instruction refers to the literal-pool slot for the whole body.
+dec $marks_offset_key(instruction, nat) : bool
+def $marks_offset_key(OPLINE _ _ _ operand _ _ _ _ _ _ b, n) = b /\ operand = (LIT n)
+
+dec $original_string_key(frame, opcode, operand, operand, slotValue) : slotValue
+def $original_string_key(frame, opcode, operand_a, LIT n, _) = $read(frame, LIT $(n + 1))
+  -- if opcode = ISSET_ISEMPTY_DIM_OBJ \/ (opcode = FETCH_DIM_R /\ $key_operand(operand_a) =/= LITERAL_KEY)
+  -- if instruction* = frame.CODE
+  -- if true <- ($marks_offset_key(instruction, n))*
+def $original_string_key(_, _, _, _, slotValue) = slotValue -- otherwise
+
+;; With a keyed string destination the compiler marks how the writable offset would
+;; be used. Context zero supplies no error for a successfully converted key.
+def $defined_dimension_context(_, _, UNUSED, _) = true
+def $defined_dimension_context(frame, operand_a, operand_k, n) =
+  n =/= 0 \/ $scalar_type_bit($read(frame, operand_a)) =/= 64 \/ $invalid_string_offset($read(frame, operand_k))
+  -- if operand_k =/= UNUSED
+
+syntax offsetAction =
+  | READ_OFFSET opcode operand nat smartbranch? bytes
+  | WRITE_OFFSET operand operand operand bytes
+  | REJECT_OFFSET opcode nat
+dec $wrong_offset_error(opcode, nat) : bytes
+
+dec $read_string_byte(frame, opcode, operand, nat, smartbranch?, slotValue, slotValue) : transition
+;; An ordinary miss returns the empty string after warning. A quiet miss yields null.
+;; Uninitialized string offset …
+def $read_string_byte(frame, FETCH_DIM_R, operand_r, _, _, INT i, NULL) =
+  CONTINUE $write($report(frame, WARNING,
+    [ 85, 110, 105, 110, 105, 116, 105, 97, 108, 105, 122, 101, 100, 32, 115, 116, 114, 105, 110, 103,
+      32, 111, 102, 102, 115, 101, 116, 32 ] ++ $decimal(i)), operand_r, STRING eps)
+def $read_string_byte(frame, opcode, operand_r, _, _, _, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
+  -- if opcode = FETCH_DIM_IS \/ (opcode = FETCH_DIM_R /\ slotValue =/= NULL)
+def $read_string_byte(frame, ISSET_ISEMPTY_DIM_OBJ, operand_r, n, smartbranch?, _, slotValue) =
+  $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, slotValue)
+
+dec $first_byte_frame(frame, bytes) : frame
+def $first_byte_frame(frame, eps) = frame
+;; Only the first byte will be assigned to the string offset
+def $first_byte_frame(frame, _ :: _) =
+  $report(frame, WARNING, [ 79, 110, 108, 121, 32, 116, 104, 101, 32, 102, 105, 114, 115, 116, 32, 98,
+        121, 116, 101, 32, 119, 105, 108, 108, 32, 98, 101, 32, 97, 115, 115, 105, 103, 110, 101, 100,
+        32, 116, 111, 32, 116, 104, 101, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101,
+        116 ])
+
+dec $store_string_byte(frame, operand, operand, bytes, nat, bytes) : transition
+;; Error: Cannot assign an empty string to a string offset
+def $store_string_byte(frame, _, _, _, _, eps) = $raise(frame,
+    [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 97, 115, 115, 105, 103, 110, 32,
+      97, 110, 32, 101, 109, 112, 116, 121, 32, 115, 116, 114, 105, 110, 103, 32, 116, 111, 32, 97, 32,
+      115, 116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101, 116 ])
+def $store_string_byte(frame, operand_r, operand_a, bytes, n, n_byte :: bytes_tail) =
+  CONTINUE $write($assign(frame', operand_a, STRING $replace_offset(bytes, n, n_byte)), operand_r, STRING (n_byte :: eps))
+  -- if frame' = $first_byte_frame(frame, bytes_tail)
+
+;; Diagnose the key before touching the right operand. A write before the beginning
+;; returns null without fetching the value. Other writes convert it to bytes here.
+relation ApplyStringOffset: frame; offsetAction; numericResult ~> transition
+  hint(input %0 %1 %2)
+rule ApplyStringOffset/read:
+  frame; (READ_OFFSET opcode operand_r n smartbranch? bytes); (NUM_VALUE slotValue) ~>
+    $read_string_byte(frame, opcode, operand_r, n, smartbranch?, slotValue, $string_byte(bytes, slotValue))
+;; Illegal string offset …
+rule ApplyStringOffset/before-start:
+  frame; (WRITE_OFFSET operand_r _ _ bytes); (NUM_VALUE (INT i)) ~>
+    CONTINUE $write($report(frame, WARNING,
+    [ 73, 108, 108, 101, 103, 97, 108, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101,
+      116, 32 ] ++ $decimal(i)), operand_r, NULL)
+  -- if $($offset_position(bytes, i) < 0)
+rule ApplyStringOffset/write:
+  frame; (WRITE_OFFSET operand_r operand_a operand_v bytes); (NUM_VALUE (INT i)) ~>
+    $store_string_byte(frame', operand_r, operand_a, bytes, n, bytes_rhs)
+  -- if i_pos = $offset_position(bytes, i)
+  -- if $(i_pos >= 0)
+  -- if n = i_pos
+  -- StringOperand: frame; operand_v ~> frame'; bytes_rhs
+rule ApplyStringOffset/reject:
+  frame; (REJECT_OFFSET opcode n); (NUM_VALUE _) ~> $raise(frame, $wrong_offset_error(opcode, n))
+rule ApplyStringOffset/invalid-key:
+  frame; _; (NUM_ERROR bytes) ~> $raise(frame, bytes)
+
+def $query_string_offset(frame, opcode, operand_r, operand_a, operand_k, n, smartbranch?, bytes, slotValue) = transition
+  -- if slotValue_key = $original_string_key(frame, opcode, operand_a, operand_k, slotValue)
+  -- if (frame', numericResult) = $dimension_diagnostics(frame, $string_offset(opcode, slotValue_key))
+  -- ApplyStringOffset: frame'; (READ_OFFSET opcode operand_r n smartbranch? bytes); numericResult ~> transition
+
+;; Error: Cannot use assign-op operators with string offsets
+def $wrong_offset_error(ASSIGN_DIM_OP, _) =
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32, 97, 115, 115,
+    105, 103, 110, 45, 111, 112, 32, 111, 112, 101, 114, 97, 116, 111, 114, 115, 32, 119, 105, 116,
+    104, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101, 116, 115 ]
+;; Error: Cannot create references to/from string offsets
+def $wrong_offset_error(opcode, 1) =
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 99, 114, 101, 97, 116, 101, 32,
+    114, 101, 102, 101, 114, 101, 110, 99, 101, 115, 32, 116, 111, 47, 102, 114, 111, 109, 32, 115,
+    116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101, 116, 115 ]
+  -- if opcode =/= ASSIGN_DIM_OP
+;; Error: Cannot use string offset as an array
+def $wrong_offset_error(opcode, 2) =
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32, 115, 116, 114,
+    105, 110, 103, 32, 111, 102, 102, 115, 101, 116, 32, 97, 115, 32, 97, 110, 32, 97, 114, 114, 97,
+    121 ]
+  -- if opcode =/= ASSIGN_DIM_OP
+;; Error: Cannot use string offset as an object
+def $wrong_offset_error(opcode, 3) =
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32, 115, 116, 114,
+    105, 110, 103, 32, 111, 102, 102, 115, 101, 116, 32, 97, 115, 32, 97, 110, 32, 111, 98, 106, 101,
+    99, 116 ]
+  -- if opcode =/= ASSIGN_DIM_OP
+;; Error: Cannot increment/decrement string offsets
+def $wrong_offset_error(opcode, 4) =
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 105, 110, 99, 114, 101, 109, 101,
+    110, 116, 47, 100, 101, 99, 114, 101, 109, 101, 110, 116, 32, 115, 116, 114, 105, 110, 103, 32,
+    111, 102, 102, 115, 101, 116, 115 ]
+  -- if opcode =/= ASSIGN_DIM_OP
+
+dec $string_append_error() : bytes
+;; Error: [] operator not supported for strings
+def $string_append_error() =
+  [ 69, 114, 114, 111, 114, 58, 32, 91, 93, 32, 111, 112, 101, 114, 97, 116, 111, 114, 32, 110, 111,
+    116, 32, 115, 117, 112, 112, 111, 114, 116, 101, 100, 32, 102, 111, 114, 32, 115, 116, 114, 105,
+    110, 103, 115 ]
+
+def $string_dimension_fetch(frame, _, UNUSED, _) = $raise(frame, $string_append_error())
+def $string_dimension_fetch(frame, opcode, operand_k, n) = transition
+  -- if operand_k =/= UNUSED
+  -- if (frame', slotValue) = $read_operand(frame, operand_k)
+  -- if (frame'', numericResult) = $dimension_diagnostics(frame', $string_offset(opcode, slotValue))
+  -- ApplyStringOffset: frame''; (REJECT_OFFSET opcode n); numericResult ~> transition
+
+rule StringDimensionWrite/append:
+  frame; ASSIGN_DIM; _; _; UNUSED; _; _ ~> $raise(frame, $string_append_error())
+rule StringDimensionWrite/assign:
+  frame; ASSIGN_DIM; operand_r; operand_a; operand_k; operand_v; bytes ~> transition
+  -- if operand_k =/= UNUSED
+  -- if $location_input(frame, operand_k)
+  -- if (frame', slotValue) = $read_operand(frame, operand_k)
+  -- if (frame'', numericResult) = $dimension_diagnostics(frame', $string_offset(ASSIGN_DIM, slotValue))
+  -- ApplyStringOffset: frame''; (WRITE_OFFSET operand_r operand_a operand_v bytes); numericResult ~> transition
+rule StringDimensionWrite/compound:
+  frame; ASSIGN_DIM_OP; _; _; operand_k; _; _ ~> $string_dimension_fetch(frame, ASSIGN_DIM_OP, operand_k, 0)
+  -- if $location_input(frame, operand_k)
+rule StringDimensionWrite/unset:
+  frame; UNSET_DIM; _; _; operand_k; _; _ ~> $raise(frame', $unset_string_error())
+  -- if (frame', _) = $read_operand(frame, operand_k)

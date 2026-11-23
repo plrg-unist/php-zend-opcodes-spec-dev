@@ -1,0 +1,75 @@
+dec $cast_entries(slotValue) : runtimeEntry*
+def $cast_entries(NULL) = eps
+def $cast_entries(slotValue) = [ITEM (INDEX 0) slotValue]
+  -- otherwise
+
+;; Union leaves every existing key in its place, including integer keys.
+dec $union_entry(slotValue, runtimeEntry) : slotValue
+def $union_entry(slotValue_l, ITEM arraykey slotValue_v) = slotValue_new
+  -- if ARRAY_VALUE _ runtimeEntry* _ _ = slotValue_l
+  -- if $array_find(runtimeEntry*, arraykey) = eps
+  -- if NUM_VALUE slotValue_new = $array_insert(slotValue_l, arraykey, slotValue_v)
+def $union_entry(slotValue_l, _) = slotValue_l
+  -- otherwise
+
+dec $union_entries(slotValue, runtimeEntry*) : slotValue
+def $union_entries(slotValue, eps) = slotValue
+def $union_entries(slotValue, [runtimeEntry]) = $union_entry(slotValue, runtimeEntry)
+def $union_entries(slotValue, runtimeEntry*) =
+  $union_entries($union_entries(slotValue, runtimeEntry*[0 : n]), runtimeEntry*[n : n_rest])
+  -- if $(|runtimeEntry*| > 1)
+  -- if n = $(|runtimeEntry*| / 2)
+  -- if n_rest = $(|runtimeEntry*| - n)
+
+;; A server union can add explicit right entries and restore unmodified
+;; environment entries that were deleted on the left.
+syntax serverUnionPart = RIGHT_ENTRIES slotValue | LEFT_DELETIONS slotValue
+dec $server_union_item(serverUnionPart, runtimeEntry, bytes) : runtimeEntry*
+def $server_union_item(RIGHT_ENTRIES slotValue_l, ITEM arraykey slotValue, bytes_script) = [ITEM arraykey slotValue]
+  -- if slotValue =/= UNDEF
+  -- if $server_entry(slotValue_l, arraykey, bytes_script) = SERVER_KNOWN eps
+def $server_union_item(RIGHT_ENTRIES slotValue_l, ITEM arraykey slotValue, bytes_script) = eps
+  -- if serverLookup = $server_entry(slotValue_l, arraykey, bytes_script)
+  -- if slotValue = UNDEF \/ (serverLookup =/= SERVER_UNKNOWN /\ serverLookup =/= SERVER_KNOWN eps)
+def $server_union_item(LEFT_DELETIONS slotValue_h, ITEM arraykey UNDEF, bytes_script) = [ITEM arraykey slotValue]
+  -- if $array_find($server_changes(slotValue_h), arraykey) = eps
+  -- if SERVER_KNOWN slotValue = $server_lookup(arraykey, bytes_script)
+def $server_union_item(LEFT_DELETIONS slotValue_h, ITEM arraykey slotValue, bytes_script) = eps
+  -- if slotValue =/= UNDEF \/ $array_find($server_changes(slotValue_h), arraykey) =/= eps
+       \/ $server_lookup(arraykey, bytes_script) = SERVER_KNOWN eps
+
+dec $server_union_entries(serverUnionPart, runtimeEntry*, bytes) : runtimeEntry*
+def $server_union_entries(_, eps, _) = eps
+def $server_union_entries(serverUnionPart, runtimeEntry_head :: runtimeEntry*, bytes_script) =
+  $server_union_item(serverUnionPart, runtimeEntry_head, bytes_script) ++ $server_union_entries(serverUnionPart, runtimeEntry*, bytes_script)
+
+dec $add_server_entries(slotValue, runtimeEntry*) : slotValue
+def $add_server_entries(slotValue, eps) = slotValue
+def $add_server_entries(slotValue_l, (ITEM arraykey slotValue) :: runtimeEntry*) =
+  $add_server_entries($server_changed(slotValue_l, $server_id(slotValue_l), arraykey, slotValue), runtimeEntry*)
+
+;; Split newly contributed entries between the opaque original environment
+;; and the observed right-hand insertion order. A conditionally appended key
+;; has a fixed position only when it is the first possible contribution.
+dec $server_union_order(runtimeEntry*, runtimeEntry*) : (runtimeEntry*, runtimeEntry*, bool)
+def $server_union_order(runtimeEntry*, eps) = (runtimeEntry*, eps, false)
+def $server_union_order(runtimeEntry_new*, (ITEM arraykey _) :: runtimeEntry_tail*) =
+  $server_union_order(runtimeEntry_new*, runtimeEntry_tail*)
+  -- if $array_find(runtimeEntry_new*, arraykey) = eps
+def $server_union_order(runtimeEntry_new*, (ITEM arraykey slotValue_appended) :: runtimeEntry_tail*) =
+  (runtimeEntry_base*, (ITEM arraykey slotValue) :: runtimeEntry_ordered*, slotValue_appended = FALSE)
+  -- if n = $array_position(runtimeEntry_new*, arraykey)
+  -- if $(n < |runtimeEntry_new*|)
+  -- if ITEM _ slotValue = runtimeEntry_new*[n]
+  -- if n_after = $(n + 1)
+  -- if n_rest = $(|runtimeEntry_new*| - n_after)
+  -- if (runtimeEntry_base*, runtimeEntry_ordered*, false) =
+    $server_union_order(runtimeEntry_new*[0 : n] ++ runtimeEntry_new*[n_after : n_rest], runtimeEntry_tail*)
+  -- if slotValue_appended = TRUE \/ runtimeEntry_base* = eps
+
+;; Union inserts the live right-hand keys. A deleted high key from the right
+;; does not pin the automatic key in a result starting from the empty left.
+dec $server_union_cursor(slotValue, bool) : slotValue
+def $server_union_cursor(CLI_UPDATED arrayId (ITEM arraykey slotValue)* serverHistory, b_left) =
+  CLI_UPDATED arrayId (ITEM arraykey slotValue)* serverHistory[.SATURATED = (b_left \/ (true <- b_live*))]
+  -- if (b_live = (slotValue =/= UNDEF /\ $pins_cursor(arraykey, slotValue)))*

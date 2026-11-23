@@ -1,0 +1,80 @@
+;; A copy of the CLI array retains its unknown environment entries. Each key
+;; changed by the program has one overriding value or an explicit UNDEF deletion.
+dec $server_changes(slotValue) : runtimeEntry*
+def $server_changes(CLI_ARRAY) = eps
+def $server_changes(CLI_UPDATED _ runtimeEntry* _) = runtimeEntry*
+
+def $server_id(CLI_ARRAY) = CLI_ARRAY_ID 2
+def $server_id(CLI_UPDATED arrayId _ _) = arrayId
+
+dec $server_entry_at(slotValue?, arraykey, bytes) : serverLookup
+def $server_entry_at(eps, arraykey, bytes) = $server_lookup(arraykey, bytes)
+def $server_entry_at(UNDEF, _, _) = SERVER_KNOWN eps
+def $server_entry_at(slotValue, _, _) = SERVER_KNOWN slotValue
+  -- if slotValue =/= UNDEF
+
+dec $server_entry(slotValue, arraykey, bytes) : serverLookup
+def $server_entry(slotValue, arraykey, bytes) =
+  $server_entry_at($array_find($server_changes(slotValue), arraykey), arraykey, bytes)
+
+dec $server_override(slotValue?) : slotValue
+def $server_override(eps) = UNDEF
+def $server_override(slotValue) = slotValue
+
+dec $server_history(slotValue) : serverHistory
+def $server_history(CLI_ARRAY) = { TAIL eps, SATURATED false }
+def $server_history(CLI_UPDATED _ _ serverHistory) = serverHistory
+
+dec $server_order(slotValue) : runtimeEntry*
+def $server_order(slotValue) = serverHistory.TAIL
+  -- if serverHistory = $server_history(slotValue)
+
+dec $server_max_cursor(slotValue) : bool
+def $server_max_cursor(slotValue) = serverHistory.SATURATED
+  -- if serverHistory = $server_history(slotValue)
+
+dec $pins_cursor(arraykey, slotValue?) : bool
+def $pins_cursor(INDEX i, slotValue) = $(i >= 9223372036854775806)
+def $pins_cursor(_, _) = false -- otherwise
+
+;; TAIL entries record insertions in order. TRUE means always appended; FALSE
+;; means appended exactly when the key was initially absent from the environment.
+dec $server_tail(runtimeEntry*, arraykey, slotValue?, serverLookup) : runtimeEntry*
+def $server_tail(runtimeEntry*, arraykey, eps, _) =
+  runtimeEntry*[0 : n] ++ runtimeEntry*[n_after : n_rest]
+  -- if n = $array_position(runtimeEntry*, arraykey)
+  -- if $(n < |runtimeEntry*|)
+  -- if n_after = $(n + 1)
+  -- if n_rest = $(|runtimeEntry*| - n_after)
+def $server_tail(runtimeEntry*, arraykey, slotValue, SERVER_KNOWN eps) =
+  runtimeEntry* ++ [ ITEM arraykey TRUE ]
+def $server_tail(runtimeEntry*, arraykey, slotValue, SERVER_UNKNOWN) =
+  runtimeEntry* ++ [ ITEM arraykey FALSE ]
+def $server_tail(runtimeEntry*, _, _, _) = runtimeEntry* -- otherwise
+
+dec $server_changed(slotValue, arrayId, arraykey, slotValue?) : slotValue
+def $server_changed(slotValue_server, arrayId, arraykey, slotValue?) =
+  CLI_UPDATED arrayId ($put_entry(runtimeEntry*, $array_position(runtimeEntry*, arraykey),
+                               ITEM arraykey ($server_override(slotValue?))))
+    { TAIL $server_tail(serverHistory.TAIL, arraykey, slotValue?, $server_entry(slotValue_server, arraykey, eps)),
+      SATURATED (serverHistory.SATURATED \/ $pins_cursor(arraykey, slotValue?)) }
+  -- if runtimeEntry* = $server_changes(slotValue_server)
+  -- if serverHistory = $server_history(slotValue_server)
+
+;; The CLI always installs nine keys. Deleting one lowers the guaranteed
+;; count; setting another key raises it even if the host also supplied it.
+dec $server_guaranteed(arraykey) : bool
+def $server_guaranteed(arraykey) = serverLookup =/= SERVER_UNKNOWN /\ serverLookup =/= SERVER_KNOWN eps
+  -- if serverLookup = $server_lookup(arraykey, eps)
+
+dec $server_lower_bound(runtimeEntry*, nat) : nat
+def $server_lower_bound(eps, n) = n
+def $server_lower_bound((ITEM arraykey UNDEF) :: runtimeEntry*, n) = $server_lower_bound(runtimeEntry*, n_prev)
+  -- if $server_guaranteed(arraykey)
+  -- if n_prev = $(n - 1)
+def $server_lower_bound((ITEM arraykey slotValue) :: runtimeEntry*, n) = $server_lower_bound(runtimeEntry*, $(n + 1))
+  -- if slotValue =/= UNDEF /\ ~$server_guaranteed(arraykey)
+def $server_lower_bound((ITEM arraykey slotValue) :: runtimeEntry*, n) = $server_lower_bound(runtimeEntry*, n)
+  -- if (slotValue =/= UNDEF) = $server_guaranteed(arraykey)
+
+def $server_min_size(slotValue) = $server_lower_bound($server_changes(slotValue), 9)

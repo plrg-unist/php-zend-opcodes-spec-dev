@@ -1,0 +1,25 @@
+relation ListFetch: frame; operand; operand; operand; slotValue; slotValue ~> transition
+  hint(input %0 %1 %2 %3 %4 %5)
+rule ListFetch/null:
+  frame; operand_r; _; _; slotValue_a; _ ~> CONTINUE $write(frame, operand_r, NULL)
+  -- if $nullish(slotValue_a)
+;; Warning: Cannot use <type> as array
+rule ListFetch/scalar:
+  frame; operand_r; _; _; slotValue_a; _ ~>
+  CONTINUE $write($report(frame, WARNING, bytes_msg), operand_r, NULL)
+  -- if $simple_value(slotValue_a) /\ ~$nullish(slotValue_a)
+  -- if bytes_msg = [ 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32 ] ++
+    $operand_type_name(slotValue_a) ++ [ 32, 97, 115, 32, 97, 114, 114, 97, 121 ]
+rule ListFetch/array:
+  frame; operand_r; operand_a; operand_k; slotValue_a; slotValue_k ~> transition
+  -- if $is_array_value(slotValue_a)
+  -- ArrayQuery: frame; FETCH_DIM_R; operand_r; operand_a; operand_k; 0; eps; slotValue_a;
+       $dimension_key(FETCH_LIST_R, operand_a, operand_k, slotValue_k) ~> transition
+
+;; Each fetch copies an element and leaves the RHS available for the next one.
+rule DestructureStep/read:
+  frame; operand_r; operand_a; operand_k ~> transition
+  -- if (frame', slotValue_a) = $read_operand(frame, operand_a)
+  -- if slotValue_k = $read(frame', operand_k)
+  -- if (frame'', _) = $read_value(frame', operand_k, slotValue_k)
+  -- ListFetch: frame''; operand_r; operand_a; operand_k; slotValue_a; slotValue_k ~> transition

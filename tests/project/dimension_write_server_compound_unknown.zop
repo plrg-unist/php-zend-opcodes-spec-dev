@@ -1,0 +1,20 @@
+zend-opcodes
+file "h"
+main
+body - {
+  lines 1 2
+  frame 1 cache 0
+  locals 2 ["_SERVER", "r"]
+  size 6 literals 3 children 0
+  lit[0] = "C"
+  lit[1] = "PHP_SPEC_TEST_SERVER_KEY"
+  lit[2] = int(1)
+  code
+    0: ECHO lit[0] | line=1
+    1: ASSIGN_DIM_OP CV0, lit[1] | line=2 ext=1
+    2: OP_DATA CV1 | line=2
+    3: T2 = FETCH_DIM_R CV0, lit[1] | line=2
+    4: ECHO T2 | line=2
+    5: RETURN lit[2] | line=2
+}
+end

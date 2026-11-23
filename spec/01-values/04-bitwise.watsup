@@ -59,9 +59,7 @@ def $bitwise(BW_NOT, slotValue, _) = NUM_ERROR
     ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32,
        112, 101, 114, 102, 111, 114, 109, 32, 98, 105, 116, 119, 105, 115, 101, 32,
        110, 111, 116, 32, 111, 110, 32 ] ++ $value_name(slotValue))
-  -- if slotValue <- [ NULL, FALSE, TRUE ]
-def $bitwise(BW_NOT, slotValue, _) = NUM_UNSUPPORTED
-  -- if ~$simple_value(slotValue)
+  -- if (slotValue <- [ NULL, FALSE, TRUE ]) \/ $is_array_value(slotValue)
 def $bitwise(opcode, STRING bytes_l, STRING bytes_r) =
     NUM_VALUE (STRING $bit_strings(opcode, bytes_l, bytes_r))
   -- if opcode <- [ BW_AND, BW_OR, BW_XOR ]

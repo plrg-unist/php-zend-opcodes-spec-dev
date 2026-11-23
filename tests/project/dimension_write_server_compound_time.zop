@@ -1,0 +1,24 @@
+zend-opcodes
+file "h"
+main
+body - {
+  lines 1 2
+  frame 4 cache 0
+  locals 3 ["_SERVER", "copy", "r"]
+  size 10 literals 3 children 0
+  lit[0] = "T"
+  lit[1] = "REQUEST_TIME"
+  lit[2] = int(1)
+  code
+    0: ASSIGN CV1, CV0 | line=1
+    1: ECHO lit[0] | line=1
+    2: ASSIGN_DIM_OP CV1, lit[1] | line=2 ext=8
+    3: OP_DATA CV2 | line=2
+    4: T3 = FETCH_DIM_R CV1, lit[1] | line=2
+    5: T4 = FETCH_DIM_R CV0, lit[1] | line=2
+    6: T5 = CAST T4 | line=2 ext=6
+    7: T6 = IS_IDENTICAL T3, T5 | line=2
+    8: ECHO T6 | line=2
+    9: RETURN lit[2] | line=2
+}
+end

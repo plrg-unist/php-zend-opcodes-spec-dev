@@ -1,0 +1,40 @@
+zend-opcodes
+file "dimension_write_internal_cursor.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 2 ["a", "b"]
+  size 20 literals 9 children 0
+  lit[0] = array(0 => "A", 1 => "B", 2 => "C"; cursor=2)
+  lit[1] = array(0 => "A", 1 => "B"; cursor=2)
+  lit[2] = array#0(0 => "A", 1 => "B"; cursor=2)
+  lit[3] = array-ref(0)
+  lit[4] = int(0)
+  lit[5] = int(1)
+  lit[6] = int(2)
+  lit[7] = int(9)
+  lit[8] = "\x0a"
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: ASSIGN CV1, CV0 | line=1
+    2: UNSET_DIM CV1, lit[4] | line=1
+    3: UNSET_DIM CV1, lit[6] | line=1
+    4: T2 = FETCH_DIM_R CV0, lit[4] | line=1
+    5: ECHO T2 | line=1
+    6: T2 = FETCH_DIM_R CV1, lit[5] | line=1
+    7: ECHO T2 | line=1
+    8: ASSIGN CV0, lit[1] | line=1
+    9: UNSET_DIM CV0, lit[7] | line=1
+    10: T2 = COUNT CV0 | line=1
+    11: ECHO T2 | line=1
+    12: ASSIGN CV0, lit[2] | line=1
+    13: UNSET_DIM CV0, lit[4] | line=1
+    14: T2 = FETCH_DIM_R CV0, lit[5] | line=1
+    15: ECHO T2 | line=1
+    16: T2 = FETCH_DIM_R lit[3], lit[4] | line=1
+    17: ECHO T2 | line=1
+    18: ECHO lit[8] | line=1
+    19: RETURN lit[5] | line=1
+}
+end

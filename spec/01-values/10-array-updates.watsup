@@ -1,0 +1,175 @@
+;; A packed insertion can reset the automatic integer key after a deletion.
+;; Its capacity controls which sparse integer insertions retain that behavior.
+dec $array_capacity(nat, nat) : nat
+def $array_capacity(n, n_capacity) = n_capacity
+  -- if $(n <= n_capacity)
+def $array_capacity(n, n_capacity) = $array_capacity(n, $(2 * n_capacity))
+  -- if $(n > n_capacity)
+
+dec $initial_array_index(nat) : arrayIndex
+def $initial_array_index(n) = STORAGE (-9223372036854775808) MIXED
+  -- if $((n / 2) \ 2 = 1)
+def $initial_array_index(n) = STORAGE (-9223372036854775808) (VACANT ($array_capacity($(n / 4), 8)))
+  -- if $((n / 2) \ 2 = 0)
+
+;; The first integer key must fit the initial capacity. Later keys can grow a
+;; packed array by one doubling when more than half its capacity is occupied.
+dec $layout_for_key(arrayLayout, int, nat, arraykey) : arrayLayout
+def $layout_for_key(PACKED n_capacity, i_last, _, INDEX i) = PACKED n_capacity
+  -- if $(i_last < i) /\ $(i < n_capacity)
+def $layout_for_key(PACKED n_capacity, i_last, n_live, INDEX i) = PACKED $(2 * n_capacity)
+  -- if $(i_last < i) /\ $(n_capacity <= i) /\ $(i < 2 * n_capacity)
+  -- if $(n_capacity < 2 * n_live)
+def $layout_for_key(_, _, _, _) = MIXED
+  -- otherwise
+
+;; An ordinary listing reconstructs its literal by inserting its entries in order.
+dec $inferred_layout(arrayLayout, int, nat, runtimeEntry*) : arrayLayout
+def $inferred_layout(PACKED n_capacity, i_last, n_live, (ITEM (INDEX i) _) :: runtimeEntry*) =
+  $inferred_layout($layout_for_key(PACKED n_capacity, i_last, n_live, INDEX i), i, $(n_live + 1), runtimeEntry*)
+def $inferred_layout(arrayLayout, _, _, eps) = arrayLayout
+def $inferred_layout(_, _, _, _) = MIXED
+  -- otherwise
+
+dec $plain_array_layout(runtimeEntry*) : arrayLayout
+def $plain_array_layout(eps) = VACANT 8
+def $plain_array_layout(runtimeEntry*) = $inferred_layout(PACKED 8, -1, 0, runtimeEntry*)
+  -- if $(|runtimeEntry*| > 0)
+
+dec $array_layout(runtimeEntry*, arrayIndex?) : arrayLayout
+def $array_layout(_, STORAGE _ arrayLayout) = arrayLayout
+def $array_layout(runtimeEntry*, NEXT_INDEX _) = $plain_array_layout(runtimeEntry*)
+def $array_layout(runtimeEntry*, eps) = $plain_array_layout(runtimeEntry*)
+
+dec $next_index(runtimeEntry*, arrayIndex?) : int
+def $next_index(_, STORAGE i _) = i
+def $next_index(_, NEXT_INDEX i) = i
+def $next_index(runtimeEntry*, eps) = $array_next(runtimeEntry*, eps)
+
+dec $layout_after_insert(arrayLayout, runtimeEntry*, arraykey) : arrayLayout
+def $layout_after_insert(MIXED, _, _) = MIXED
+def $layout_after_insert(VACANT n_capacity, _, arraykey) =
+  $layout_for_key(PACKED n_capacity, -1, 0, arraykey)
+def $layout_after_insert(PACKED n_capacity, eps, arraykey) =
+  $layout_for_key(PACKED n_capacity, -1, 0, arraykey)
+def $layout_after_insert(PACKED n_capacity, runtimeEntry*, arraykey) =
+  $layout_for_key(PACKED n_capacity, i_last, |runtimeEntry*|, arraykey)
+  -- if $(|runtimeEntry*| > 0)
+  -- if n_last = $(|runtimeEntry*| - 1)
+  -- if ITEM (INDEX i_last) _ = runtimeEntry*[n_last]
+
+dec $inserted_index(arrayLayout, int, arraykey) : arrayIndex
+def $inserted_index(PACKED n_capacity, _, INDEX i) = STORAGE $(i + 1) (PACKED n_capacity)
+def $inserted_index(MIXED, i, arraykey) = STORAGE ($next_after_key(i, arraykey)) MIXED
+
+dec $index_at_insert(runtimeEntry*, arrayIndex?, arraykey, nat) : arrayIndex?
+def $index_at_insert(runtimeEntry*, arrayIndex?, _, n_at) = arrayIndex?
+  -- if $(n_at < |runtimeEntry*|)
+def $index_at_insert(runtimeEntry*, arrayIndex?, arraykey, n_at) =
+  $inserted_index(arrayLayout, $next_index(runtimeEntry*, arrayIndex?), arraykey)
+  -- if n_at = |runtimeEntry*|
+  -- if arrayLayout = $layout_after_insert($array_layout(runtimeEntry*, arrayIndex?), runtimeEntry*, arraykey)
+
+dec $insert_at_position(slotValue, arraykey, slotValue, nat) : numericResult
+def $insert_at_position(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, slotValue, n_at) =
+  NUM_VALUE (ARRAY_VALUE arrayId ($put_entry(runtimeEntry*, n_at, ITEM arraykey slotValue))
+    ($index_at_insert(runtimeEntry*, arrayIndex?, arraykey, n_at)) n?)
+
+dec $append_entry(slotValue, runtimeEntry*, int, slotValue) : numericResult
+def $array_insert(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, slotValue) =
+  $insert_at_position(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey, slotValue,
+    $array_position(runtimeEntry*, arraykey))
+def $array_insert(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, eps, slotValue) =
+  $append_entry(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, runtimeEntry*, i_key, slotValue)
+  -- if i_key = $append_index($next_index(runtimeEntry*, arrayIndex?))
+
+;; Error: Cannot add element to the array as the next element is already occupied
+dec $append_error() : numericResult
+def $append_error() = NUM_ERROR (
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 97, 100, 100, 32,
+    101, 108, 101, 109, 101, 110, 116, 32, 116, 111, 32, 116, 104, 101, 32, 97, 114, 114,
+    97, 121, 32, 97, 115, 32, 116, 104, 101, 32, 110, 101, 120, 116, 32, 101, 108, 101,
+    109, 101, 110, 116, 32, 105, 115, 32, 97, 108, 114, 101, 97, 100, 121, 32, 111, 99,
+    99, 117, 112, 105, 101, 100 ])
+
+def $append_entry(_, runtimeEntry*, 9223372036854775807, _) = $append_error()
+  -- if $array_find(runtimeEntry*, INDEX 9223372036854775807) =/= eps
+def $append_entry(slotValue_dst, runtimeEntry*, i, slotValue) =
+  $insert_at_position(slotValue_dst, INDEX i, slotValue, |runtimeEntry*|)
+  -- if i =/= 9223372036854775807 \/ $array_find(runtimeEntry*, INDEX i) = eps
+
+;; Unpacking a packed source extends the destination in bulk. It starts after
+;; the last live integer key and resets the cursor and automatic integer key.
+dec $packed_used(runtimeEntry*) : nat
+def $packed_used(eps) = 0
+def $packed_used(runtimeEntry*) = n_used
+  -- if $(|runtimeEntry*| > 0)
+  -- if n_last = $(|runtimeEntry*| - 1)
+  -- if ITEM (INDEX i) _ = runtimeEntry*[n_last]
+  -- if n_used = $(i + 1)
+
+dec $packed_capacity(arrayLayout) : nat?
+def $packed_capacity(VACANT n_capacity) = n_capacity
+def $packed_capacity(PACKED n_capacity) = n_capacity
+def $packed_capacity(MIXED) = eps
+
+dec $unpack_reserve(runtimeEntry*, arrayIndex?, runtimeEntry*, arrayIndex?) : arrayIndex?
+def $unpack_reserve(runtimeEntry_l*, arrayIndex_l?, runtimeEntry_r*, arrayIndex_r?) =
+  STORAGE n_used (PACKED ($array_capacity(n_new, n_capacity)))
+  -- if PACKED _ = $array_layout(runtimeEntry_r*, arrayIndex_r?)
+  -- if n_capacity = $packed_capacity($array_layout(runtimeEntry_l*, arrayIndex_l?))
+  -- if n_used = $packed_used(runtimeEntry_l*)
+  -- if n_new = $(n_used + |runtimeEntry_r*|)
+  -- if $(n_new > 0)
+def $unpack_reserve(_, _, _, _) = eps
+  -- otherwise
+
+dec $unpack_destination(slotValue, arrayIndex?) : slotValue
+def $unpack_destination(ARRAY_VALUE arrayId runtimeEntry* _ _, arrayIndex) =
+  ARRAY_VALUE arrayId runtimeEntry* arrayIndex eps
+def $unpack_destination(slotValue, eps) = slotValue
+
+def $array_unpack(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? n?, ARRAY_VALUE _ runtimeEntry_r* arrayIndex_r? _) =
+  $unpack_entries(NUM_VALUE ($unpack_destination(ARRAY_VALUE arrayId runtimeEntry_l* arrayIndex_l? n?, arrayIndex_new?)), runtimeEntry_r*)
+  -- if arrayIndex_new? = $unpack_reserve(runtimeEntry_l*, arrayIndex_l?, runtimeEntry_r*, arrayIndex_r?)
+
+;; The cursor counts live entries before the current one. Removing the current
+;; entry leaves that ordinal pointing at its successor (or at the end).
+dec $cursor_after_remove(nat?, nat) : nat?
+def $cursor_after_remove(n, n_at) = n_previous
+  -- if $(n_at < n)
+  -- if n_previous = $(n - 1)
+def $cursor_after_remove(n?, _) = n?
+  -- otherwise
+
+dec $array_remove(slotValue, arraykey) : slotValue
+def $array_remove(ARRAY_VALUE arrayId runtimeEntry* arrayIndex? n?, arraykey) =
+  ARRAY_VALUE arrayId (runtimeEntry*[0 : n_at] ++ runtimeEntry*[n_after : n_count])
+    (STORAGE ($next_index(runtimeEntry*, arrayIndex?)) ($array_layout(runtimeEntry*, arrayIndex?)))
+    ($cursor_after_remove(n?, n_at))
+  -- if n_at = $array_position(runtimeEntry*, arraykey)
+  -- if $(n_at < |runtimeEntry*|)
+  -- if n_after = $(n_at + 1)
+  -- if n_count = $(|runtimeEntry*| - n_after)
+def $array_remove(slotValue, _) = slotValue
+  -- otherwise
+
+;; A shallow copy keeps all element identities. An empty copy starts with the
+;; minimum capacity, even when its source previously contained more entries.
+dec $copy_cursor(arrayId, nat, nat?) : nat?
+dec $frozen_literal(arrayId) : bool
+def $frozen_literal(LITERAL_ARRAY (SHARED_LITERAL _) _) = true
+def $frozen_literal(_) = false
+  -- otherwise
+
+dec $array_copy(slotValue, arrayId) : slotValue
+def $array_copy(ARRAY_VALUE _ eps arrayIndex? _, arrayId) =
+  ARRAY_VALUE arrayId eps (STORAGE ($next_index(eps, arrayIndex?)) (VACANT 8)) eps
+def $array_copy(ARRAY_VALUE arrayId_src runtimeEntry* arrayIndex? n?, arrayId) =
+  ARRAY_VALUE arrayId runtimeEntry* arrayIndex? ($copy_cursor(arrayId_src, |runtimeEntry*|, n?))
+  -- if $(|runtimeEntry*| > 0)
+
+def $copy_cursor(arrayId, n, n) = eps
+  -- if ~$frozen_literal(arrayId)
+def $copy_cursor(_, _, n?) = n?
+  -- otherwise

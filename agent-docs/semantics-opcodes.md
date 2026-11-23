@@ -40,11 +40,21 @@ INIT_ARRAY ADD_ARRAY_ELEMENT ADD_ARRAY_UNPACK FETCH_DIM_R FETCH_DIM_IS
 ISSET_ISEMPTY_CV ISSET_ISEMPTY_DIM_OBJ COUNT ARRAY_KEY_EXISTS IN_ARRAY
 ```
 
-3B–3D introduce writes, references and iteration, and then variable names and bindings. String-offset reads and writes enter with 3B.
+3B covers writable elements, ordinary copies, string offsets and by-value destructuring. `ASSIGN_DIM` and `ASSIGN_DIM_OP` take their right-hand operand from the following `OP_DATA`.
 
 ```text
 ASSIGN_DIM ASSIGN_DIM_OP UNSET_DIM UNSET_CV FETCH_DIM_W FETCH_DIM_RW FETCH_DIM_UNSET FETCH_LIST_R OP_DATA
+```
+
+3C introduces explicit references, by-reference destructuring and both modes of `foreach`.
+
+```text
 ASSIGN_REF MAKE_REF SEPARATE FETCH_LIST_W FE_RESET_R FE_FETCH_R FE_RESET_RW FE_FETCH_RW FE_FREE
+```
+
+3D covers variable names, global bindings and named constants.
+
+```text
 FETCH_R FETCH_W FETCH_RW FETCH_IS FETCH_UNSET UNSET_VAR ISSET_ISEMPTY_VAR
 BIND_GLOBAL FETCH_GLOBALS DECLARE_CONST FETCH_CONSTANT DEFINED
 ```

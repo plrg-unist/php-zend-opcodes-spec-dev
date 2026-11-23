@@ -1,0 +1,34 @@
+zend-opcodes
+file "temporary.php"
+main
+body - {
+  lines 1 1
+  frame 3 cache 0
+  locals 1 ["source"]
+  size 18 literals 5 children 0
+  lit[0] = array(0 => int(41))
+  lit[1] = int(0)
+  lit[2] = "|"
+  lit[3] = "\x0a"
+  lit[4] = int(1)
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: V1 = QM_ASSIGN CV0 | line=1
+    2: V2 = FETCH_DIM_RW V1, lit[1] | line=1 ext=4
+    3: T3 = PRE_INC V2 | line=1
+    4: ECHO T3 | line=1
+    5: ECHO lit[2] | line=1
+    6: T3 = FETCH_DIM_R CV0, lit[1] | line=1
+    7: ECHO T3 | line=1
+    8: ECHO lit[3] | line=1
+    9: ASSIGN CV0, lit[0] | line=1
+    10: V1 = FETCH_DIM_RW CV0, lit[1] | line=1 ext=4
+    11: T1 = POST_INC V1 | line=1
+    12: ECHO T1 | line=1
+    13: ECHO lit[2] | line=1
+    14: T3 = FETCH_DIM_R CV0, lit[1] | line=1
+    15: ECHO T3 | line=1
+    16: ECHO lit[3] | line=1
+    17: RETURN lit[4] | line=1
+}
+end

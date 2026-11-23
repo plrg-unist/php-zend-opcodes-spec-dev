@@ -1,0 +1,85 @@
+def $array_cast(frame, operand_r, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
+  -- if $is_array_value(slotValue)
+def $array_cast(frame, operand_r, slotValue) =
+  CONTINUE $write(frame'[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand_r,
+                  ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) ($cast_entries(slotValue)) eps eps)
+  -- if $simple_value(slotValue)
+  -- if frame' = $nan_frame(frame, slotValue, [97, 114, 114, 97, 121])
+
+dec $union_left(frame, bool, slotValue) : (frame, slotValue)
+def $union_left(frame, true, slotValue) = (frame, slotValue)
+  -- if ~$shared_array(frame, slotValue)
+def $union_left(frame, b_inplace, slotValue) =
+  (frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], $array_copy(slotValue, FRESH_ARRAY frame.NEXTARRAY))
+  -- if ARRAY_VALUE _ _ _ _ = slotValue
+  -- if ~b_inplace \/ $shared_array(frame, slotValue)
+def $union_left(frame, b_inplace, slotValue) = $server_fresh(frame, slotValue)
+  -- if $server_array(slotValue)
+  -- if ~b_inplace \/ $shared_array(frame, slotValue)
+
+dec $array_union(frame, bool, slotValue, slotValue) : (frame, numericResult)
+;; In-place union with the same array leaves all its by-value aliases intact.
+def $array_union(frame, true, slotValue, slotValue) = (frame, NUM_VALUE slotValue)
+def $array_union(frame, b_inplace, slotValue_l, slotValue_h) =
+  (frame', NUM_VALUE $union_entries(slotValue_out, runtimeEntry_r*))
+  -- if ARRAY_VALUE _ _ _ _ = slotValue_l
+  -- if ARRAY_VALUE _ runtimeEntry_r* _ _ = slotValue_h
+  -- if ~b_inplace \/ slotValue_l =/= slotValue_h
+  -- if (frame', slotValue_out) = $union_left(frame, b_inplace, slotValue_l)
+def $array_union(frame, b_inplace, slotValue_l, ARRAY_VALUE _ runtimeEntry_r* _ _) =
+  (frame', NUM_VALUE $add_server_entries(slotValue_out, runtimeEntry_new*))
+  -- if $server_array(slotValue_l)
+  -- if runtimeEntry_new* = $server_union_entries(RIGHT_ENTRIES slotValue_l, runtimeEntry_r*, frame.SCRIPT)
+  -- if (frame', slotValue_out) = $union_left(frame, b_inplace, slotValue_l)
+def $array_union(frame, b_inplace, slotValue_l, slotValue_h) =
+  (frame', NUM_VALUE $server_union_cursor(slotValue_out, b_max))
+  -- if ARRAY_VALUE _ eps arrayIndex? _ = slotValue_l
+  -- if $server_array(slotValue_h)
+  -- if (frame', slotValue_out) = $server_fresh(frame, slotValue_h)
+  -- if b_max = (b_inplace /\ ~$shared_array(frame, slotValue_l) /\ $array_layout(eps, arrayIndex?) = MIXED
+                 /\ $next_index(eps, arrayIndex?) = 9223372036854775807)
+def $array_union(frame, b_inplace, slotValue_l, slotValue_h) =
+  (frame', NUM_VALUE $add_server_entries(slotValue_out, runtimeEntry_base* ++ runtimeEntry_tail*))
+  -- if $server_array(slotValue_l) /\ $server_array(slotValue_h)
+  -- if ~b_inplace \/ slotValue_l =/= slotValue_h
+  -- if runtimeEntry_restored* = $server_union_entries(LEFT_DELETIONS slotValue_h, $server_changes(slotValue_l), frame.SCRIPT)
+  -- if runtimeEntry_new* = $server_union_entries(RIGHT_ENTRIES slotValue_l, $server_changes(slotValue_h), frame.SCRIPT)
+  -- if (runtimeEntry_base*, runtimeEntry_tail*, _) =
+    $server_union_order(runtimeEntry_restored* ++ runtimeEntry_new*, $server_order(slotValue_h))
+  -- if $(|runtimeEntry_base*| <= 1)
+  -- if (frame', slotValue_out) = $union_left(frame, b_inplace, slotValue_l)
+
+def $binary_operation(frame, b_inplace, ADD, slotValue_l, slotValue_h) =
+  (frame', numericResult)
+  -- if $is_array_value(slotValue_l) /\ $is_array_value(slotValue_h)
+  -- if (frame', numericResult) = $array_union(frame, b_inplace, slotValue_l, slotValue_h)
+;; The left operand has been converted by $concat_values. In-place
+;; concatenation of a variable with itself reuses that conversion.
+def $binary_operation(frame, true, CONCAT, slotValue, _) = (frame, NUM_VALUE (STRING (bytes ++ bytes)))
+  -- if $known_value(slotValue)
+  -- if bytes = $scalar_bytes(slotValue)
+def $binary_operation(frame, false, CONCAT, slotValue_l, slotValue_h) =
+  ($string_frame(frame, slotValue_h), NUM_VALUE (STRING ($scalar_bytes(slotValue_l) ++ $scalar_bytes(slotValue_h))))
+  -- if $known_value(slotValue_l) /\ $known_value(slotValue_h)
+def $binary_operation(frame, _, opcode, slotValue_l, slotValue_h) =
+  (frame, $operate(binaryKind, opcode, slotValue_l, slotValue_h, frame.SCRIPT))
+  -- if binaryKind = $binary_kind(opcode)
+  -- if binaryKind = COMPARISON \/ ($known_value(slotValue_l) /\ $known_value(slotValue_h))
+  -- if ~(opcode = ADD /\ $is_array_value(slotValue_l) /\ $is_array_value(slotValue_h))
+def $binary_operation(frame, _, _, _, _) = (frame, NUM_UNSUPPORTED)
+  -- otherwise
+
+def $dim_compound(frame, 8, slotValue_l, slotValue_h) = $concat_values(frame, false, slotValue_l, slotValue_h)
+def $dim_compound(frame, n, slotValue_l, slotValue_h) =
+  $binary_operation(frame, true, opcode, slotValue_l, slotValue_h)
+  -- if n =/= 8
+  -- if opcode_ops* = [NOP, ADD, SUB, MUL, DIV, MOD, SL, SR, CONCAT, BW_OR, BW_AND, BW_XOR, POW]
+  -- if opcode = opcode_ops*[n]
+
+def $compound(frame, operand_r, operand_dst, operand_dst, 8, slotValue, _) =
+  $apply_numeric(frame', operand_r, operand_dst, eps, numericResult)
+  -- if (frame', numericResult) = $concat_values(frame, true, slotValue, slotValue)
+def $compound(frame, operand_r, operand_dst, operand_src, n, slotValue_l, slotValue_h) =
+  $apply_numeric(frame', operand_r, operand_dst, eps, numericResult)
+  -- if n =/= 8 \/ operand_dst =/= operand_src
+  -- if (frame', numericResult) = $dim_compound(frame, n, slotValue_l, slotValue_h)

@@ -57,7 +57,7 @@ def $case_comparison(CASE_STRICT) = IS_IDENTICAL
 
 def $dispatch_step(frame, opcode, operand_r, operand_l, operand_h, _, smartbranch?) =
   $apply_numeric(frame', operand_r, UNUSED, smartbranch?,
-                 $numeric_compare($case_comparison(opcode), slotValue_l, slotValue_h))
+                 $numeric_compare($case_comparison(opcode), slotValue_l, slotValue_h, frame.SCRIPT))
   -- if opcode = CASE \/ opcode = CASE_STRICT
   -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, opcode, operand_l, operand_h)
 def $dispatch_step(frame, opcode, _, operand_subject, operand_table, EXT_TARGET n_default, _) =

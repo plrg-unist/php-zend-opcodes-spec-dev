@@ -7,7 +7,11 @@ syntax literalRoot = POOL_LITERAL nat | SHARED_LITERAL nat
 syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat
 syntax slotValue
 syntax runtimeEntry = ITEM arraykey slotValue
-syntax slotValue = zval | CLI_ARRAY | ARRAY_VALUE arrayId runtimeEntry* int? nat?
+syntax serverHistory = { TAIL runtimeEntry*, SATURATED bool }
+syntax arrayLayout = VACANT nat | PACKED nat | MIXED
+syntax arrayIndex = NEXT_INDEX int | STORAGE int arrayLayout
+syntax slotValue = zval | CLI_ARRAY | CLI_UPDATED arrayId runtimeEntry* serverHistory | ARRAY_VALUE arrayId runtimeEntry* arrayIndex? nat?
+                 | ELEMENT_LOCATION nat arraykey
 
 ;; Conversions can emit several diagnostics before producing a value or raising an error.
 syntax numericResult =
@@ -28,11 +32,27 @@ def $scalar_type_bit(_) = 0
 dec $simple_value(slotValue) : bool
 def $simple_value(slotValue) = $scalar_type_bit(slotValue) =/= 0
 
+dec $server_array(slotValue) : bool
+def $server_array(CLI_ARRAY) = true
+def $server_array(CLI_UPDATED _ _ _) = true
+def $server_array(_) = false -- otherwise
+
+dec $server_min_size(slotValue) : nat
+dec $server_id(slotValue) : arrayId
+
+dec $truth_known(slotValue) : bool
+def $truth_known(slotValue) = $($server_min_size(slotValue) > 0)
+  -- if $server_array(slotValue)
+def $truth_known(_) = true -- otherwise
+
 dec $is_array_value(slotValue) : bool
 def $is_array_value(ARRAY_VALUE _ _ _ _) = true
-def $is_array_value(CLI_ARRAY) = true
+def $is_array_value(slotValue) = true -- if $server_array(slotValue)
 def $is_array_value(_) = false
   -- otherwise
+
+dec $known_value(slotValue) : bool
+def $known_value(slotValue) = $simple_value(slotValue) \/ $is_array_value(slotValue)
 
 dec $type_check(slotValue, nat) : bool
 def $type_check(UNDEF, n_mask) = $(n_mask \ 2 = 1)
@@ -90,7 +110,7 @@ def $truth(INT i) = i =/= 0
 def $truth(FLOAT n) = $float_magnitude(n) =/= 0
 def $truth(STRING bytes) = (bytes =/= eps) /\ (bytes =/= [ 48 ])
 def $truth(ARRAY_VALUE _ runtimeEntry* _ _) = runtimeEntry* =/= eps
-def $truth(CLI_ARRAY) = true   ;; The CLI always adds entries to $_SERVER.
+def $truth(slotValue) = true -- if $server_array(slotValue) /\ $truth_known(slotValue)
 
 ;; Decimal PHP integers are emitted as ASCII octets.
 dec $digits(nat) : bytes
@@ -114,17 +134,16 @@ def $scalar_bytes(FLOAT n) = $f64_format(n, 14)
 def $scalar_bytes(TRUE) = [ 49 ]
 def $scalar_bytes(FALSE) = eps
 def $scalar_bytes(NULL) = eps
+def $scalar_bytes(slotValue) = [ 65, 114, 114, 97, 121 ] ;; Array
+  -- if $is_array_value(slotValue)
 
-syntax lengthResult = LENGTH nat | NULL_LENGTH | LENGTH_ERROR bytes | LENGTH_UNSUPPORTED
+syntax lengthResult = LENGTH nat | NULL_LENGTH | LENGTH_ERROR bytes
 
 dec $strlen(slotValue, bool) : lengthResult
 def $strlen(STRING bytes, true) = LENGTH $(|bytes|)
 def $strlen(NULL, false) = NULL_LENGTH
 def $strlen(slotValue, false) = LENGTH $(|bytes|)
-  -- if slotValue =/= NULL
+  -- if slotValue =/= NULL /\ $simple_value(slotValue)
   -- if bytes = $scalar_bytes(slotValue)
-def $strlen(slotValue, true) = LENGTH_ERROR $value_name(slotValue)
-  -- if $simple_value(slotValue)
-  -- if $scalar_type_bit(slotValue) =/= 64
-def $strlen(_, _) = LENGTH_UNSUPPORTED
-  -- otherwise
+def $strlen(slotValue, b_strict) = LENGTH_ERROR $value_name(slotValue)
+  -- if $is_array_value(slotValue) \/ (b_strict /\ $scalar_type_bit(slotValue) =/= 64)

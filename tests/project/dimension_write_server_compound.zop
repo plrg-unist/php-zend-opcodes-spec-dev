@@ -1,0 +1,30 @@
+zend-opcodes
+file "server.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  locals 2 ["_SERVER", "copy"]
+  size 14 literals 5 children 0
+  lit[0] = "argc"
+  lit[1] = int(4)
+  lit[2] = "x.y"
+  lit[3] = int(8)
+  lit[4] = int(1)
+  code
+    0: ASSIGN CV1, CV0 | line=1
+    1: T2 = ASSIGN_DIM_OP CV1, lit[0] | line=1 ext=1
+    2: OP_DATA lit[1] | line=1
+    3: ECHO T2 | line=1
+    4: T2 = FETCH_DIM_R CV1, lit[0] | line=1
+    5: ECHO T2 | line=1
+    6: T2 = FETCH_DIM_R CV0, lit[0] | line=1
+    7: ECHO T2 | line=1
+    8: T2 = ASSIGN_DIM_OP CV1, lit[2] | line=2 ext=1
+    9: OP_DATA lit[3] | line=2
+    10: ECHO T2 | line=2
+    11: T2 = FETCH_DIM_R CV1, lit[2] | line=3
+    12: ECHO T2 | line=3
+    13: RETURN lit[4] | line=3
+}
+end

@@ -1,0 +1,75 @@
+zend-opcodes
+file "server_nested.php"
+main
+body - {
+  lines 1 17
+  frame 30 cache 0
+  locals 4 ["copy", "_SERVER", "argvCopy", "alias"]
+  size 50 literals 12 children 0
+  lit[0] = "argc"
+  lit[1] = int(2)
+  lit[2] = "argv"
+  lit[3] = int(0)
+  lit[4] = "child"
+  lit[5] = "never.in.env"
+  lit[6] = "n"
+  lit[7] = int(7)
+  lit[8] = int(8)
+  lit[9] = int(9)
+  lit[10] = "\x0a"
+  lit[11] = int(1)
+  ranges 1
+  live T14 kind 0 @15 @16
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN_DIM_OP CV0, lit[0] | line=3 ext=1
+    2: OP_DATA lit[1] | line=3
+    3: T6 = FETCH_DIM_R CV0, lit[0] | line=4
+    4: ECHO T6 | line=4
+    5: T7 = FETCH_DIM_R CV1, lit[2] | line=5
+    6: ASSIGN CV2, T7 | line=5
+    7: V9 = FETCH_DIM_W CV0, lit[2] | line=6 ext=2
+    8: ASSIGN_DIM V9, lit[3] | line=6
+    9: OP_DATA lit[4] | line=6
+    10: T11 = FETCH_DIM_R CV0, lit[2] | line=7
+    11: T12 = FETCH_DIM_R T11, lit[3] | line=7
+    12: ECHO T12 | line=7
+    13: T13 = FETCH_DIM_R CV1, lit[2] | line=7
+    14: T14 = FETCH_DIM_R T13, lit[3] | line=7
+    15: T15 = FETCH_DIM_R CV2, lit[3] | line=7
+    16: T16 = IS_IDENTICAL T14, T15 | line=7
+    17: ECHO T16 | line=7
+    18: V17 = FETCH_DIM_W CV0, lit[5] | line=8 ext=2
+    19: ASSIGN_DIM V17, lit[6] | line=8
+    20: OP_DATA lit[7] | line=8
+    21: T19 = FETCH_DIM_R CV0, lit[5] | line=9
+    22: T20 = FETCH_DIM_R T19, lit[6] | line=9
+    23: ECHO T20 | line=9
+    24: V21 = FETCH_DIM_UNSET CV0, lit[5] | line=10 ext=2
+    25: UNSET_DIM V21, lit[6] | line=10
+    26: T22 = FETCH_DIM_IS CV0, lit[5] | line=11
+    27: T23 = ISSET_ISEMPTY_DIM_OBJ T22, lit[6] | line=11 ext=1
+    28: ECHO T23 | line=11
+    29: V24 = FETCH_DIM_W CV0, lit[5] | line=12 ext=2
+    30: ASSIGN_DIM V24, lit[6] | line=12
+    31: OP_DATA lit[8] | line=12
+    32: ASSIGN CV3, CV0 | line=13
+    33: T27 = IS_IDENTICAL CV3, CV0 | line=14
+    34: ECHO T27 | line=14
+    35: ASSIGN_DIM CV0, lit[0] | line=15
+    36: OP_DATA lit[9] | line=15
+    37: T29 = FETCH_DIM_R CV3, lit[0] | line=16
+    38: ECHO T29 | line=16
+    39: T30 = FETCH_DIM_R CV0, lit[0] | line=16
+    40: ECHO T30 | line=16
+    41: T31 = FETCH_DIM_R CV1, lit[0] | line=16
+    42: ECHO T31 | line=16
+    43: T32 = FETCH_DIM_R CV0, lit[5] | line=16
+    44: T33 = FETCH_DIM_R T32, lit[6] | line=16
+    45: ECHO T33 | line=16
+    46: T33 = BOOL CV0 | line=16
+    47: ECHO T33 | line=16
+    48: ECHO lit[10] | line=16
+    49: RETURN lit[11] | line=17 ext=4294967295
+}
+end

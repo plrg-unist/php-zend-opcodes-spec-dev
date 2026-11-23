@@ -1,0 +1,131 @@
+zend-opcodes
+file "server_compare_values.php"
+main
+body - {
+  lines 1 20
+  frame 49 cache 0
+  locals 6 ["l", "_SERVER", "r", "argv", "n", "argc"]
+  size 89 literals 31 children 0
+  lit[0] = "argc"
+  lit[1] = int(2)
+  lit[2] = ":"
+  lit[3] = ":"
+  lit[4] = "\x0a"
+  lit[5] = "argc"
+  lit[6] = "2"
+  lit[7] = "\x0a"
+  lit[8] = "argc"
+  lit[9] = int(1)
+  lit[10] = "PHP_SELF"
+  lit[11] = int(0)
+  lit[12] = "argv"
+  lit[13] = "\x0a"
+  lit[14] = float(nan:0x7ff8000000000000)
+  lit[15] = "n."
+  lit[16] = "n."
+  lit[17] = "\x0a"
+  lit[18] = "n."
+  lit[19] = float(nan:0x7ff8000000000000)
+  lit[20] = "\x0a"
+  lit[21] = "n."
+  lit[22] = float(nan:0x7ff8000000000000)
+  lit[23] = "argc"
+  lit[24] = int(1)
+  lit[25] = ":"
+  lit[26] = "\x0a"
+  lit[27] = "argc"
+  lit[28] = ":"
+  lit[29] = "\x0a"
+  lit[30] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN CV2, CV1 | line=2
+    2: ASSIGN_DIM CV0, lit[0] | line=3
+    3: OP_DATA lit[1] | line=3
+    4: T9 = IS_IDENTICAL CV0, CV2 | line=4
+    5: T10 = CAST T9 | line=4 ext=4
+    6: ECHO T10 | line=4
+    7: T11 = IS_EQUAL CV0, CV2 | line=4
+    8: T12 = CAST T11 | line=4 ext=4
+    9: ECHO T12 | line=4
+    10: ECHO lit[2] | line=4
+    11: T13 = SPACESHIP CV0, CV2 | line=4
+    12: ECHO T13 | line=4
+    13: ECHO lit[3] | line=4
+    14: T14 = SPACESHIP CV2, CV0 | line=4
+    15: ECHO T14 | line=4
+    16: ECHO lit[4] | line=4
+    17: ASSIGN_DIM CV2, lit[5] | line=5
+    18: OP_DATA lit[6] | line=5
+    19: T16 = IS_IDENTICAL CV0, CV2 | line=6
+    20: T17 = CAST T16 | line=6 ext=4
+    21: ECHO T17 | line=6
+    22: T18 = IS_EQUAL CV0, CV2 | line=6
+    23: T19 = CAST T18 | line=6 ext=4
+    24: ECHO T19 | line=6
+    25: ECHO lit[7] | line=6
+    26: ASSIGN_DIM CV0, lit[8] | line=7
+    27: OP_DATA lit[9] | line=7
+    28: ASSIGN CV2, CV1 | line=7
+    29: T23 = FETCH_DIM_R CV3, lit[11] | line=8
+    30: ASSIGN_DIM CV0, lit[10] | line=8
+    31: OP_DATA T23 | line=8
+    32: ASSIGN_DIM CV0, lit[12] | line=8
+    33: OP_DATA CV3 | line=8
+    34: T25 = IS_IDENTICAL CV0, CV2 | line=9
+    35: T26 = CAST T25 | line=9 ext=4
+    36: ECHO T26 | line=9
+    37: T27 = IS_EQUAL CV0, CV2 | line=9
+    38: T28 = CAST T27 | line=9 ext=4
+    39: ECHO T28 | line=9
+    40: ECHO lit[13] | line=9
+    41: T29 = MUL CV5, lit[14] | line=10
+    42: T30 = INIT_ARRAY T29 | line=10 ext=4
+    43: ASSIGN CV4, T30 | line=10
+    44: ASSIGN_DIM CV0, lit[15] | line=11
+    45: OP_DATA CV4 | line=11
+    46: ASSIGN_DIM CV2, lit[16] | line=11
+    47: OP_DATA CV4 | line=11
+    48: T34 = IS_IDENTICAL CV0, CV2 | line=12
+    49: T35 = CAST T34 | line=12 ext=4
+    50: ECHO T35 | line=12
+    51: T36 = IS_EQUAL CV0, CV2 | line=12
+    52: T37 = CAST T36 | line=12 ext=4
+    53: ECHO T37 | line=12
+    54: ECHO lit[17] | line=12
+    55: T39 = MUL CV5, lit[19] | line=13
+    56: T40 = INIT_ARRAY T39 | line=13 ext=4
+    57: ASSIGN_DIM CV2, lit[18] | line=13
+    58: OP_DATA T40 | line=13
+    59: T41 = IS_IDENTICAL CV0, CV2 | line=14
+    60: T42 = CAST T41 | line=14 ext=4
+    61: ECHO T42 | line=14
+    62: T43 = IS_EQUAL CV0, CV2 | line=14
+    63: T44 = CAST T43 | line=14 ext=4
+    64: ECHO T44 | line=14
+    65: ECHO lit[20] | line=14
+    66: ASSIGN_DIM CV0, lit[21] | line=15
+    67: OP_DATA lit[22] | line=15
+    68: ASSIGN CV2, CV0 | line=15
+    69: T47 = IS_IDENTICAL CV0, CV2 | line=16
+    70: T48 = CAST T47 | line=16 ext=4
+    71: ECHO T48 | line=16
+    72: ASSIGN_DIM CV2, lit[23] | line=17
+    73: OP_DATA lit[24] | line=17
+    74: T50 = IS_IDENTICAL CV0, CV2 | line=18
+    75: T51 = CAST T50 | line=18 ext=4
+    76: ECHO T51 | line=18
+    77: ECHO lit[25] | line=18
+    78: T52 = SPACESHIP CV0, CV2 | line=18
+    79: ECHO T52 | line=18
+    80: ECHO lit[26] | line=18
+    81: UNSET_DIM CV2, lit[27] | line=19
+    82: T53 = SPACESHIP CV0, CV2 | line=19
+    83: ECHO T53 | line=19
+    84: ECHO lit[28] | line=19
+    85: T54 = SPACESHIP CV2, CV0 | line=19
+    86: ECHO T54 | line=19
+    87: ECHO lit[29] | line=19
+    88: RETURN lit[30] | line=20 ext=4294967295
+}
+end

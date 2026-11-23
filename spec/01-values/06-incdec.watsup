@@ -79,8 +79,13 @@ def $update_scalar(ADD, NULL) = NUM_VALUE (INT 1)
 def $update_scalar(SUB, NULL) = $incdec_no_effect(SUB, NULL, [ 110, 117, 108, 108 ])
 def $update_scalar(opcode, zval) = $incdec_no_effect(opcode, zval, [ 98, 111, 111, 108 ])
   -- if zval = TRUE \/ zval = FALSE
-def $update_scalar(_, _) = NUM_UNSUPPORTED
-  -- otherwise
+;; TypeError: Cannot increment/decrement array
+def $update_scalar(opcode, slotValue) = NUM_ERROR
+    ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32 ]
+     ++ bytes_verb ++ [ 32 ] ++ $value_name(slotValue))
+  -- if $is_array_value(slotValue)
+  -- if n_first :: bytes_tail = $incdec_name(opcode)
+  -- if bytes_verb = $(n_first + 32) :: bytes_tail
 
 dec $numeric_incdec(opcode, slotValue) : numericResult
 def $numeric_incdec(opcode, slotValue) = $update_scalar(ADD, slotValue)

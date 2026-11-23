@@ -1,36 +1,27 @@
-dec $concat_right(frame, operand, operand, bytes, slotValue) : transition
-def $concat_right(frame, operand_r, operand_dst, bytes_l, slotValue_h) =
-  $store_result($string_frame(frame, slotValue_h), operand_r, operand_dst, STRING (bytes_l ++ $scalar_bytes(slotValue_h)))
-  -- if $simple_value(slotValue_h)
-def $concat_right(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
-  -- otherwise
-
-def $concat_result(frame, operand_r, operand_dst, slotValue_l, slotValue_h)
-  = $concat_right($string_frame(frame, slotValue_l), operand_r, operand_dst, $scalar_bytes(slotValue_l), slotValue_h)
-  -- if $simple_value(slotValue_l)
-def $concat_result(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
-  -- otherwise
+def $concat_values(frame, b_same, slotValue_l, slotValue_h) =
+  $binary_operation($string_frame(frame, slotValue_l), b_same, CONCAT, slotValue_l, slotValue_h)
 
 rule StringStep/concat:
   frame; CONCAT; operand_r; operand_l; operand_h; _ ~> transition
   -- if (frame_l, slotValue_l) = $read_operand(frame, operand_l)
   -- if (frame_h, slotValue_h) = $read_operand(frame_l, operand_h)
-  -- if transition = $concat_result(frame_h, operand_r, UNUSED, slotValue_l, slotValue_h)
+  -- if (frame_out, numericResult) = $concat_values(frame_h, operand_r = operand_l /\ operand_l = operand_h, slotValue_l, slotValue_h)
+  -- if transition = $apply_numeric(frame_out, operand_r, UNUSED, eps, numericResult)
 
 relation StringOperand: frame; operand ~> frame; bytes
   hint(input %0 %1)
 rule StringOperand/read:
   frame; operand ~> $string_frame(frame', slotValue); bytes
   -- if (frame', slotValue) = $read_operand(frame, operand)
-  -- if $simple_value(slotValue)
+  -- if $known_value(slotValue)
   -- if bytes = $scalar_bytes(slotValue)
 
 ;; FAST_CONCAT converts its left operand before fetching the right operand.
 rule StringStep/fast-concat:
   frame; FAST_CONCAT; operand_r; operand_l; operand_h; _ ~> transition
   -- StringOperand: frame; operand_l ~> frame_l; bytes_l
-  -- if (frame_h, slotValue_h) = $read_operand(frame_l, operand_h)
-  -- if transition = $concat_right(frame_h, operand_r, UNUSED, bytes_l, slotValue_h)
+  -- StringOperand: frame_l; operand_h ~> frame_h; bytes_h
+  -- if transition = CONTINUE $write(frame_h, operand_r, STRING (bytes_l ++ bytes_h))
 
 ;; A rope retains the bytes converted at each instruction, indexed by its
 ;; base temporary and fragment number. END joins them in fragment-number order.

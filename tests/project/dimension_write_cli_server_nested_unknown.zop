@@ -1,0 +1,22 @@
+zend-opcodes
+file "server_unknown_nested.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 0
+  locals 2 ["_SERVER", "copy"]
+  size 7 literals 4 children 0
+  lit[0] = "PHP_SPEC_UNKNOWN_PARENT"
+  lit[1] = "nested"
+  lit[2] = int(1)
+  lit[3] = "P"
+  code
+    0: ASSIGN CV1, CV0 | line=1
+    1: ECHO lit[3] | line=1
+    2: V2 = FETCH_DIM_W CV1, lit[0] | line=1 ext=2
+    3: ASSIGN_DIM V2, lit[1] | line=1
+    4: OP_DATA lit[2] | line=1
+    5: ECHO lit[2] | line=1
+    6: RETURN lit[2] | line=1
+}
+end

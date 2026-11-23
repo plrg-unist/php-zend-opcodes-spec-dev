@@ -1,47 +1,48 @@
+syntax comparisonMode = { STRICT bool, EQUALITY bool, SCRIPT bytes }
 syntax valueOrder = ORDER int | UNKNOWN_ORDER
-dec $value_order(bool, slotValue, slotValue) : valueOrder
+dec $value_order(comparisonMode, slotValue, slotValue) : valueOrder
 
-dec $found_order(slotValue, slotValue?) : valueOrder
-def $found_order(slotValue_l, slotValue_r) = $value_order(false, slotValue_l, slotValue_r)
-def $found_order(_, eps) = ORDER 1
+dec $found_order(comparisonMode, slotValue, slotValue?) : valueOrder
+def $found_order(comparisonMode, slotValue_l, slotValue_r) = $value_order(comparisonMode, slotValue_l, slotValue_r)
+def $found_order(_, _, eps) = ORDER 1
 
 ;; Strict comparisons use insertion order. Loose comparisons look up the left key
 ;; in the right array when the entries at the same position have different keys.
-dec $entry_order(bool, runtimeEntry, runtimeEntry, runtimeEntry*) : valueOrder
-def $entry_order(b, ITEM arraykey slotValue_l, ITEM arraykey slotValue_r, _) =
-  $value_order(b, slotValue_l, slotValue_r)
-def $entry_order(true, ITEM arraykey_l _, ITEM arraykey_r _, _) = ORDER 1
-  -- if arraykey_l =/= arraykey_r
-def $entry_order(false, ITEM arraykey_l slotValue_l, ITEM arraykey_r _, runtimeEntry*) =
-  $found_order(slotValue_l, $array_find(runtimeEntry*, arraykey_l))
-  -- if arraykey_l =/= arraykey_r
+dec $entry_order(comparisonMode, runtimeEntry, runtimeEntry, runtimeEntry*) : valueOrder
+def $entry_order(comparisonMode, ITEM arraykey slotValue_l, ITEM arraykey slotValue_r, _) =
+  $value_order(comparisonMode, slotValue_l, slotValue_r)
+def $entry_order(comparisonMode, ITEM arraykey_l _, ITEM arraykey_r _, _) = ORDER 1
+  -- if arraykey_l =/= arraykey_r /\ comparisonMode.STRICT
+def $entry_order(comparisonMode, ITEM arraykey_l slotValue_l, ITEM arraykey_r _, runtimeEntry*) =
+  $found_order(comparisonMode, slotValue_l, $array_find(runtimeEntry*, arraykey_l))
+  -- if arraykey_l =/= arraykey_r /\ ~comparisonMode.STRICT
 
 ;; Stop at the first differing or unknown entry. Splitting the range bounds the
 ;; interpreter's call depth even when coverage records each individual step.
-dec $entry_range(bool, runtimeEntry*, runtimeEntry*, nat, nat) : valueOrder
-dec $entry_rest(bool, runtimeEntry*, runtimeEntry*, nat, nat, valueOrder) : valueOrder
+dec $entry_range(comparisonMode, runtimeEntry*, runtimeEntry*, nat, nat) : valueOrder
+dec $entry_rest(comparisonMode, runtimeEntry*, runtimeEntry*, nat, nat, valueOrder) : valueOrder
 def $entry_range(_, _, _, n, n) = ORDER 0
-def $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n, n_end) =
-  $entry_order(b, runtimeEntry_l*[n], runtimeEntry_r*[n], runtimeEntry_r*)
+def $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n, n_end) =
+  $entry_order(comparisonMode, runtimeEntry_l*[n], runtimeEntry_r*[n], runtimeEntry_r*)
   -- if n_end = $(n + 1)
-def $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n_start, n_end) =
-  $entry_rest(b, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end,
-              $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n_start, n_mid))
+def $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_start, n_end) =
+  $entry_rest(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end,
+              $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_start, n_mid))
   -- if $(n_start + 1 < n_end)
   -- if n_mid = $((n_start + n_end) / 2)
-def $entry_rest(b, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end, ORDER 0) =
-  $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end)
+def $entry_rest(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end, ORDER 0) =
+  $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end)
 def $entry_rest(_, _, _, _, _, valueOrder) = valueOrder
   -- if valueOrder =/= ORDER 0
 
-dec $array_order(bool, arrayId, runtimeEntry*, arrayId, runtimeEntry*) : valueOrder
+dec $array_order(comparisonMode, arrayId, runtimeEntry*, arrayId, runtimeEntry*) : valueOrder
 def $array_order(_, arrayId, _, arrayId, _) = ORDER 0
 def $array_order(_, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*) =
   ORDER $int_order(|runtimeEntry_l*|, |runtimeEntry_r*|)
   -- if arrayId_l =/= arrayId_r
   -- if |runtimeEntry_l*| =/= |runtimeEntry_r*|
-def $array_order(b, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*) =
-  $entry_range(b, runtimeEntry_l*, runtimeEntry_r*, 0, |runtimeEntry_l*|)
+def $array_order(comparisonMode, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*) =
+  $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, 0, |runtimeEntry_l*|)
   -- if arrayId_l =/= arrayId_r
   -- if |runtimeEntry_l*| = |runtimeEntry_r*|
 
@@ -53,26 +54,32 @@ def $array_scalar_order(false, slotValue, zval) = $bool_order($truth(slotValue),
 def $array_scalar_order(_, _, _) = 1
   -- otherwise
 
-;; Even with an empty environment, file-mode CLI installs the nine entries
-;; described in $server_lookup. Zend compares array sizes before any entries.
-dec $smaller_than_server(runtimeEntry*) : bool
-def $smaller_than_server(runtimeEntry*) = $(|runtimeEntry*| < 9)
+dec $server_pair_order(comparisonMode, slotValue, slotValue) : valueOrder
 
-def $value_order(true, zval_l, zval_r) = ORDER $bool_order(~$identical_scalar(zval_l, zval_r), false)
-  -- if $simple_value(zval_l) /\ $simple_value(zval_r)
-def $value_order(false, zval_l, zval_r) = ORDER $scalar_order(zval_l, zval_r)
-  -- if $simple_value(zval_l) /\ $simple_value(zval_r)
-def $value_order(b, ARRAY_VALUE arrayId_l runtimeEntry_l* _ _, ARRAY_VALUE arrayId_r runtimeEntry_r* _ _) =
-  $array_order(b, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*)
-def $value_order(b, slotValue_l, zval_r) = ORDER $array_scalar_order(b, slotValue_l, zval_r)
+def $value_order(comparisonMode, zval_l, zval_r) = ORDER $bool_order(~$identical_scalar(zval_l, zval_r), false)
+  -- if $simple_value(zval_l) /\ $simple_value(zval_r) /\ comparisonMode.STRICT
+def $value_order(comparisonMode, zval_l, zval_r) = ORDER $scalar_order(zval_l, zval_r)
+  -- if $simple_value(zval_l) /\ $simple_value(zval_r) /\ ~comparisonMode.STRICT
+def $value_order(comparisonMode, ARRAY_VALUE arrayId_l runtimeEntry_l* _ _, ARRAY_VALUE arrayId_r runtimeEntry_r* _ _) =
+  $array_order(comparisonMode, arrayId_l, runtimeEntry_l*, arrayId_r, runtimeEntry_r*)
+def $value_order(comparisonMode, slotValue_l, zval_r) = ORDER $array_scalar_order(comparisonMode.STRICT, slotValue_l, zval_r)
   -- if $is_array_value(slotValue_l) /\ $simple_value(zval_r)
-def $value_order(b, zval_l, slotValue_r) = ORDER $(-$array_scalar_order(b, slotValue_r, zval_l))
+  -- if comparisonMode.STRICT \/ $($scalar_type_bit(zval_r) >= 16) \/ $truth_known(slotValue_l)
+def $value_order(comparisonMode, zval_l, slotValue_r) = ORDER $(-$array_scalar_order(comparisonMode.STRICT, slotValue_r, zval_l))
   -- if $simple_value(zval_l) /\ $is_array_value(slotValue_r)
-def $value_order(_, CLI_ARRAY, CLI_ARRAY) = ORDER 0
-def $value_order(_, CLI_ARRAY, ARRAY_VALUE _ runtimeEntry* _ _) = ORDER 1
-  -- if $smaller_than_server(runtimeEntry*)
-def $value_order(_, ARRAY_VALUE _ runtimeEntry* _ _, CLI_ARRAY) = ORDER (-1)
-  -- if $smaller_than_server(runtimeEntry*)
+  -- if comparisonMode.STRICT \/ $($scalar_type_bit(zval_l) >= 16) \/ $truth_known(slotValue_r)
+def $value_order(_, slotValue_l, slotValue_r) = ORDER 0
+  -- if $server_array(slotValue_l) /\ $server_array(slotValue_r)
+  -- if $server_id(slotValue_l) = $server_id(slotValue_r)
+def $value_order(comparisonMode, slotValue_l, slotValue_r) = $server_pair_order(comparisonMode, slotValue_l, slotValue_r)
+  -- if $server_array(slotValue_l) /\ $server_array(slotValue_r)
+  -- if $server_id(slotValue_l) =/= $server_id(slotValue_r)
+def $value_order(_, slotValue_l, ARRAY_VALUE _ runtimeEntry* _ _) = ORDER 1
+  -- if $server_array(slotValue_l)
+  -- if $(|runtimeEntry*| < $server_min_size(slotValue_l))
+def $value_order(_, ARRAY_VALUE _ runtimeEntry* _ _, slotValue_r) = ORDER (-1)
+  -- if $server_array(slotValue_r)
+  -- if $(|runtimeEntry*| < $server_min_size(slotValue_r))
 def $value_order(_, _, _) = UNKNOWN_ORDER
   -- otherwise
 
@@ -80,7 +87,8 @@ dec $comparison_result(opcode, valueOrder) : numericResult
 def $comparison_result(opcode, ORDER i) = NUM_VALUE $order_result(opcode, i)
 def $comparison_result(_, UNKNOWN_ORDER) = NUM_UNSUPPORTED
 
-dec $numeric_compare(opcode, slotValue, slotValue) : numericResult
-def $numeric_compare(opcode, slotValue_l, slotValue_r) =
-  $comparison_result(opcode, $value_order((opcode = IS_IDENTICAL) \/ (opcode = IS_NOT_IDENTICAL),
-                                         slotValue_l, slotValue_r))
+dec $numeric_compare(opcode, slotValue, slotValue, bytes) : numericResult
+def $numeric_compare(opcode, slotValue_l, slotValue_r, bytes_script) =
+  $comparison_result(opcode, $value_order(comparisonMode, slotValue_l, slotValue_r))
+  -- if comparisonMode = { STRICT (opcode <- [IS_IDENTICAL, IS_NOT_IDENTICAL]),
+      EQUALITY (opcode <- [IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL]), SCRIPT bytes_script }

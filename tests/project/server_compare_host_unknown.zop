@@ -1,0 +1,23 @@
+zend-opcodes
+file "server_compare_host_unknown.php"
+main
+body - {
+  lines 1 3
+  frame 4 cache 0
+  locals 2 ["l", "_SERVER"]
+  size 8 literals 4 children 0
+  lit[0] = "PATH"
+  lit[1] = "v"
+  lit[2] = "H"
+  lit[3] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN_DIM CV0, lit[0] | line=2
+    2: OP_DATA lit[1] | line=2
+    3: ECHO lit[2] | line=2
+    4: T4 = IS_EQUAL CV0, CV1 | line=2
+    5: T5 = CAST T4 | line=2 ext=4
+    6: ECHO T5 | line=2
+    7: RETURN lit[3] | line=3 ext=4294967295
+}
+end

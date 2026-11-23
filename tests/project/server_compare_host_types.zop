@@ -1,0 +1,85 @@
+zend-opcodes
+file "server_compare_host_types.php"
+main
+body - {
+  lines 1 10
+  frame 26 cache 0
+  locals 3 ["l", "_SERVER", "r"]
+  size 52 literals 22 children 0
+  lit[0] = "REQUEST_TIME"
+  lit[1] = array#0()
+  lit[2] = "REQUEST_TIME_FLOAT"
+  lit[3] = array-ref(0)
+  lit[4] = ":"
+  lit[5] = ":"
+  lit[6] = "\x0a"
+  lit[7] = "PATH"
+  lit[8] = array-ref(0)
+  lit[9] = "argc"
+  lit[10] = int(2)
+  lit[11] = "\x0a"
+  lit[12] = "PATH"
+  lit[13] = "v"
+  lit[14] = "PATH"
+  lit[15] = "v"
+  lit[16] = ":"
+  lit[17] = "\x0a"
+  lit[18] = "PATH"
+  lit[19] = "PATH"
+  lit[20] = "\x0a"
+  lit[21] = int(1)
+  code
+    0: ASSIGN CV0, CV1 | line=2
+    1: ASSIGN CV2, CV1 | line=2
+    2: ASSIGN_DIM CV0, lit[0] | line=3
+    3: OP_DATA lit[1] | line=3
+    4: ASSIGN_DIM CV0, lit[2] | line=3
+    5: OP_DATA lit[3] | line=3
+    6: T7 = IS_IDENTICAL CV0, CV2 | line=4
+    7: T8 = CAST T7 | line=4 ext=4
+    8: ECHO T8 | line=4
+    9: T9 = IS_IDENTICAL CV2, CV0 | line=4
+    10: T10 = CAST T9 | line=4 ext=4
+    11: ECHO T10 | line=4
+    12: ECHO lit[4] | line=4
+    13: T11 = SPACESHIP CV0, CV2 | line=4
+    14: ECHO T11 | line=4
+    15: ECHO lit[5] | line=4
+    16: T12 = SPACESHIP CV2, CV0 | line=4
+    17: ECHO T12 | line=4
+    18: ECHO lit[6] | line=4
+    19: ASSIGN_DIM CV0, lit[7] | line=5
+    20: OP_DATA lit[8] | line=5
+    21: ASSIGN_DIM CV0, lit[9] | line=5
+    22: OP_DATA lit[10] | line=5
+    23: T15 = IS_IDENTICAL CV0, CV2 | line=6
+    24: T16 = CAST T15 | line=6 ext=4
+    25: ECHO T16 | line=6
+    26: T17 = IS_EQUAL CV0, CV2 | line=6
+    27: T18 = CAST T17 | line=6 ext=4
+    28: ECHO T18 | line=6
+    29: ECHO lit[11] | line=6
+    30: ASSIGN CV0, CV1 | line=7
+    31: ASSIGN_DIM CV0, lit[12] | line=7
+    32: OP_DATA lit[13] | line=7
+    33: ASSIGN_DIM CV2, lit[14] | line=7
+    34: OP_DATA lit[15] | line=7
+    35: T22 = IS_IDENTICAL CV0, CV2 | line=8
+    36: T23 = CAST T22 | line=8 ext=4
+    37: ECHO T23 | line=8
+    38: T24 = IS_EQUAL CV0, CV2 | line=8
+    39: T25 = CAST T24 | line=8 ext=4
+    40: ECHO T25 | line=8
+    41: ECHO lit[16] | line=8
+    42: T26 = SPACESHIP CV0, CV2 | line=8
+    43: ECHO T26 | line=8
+    44: ECHO lit[17] | line=8
+    45: UNSET_DIM CV0, lit[18] | line=9
+    46: UNSET_DIM CV2, lit[19] | line=9
+    47: T27 = IS_IDENTICAL CV0, CV2 | line=9
+    48: T28 = CAST T27 | line=9 ext=4
+    49: ECHO T28 | line=9
+    50: ECHO lit[20] | line=9
+    51: RETURN lit[21] | line=10 ext=4294967295
+}
+end

@@ -1,0 +1,105 @@
+;; A direct unset always gives this error. A nested unset also gives it when its key is illegal.
+dec $unset_string_error() : bytes
+;; Error: Cannot unset string offsets
+def $unset_string_error() =
+  [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 110, 115, 101, 116, 32, 115,
+    116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101, 116, 115 ]
+
+dec $bad_string_key(opcode, slotValue) : numericResult
+def $bad_string_key(FETCH_DIM_UNSET, _) = NUM_ERROR $unset_string_error()
+;; TypeError: Cannot access offset of type <type> on string
+def $bad_string_key(opcode, slotValue) = NUM_ERROR
+  ([ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 97, 99, 99,
+     101, 115, 115, 32, 111, 102, 102, 115, 101, 116, 32, 111, 102, 32, 116, 121, 112, 101, 32 ]
+    ++ $value_name(slotValue) ++ [ 32, 111, 110, 32, 115, 116, 114, 105, 110, 103 ])
+  -- if opcode =/= FETCH_DIM_UNSET
+
+;; String reads, writes and isset/empty each accept different offset conversions.
+dec $integer_offset_prefix(parsedNumber) : bool
+def $integer_offset_prefix(NUMERIC (INT _) _ _) = true
+def $integer_offset_prefix(_) = false -- otherwise
+
+;; These keys raise before Zend consults the extended write context.
+dec $invalid_string_offset(slotValue) : bool
+def $invalid_string_offset(STRING bytes) = ~$integer_offset_prefix($numeric_string(bytes))
+def $invalid_string_offset(slotValue) = ~$simple_value(slotValue) /\ slotValue =/= UNDEF
+  -- if $scalar_type_bit(slotValue) =/= 64
+
+dec $offset_integer_text(opcode, bytes, parsedNumber) : numericResult
+;; Illegal string offset "<key>"
+def $offset_integer_text(opcode, bytes, NUMERIC (INT i) true _) =
+  NUM_WARNING ([ 73, 108, 108, 101, 103, 97, 108, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 102,
+                 115, 101, 116, 32, 34 ] ++ bytes ++ [34]) (NUM_VALUE (INT i))
+  -- if opcode =/= ISSET_ISEMPTY_DIM_OBJ /\ opcode =/= FETCH_DIM_UNSET
+def $offset_integer_text(opcode, _, NUMERIC (INT i) b _) = NUM_VALUE (INT i)
+  -- if ~b \/ opcode = FETCH_DIM_UNSET
+def $offset_integer_text(ISSET_ISEMPTY_DIM_OBJ, _, NUMERIC (INT _) true _) = NUM_VALUE NULL
+def $offset_integer_text(opcode, bytes, _) = NUM_VALUE NULL
+  -- if (opcode = FETCH_DIM_IS \/ opcode = ISSET_ISEMPTY_DIM_OBJ) /\ $invalid_string_offset(STRING bytes)
+def $offset_integer_text(opcode, bytes, _) = $bad_string_key(opcode, STRING bytes)
+  -- if opcode =/= FETCH_DIM_IS /\ opcode =/= ISSET_ISEMPTY_DIM_OBJ /\ $invalid_string_offset(STRING bytes)
+
+;; The explicit string-offset cast suppresses the float conversion's own diagnostics.
+dec $silent_offset_float(nat) : int
+def $silent_offset_float(n) = $signed64($f64_trunc(n))
+  -- if $($float_magnitude(n) < 0x7FF0_0000_0000_0000)
+def $silent_offset_float(n) = 0 -- if $($float_magnitude(n) >= 0x7FF0_0000_0000_0000)
+
+dec $offset_cast(opcode, int) : numericResult
+def $offset_cast(opcode, i) = NUM_VALUE (INT i)
+  -- if opcode = FETCH_DIM_IS \/ opcode = ISSET_ISEMPTY_DIM_OBJ
+;; String offset cast occurred
+def $offset_cast(opcode, i) = NUM_WARNING (
+    [ 83, 116, 114, 105, 110, 103, 32, 111, 102, 102, 115, 101, 116, 32, 99, 97, 115, 116, 32, 111, 99,
+      99, 117, 114, 114, 101, 100 ]) (NUM_VALUE (INT i))
+  -- if opcode =/= FETCH_DIM_IS /\ opcode =/= ISSET_ISEMPTY_DIM_OBJ
+
+;; isset/empty use the strict scalar conversion. A range warning is followed by
+;; a precision deprecation even for infinity or a finite value outside the long range.
+dec $probe_offset_float(nat, numericResult) : numericResult
+def $probe_offset_float(n, NUM_WARNING bytes (NUM_VALUE (INT i))) =
+  NUM_WARNING bytes $integer_precision(true, n, i)
+def $probe_offset_float(n, NUM_VALUE (INT i)) =
+  $integer_precision($float_magnitude(n) =/= $float_magnitude($f64_from_int(i)), n, i)
+
+dec $string_offset(opcode, slotValue) : numericResult
+def $string_offset(_, INT i) = NUM_VALUE (INT i)
+def $string_offset(opcode, STRING bytes) = $offset_integer_text(opcode, bytes, $numeric_string(bytes))
+def $string_offset(ISSET_ISEMPTY_DIM_OBJ, FLOAT n) = $probe_offset_float(n, $float_integer(n, false))
+def $string_offset(opcode, FLOAT n) = $offset_cast(opcode, $silent_offset_float(n))
+  -- if opcode =/= ISSET_ISEMPTY_DIM_OBJ
+def $string_offset(opcode, slotValue) = $offset_cast(opcode, 0)
+  -- if slotValue <- [UNDEF, NULL, FALSE]
+def $string_offset(opcode, TRUE) = $offset_cast(opcode, 1)
+def $string_offset(ISSET_ISEMPTY_DIM_OBJ, slotValue) = NUM_VALUE NULL
+  -- if ~$simple_value(slotValue) /\ slotValue =/= UNDEF
+def $string_offset(opcode, slotValue) = $bad_string_key(opcode, slotValue)
+  -- if opcode =/= ISSET_ISEMPTY_DIM_OBJ /\ $scalar_type_bit(slotValue) =/= 64 /\ $invalid_string_offset(slotValue)
+
+dec $offset_position(bytes, int) : int
+def $offset_position(bytes, i) = $(|bytes| + i) -- if $(i < 0)
+def $offset_position(_, i) = i -- if $(i >= 0)
+
+dec $string_byte(bytes, slotValue) : slotValue
+def $string_byte(bytes, INT i) = STRING bytes[n : 1]
+  -- if i_pos = $offset_position(bytes, i)
+  -- if $(0 <= i_pos) /\ $(i_pos < |bytes|)
+  -- if n = i_pos
+def $string_byte(_, _) = NULL -- otherwise
+
+;; Build padding with logarithmic recursion depth.
+dec $offset_spaces(nat) : bytes
+def $offset_spaces(0) = eps
+def $offset_spaces(n) = bytes_half ++ bytes_half ++ bytes_one[0 : n_last]
+  -- if $(n > 0)
+  -- if bytes_half = $offset_spaces($(n / 2))
+  -- if bytes_one = [32]
+  -- if n_last = $(n \ 2)
+
+dec $replace_offset(bytes, nat, nat) : bytes
+def $replace_offset(bytes, n_index, n_byte) = bytes[0 : n_index] ++ [n_byte] ++ $numeric_tail(bytes, n_next)
+  -- if $(n_index < |bytes|)
+  -- if n_next = $(n_index + 1)
+def $replace_offset(bytes, n_index, n_byte) = bytes ++ $offset_spaces(n_pad) ++ [n_byte]
+  -- if $(n_index >= |bytes|)
+  -- if n_pad = $(n_index - |bytes|)

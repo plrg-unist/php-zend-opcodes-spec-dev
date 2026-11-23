@@ -170,7 +170,7 @@ dec $number_operand(slotValue, numericResult) : numericResult
 def $number_operand(STRING bytes, numericResult) = $string_number($numeric_string(bytes), numericResult)
 def $number_operand(slotValue, _) = NUM_VALUE zval
   -- if zval = $plain_number(slotValue)
-def $number_operand(_, _) = NUM_UNSUPPORTED
+def $number_operand(_, numericResult_error) = numericResult_error
   -- otherwise
 
 ;; Zend uses the shortest decimal spelling in float diagnostics.
@@ -251,7 +251,7 @@ def $integer_operand(STRING bytes, numericResult) = $string_integer($numeric_str
 def $integer_operand(FLOAT n, _) = $float_integer(n, true)
 def $integer_operand(slotValue, _) = NUM_VALUE (INT i)
   -- if INT i = $plain_number(slotValue)
-def $integer_operand(_, _) = NUM_UNSUPPORTED
+def $integer_operand(_, numericResult_error) = numericResult_error
   -- otherwise
 
 dec $cast_string_float(decimalLexeme?) : nat
@@ -259,6 +259,8 @@ def $cast_string_float(DECIMAL_TOKEN bytes _ _ _) = $f64_parse(bytes)
 def $cast_string_float(eps) = 0
 
 dec $numeric_cast(nat, slotValue) : numericResult
+def $numeric_cast(n, slotValue) = $numeric_cast(n, $zend_bool($truth(slotValue)))
+  -- if $is_array_value(slotValue)
 def $numeric_cast(4, STRING bytes) = $string_integer($numeric_string(bytes), bytes, false, NUM_VALUE (INT 0))
 def $numeric_cast(4, FLOAT n) = $float_integer(n, false)
 def $numeric_cast(4, slotValue) = NUM_VALUE (INT i)
@@ -266,5 +268,3 @@ def $numeric_cast(4, slotValue) = NUM_VALUE (INT i)
 def $numeric_cast(5, STRING bytes) = NUM_VALUE (FLOAT $cast_string_float($decimal_token(bytes)))
 def $numeric_cast(5, slotValue) = NUM_VALUE (FLOAT $number_bits(zval))
   -- if zval = $plain_number(slotValue)
-def $numeric_cast(_, _) = NUM_UNSUPPORTED
-  -- otherwise
