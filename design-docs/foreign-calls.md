@@ -2,7 +2,7 @@
 
 ## Functions supplied by this project
 
-The `.watsup` rules call five pure `extern` functions implemented in Rust. They pass each PHP float as its 64-bit IEEE 754 encoding. The rules choose when PHP converts a value and which warnings or errors it produces. [Declarations](../spec/value_binary64.watsup) · [Rust implementation](../src/binary64.rs)
+The `.watsup` rules call five pure `extern` functions implemented in Rust. They pass each PHP float as its 64-bit IEEE 754 encoding. The rules choose when PHP converts a value and which warnings or errors it produces. [Declarations](../spec/01-values/00-binary64.watsup) · [Rust implementation](../src/binary64.rs)
 
 | Function | What Rust computes |
 | --- | --- |
@@ -14,7 +14,7 @@ The `.watsup` rules call five pure `extern` functions implemented in Rust. They 
 
 ## Functions supplied by P4-SpecTec
 
-The spec also calls seven standard `builtin` functions. `$band`, `$bor`, `$bxor`, and `$bneg` compute bitwise AND, OR, XOR, and complement. `$shl` and `$shr` shift integers. `$min_nat` finds the shorter length when comparing two byte strings. [Bitwise rules](../spec/values_numeric_bitwise.watsup) · [Comparison rules](../spec/values_numeric_compare.watsup)
+The spec also calls seven standard `builtin` functions. `$band`, `$bor`, `$bxor`, and `$bneg` compute bitwise AND, OR, XOR, and complement. `$shl` and `$shr` shift integers. `$min_nat` finds the shorter length when comparing two byte strings. [Bitwise rules](../spec/01-values/04-bitwise.watsup) · [Comparison rules](../spec/01-values/05-comparison.watsup)
 
 ## Checking the inventory
 

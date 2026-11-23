@@ -10,7 +10,7 @@ use p4spectec::{
 pub(super) fn runner(arena: &mut Arena) -> Runner<NullInterface, NullExtern> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let paths = [
-        root.join("spec/syntax.watsup"),
+        root.join("spec/00-syntax.watsup"),
         root.join("src/tests.watsup"),
     ];
     let (spec, _) = runner_spec_with_warnings(SpecLang::Sl, &paths);

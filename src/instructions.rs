@@ -12,8 +12,8 @@ use crate::{Error, Parser, Printer, Result, Value};
 
 fn opcode_names() -> Result<HashSet<String>> {
     let spec = parse_text(
-        "spec/syntax.watsup".into(),
-        include_str!("../spec/syntax.watsup"),
+        "spec/00-syntax.watsup".into(),
+        include_str!("../spec/00-syntax.watsup"),
     )
     .map_err(|error| Error::new(format!("cannot parse embedded opcode syntax: {error}")))?;
     for definition in spec {

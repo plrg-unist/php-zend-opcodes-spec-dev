@@ -201,7 +201,10 @@ mod tests {
     #[test]
     fn spec_primitives_preserve_machine_rounding_and_truncate_exactly() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("spec");
-        let paths = [dir.join("syntax.watsup"), dir.join("value_binary64.watsup")];
+        let paths = [
+            dir.join("00-syntax.watsup"),
+            dir.join("01-values/00-binary64.watsup"),
+        ];
         let spec = p4spectec::structure(&paths, true).unwrap();
         let mut arena = Arena::new();
         let mut runner = build_sl(

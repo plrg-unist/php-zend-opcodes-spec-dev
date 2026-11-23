@@ -14,6 +14,12 @@ Introduce project-defined versioning only at the user's request. Supply version 
 - [Testing the opcode printer and loader](extension-testing.md) describes the test runner and its checks.
 - [Differential testing against Zend](differential-testing.md) covers the executable, fixture manifest, spec coverage gate, and future VM observation.
 
+## Spec layout
+
+The root syntax file defines the compilation-unit AST. Put operations on PHP values in `01-values/` and rules that execute opcodes and update the frame in `02-vm/`. [Syntax](../spec/00-syntax.watsup) · [Value operations](../spec/01-values/) · [VM rules](../spec/02-vm/)
+
+P4-SpecTec reads each directory in filename order and descends into its subdirectories. Prefix every directory and `.watsup` file under `spec/` with two digits and a hyphen. Number siblings from `00` in dependency order. Renumber as needed when inserting or reordering files, and update affected Rust paths and documentation links in the same change. [P4-SpecTec file discovery](../../p4-spectec/p4spectec/core/src/frontend/parse.rs#L110)
+
 ## Dependencies
 
 - Add required Rust dependencies directly.

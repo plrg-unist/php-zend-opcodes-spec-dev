@@ -1,6 +1,6 @@
 # Opcode assignments for the proposed milestones
 
-Each name in the [pinned opcode syntax](../spec/syntax.watsup) has one initial assignment in the [roadmap](semantics-roadmap.md). Introduce the supported operand cases there and extend earlier instructions as later runtime types and behaviors enter. For example, object iteration extends the array foreach rules, and destructors can affect earlier assignment, `FREE` and exception cleanup. The groups cover 212 named opcodes.
+Each name in the [pinned opcode syntax](../spec/00-syntax.watsup) has one initial assignment in the [roadmap](semantics-roadmap.md). Introduce the supported operand cases there and extend earlier instructions as later runtime types and behaviors enter. For example, object iteration extends the array foreach rules, and destructors can affect earlier assignment, `FREE` and exception cleanup. The groups cover 212 named opcodes.
 
 ## 1. Executable main
 

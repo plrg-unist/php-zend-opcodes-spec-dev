@@ -1,6 +1,6 @@
 # Zend opcode AST and Rust library
 
-The Rust library converts a `.zop` listing to a P4-SpecTec compilation-unit value and back. The spec executable takes the same value as input. [AST definition](../spec/syntax.watsup) · [Concrete syntax](opcode-syntax.md) · [Execution contract](differential-testing.md)
+The Rust library converts a `.zop` listing to a P4-SpecTec compilation-unit value and back. The spec executable takes the same value as input. [AST definition](../spec/00-syntax.watsup) · [Concrete syntax](opcode-syntax.md) · [Execution contract](differential-testing.md)
 
 ## Specification and crate
 

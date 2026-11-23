@@ -2,7 +2,7 @@
 
 ## Agreed boundary
 
-- Keep the full [opcode syntax](../spec/syntax.watsup). The execution semantics operates on one finalized compilation unit, including its functions, methods, closures and conditional declarations. Both compiler profiles supply inputs.
+- Keep the full [opcode syntax](../spec/00-syntax.watsup). The execution semantics operates on one finalized compilation unit, including its functions, methods, closures and conditional declarations. Both compiler profiles supply inputs.
 - Exclude runtime compilation of source and loading additional units, including through an autoloader. A dynamically selected call can still resolve to a body in the unit or a supported builtin. [Zend include and eval](../../php-src/Zend/zend_execute.c#L5354)
 - Run one fresh CLI request with fixed initial settings. Supply stdin bytes followed by EOF and collect stdout and stderr separately. The logical filename in the unit is available as data. Filesystem, network, process environment, clock and host randomness are outside scope. Include selected builtins whose behavior can be expressed within the model.
 - Exclude host resource limits and allocator measurements. A runner deadline can fail a test run. If either side times out, the comparison has no final PHP outcome from that side.
@@ -21,8 +21,8 @@ Pinned Zend defines in-scope behavior. Describe a rule in terms of what a PHP pr
 
 When two rules might differ observably, look for a small program that distinguishes them. A handler can print its arguments, or a `catch` block can inspect a property changed before a throw. For a specialized opcode and an ordinary call, inspect the listings to confirm which path each compiler profile emitted. Preserve each path's observable behavior by default.
 
-- Interpolation ropes store byte fragments by rope and position. Convert each operand at its instruction to preserve warning order, then join the fragments in position order at `ROPE_END`. [String rules](../spec/vm_strings.watsup) · [Interleaved ropes fixture](../tests/project/rope_indices.zop)
-- Integer exponentiation promotes at the first overflowing multiplication. Zend produces adjacent floats for `3 ** 61` and `3.0 ** 61`, so promoting the integer base at the outset would change a strict comparison. [Arithmetic rules](../spec/values_numeric_arithmetic.watsup) · [Power regression](../tests/project/numeric_power_edges.php)
+- Interpolation ropes store byte fragments by rope and position. Convert each operand at its instruction to preserve warning order, then join the fragments in position order at `ROPE_END`. [String rules](../spec/02-vm/03-strings.watsup) · [Interleaved ropes fixture](../tests/project/rope_indices.zop)
+- Integer exponentiation promotes at the first overflowing multiplication. Zend produces adjacent floats for `3 ** 61` and `3.0 ** 61`, so promoting the integer base at the outset would change a strict comparison. [Arithmetic rules](../spec/01-values/03-arithmetic.watsup) · [Power regression](../tests/project/numeric_power_edges.php)
 
 Whenever an agent identifies a reason to abstract away an observable Zend behavior, the coordinator reports it to the user as soon as it arises. Subagents pass such findings to the coordinator. Show the pinned and proposed outcomes on a concrete example. Explain the general rule, the evidence that Zend's behavior is incidental, and the cost of matching it. The user decides whether to preserve Zend's behavior or approve the abstraction. Obtain explicit approval before implementing the divergent rule or accepting it in the tests. [Differential suite](differential-testing.md#spec-executable-and-differential-suite)
 
