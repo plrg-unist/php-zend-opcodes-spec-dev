@@ -4,14 +4,17 @@ var b : bool
 
 ;; Shared arrays compare equal immediately, even when an element is NaN.
 syntax literalRoot = POOL_LITERAL nat bool | SHARED_LITERAL nat bool
-syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat
+syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat | SYMBOL_TABLE
 syntax slotValue
 syntax runtimeEntry = ITEM arraykey slotValue
-syntax serverHistory = { TAIL runtimeEntry*, SATURATED bool }
+syntax cliOrigin = SERVER | ENVIRONMENT
+syntax hostSource = ENV_ENTRY arraykey | CLOCK_ENTRY arraykey | INSTALL_ENTRY text
+syntax serverHistory = { ORIGIN cliOrigin, TAIL runtimeEntry*, SATURATED bool }
 syntax arrayLayout = VACANT nat | PACKED nat | MIXED nat nat*
 syntax arrayIndex = STORAGE int arrayLayout
-syntax slotValue = zval | CLI_ARRAY | CLI_UPDATED arrayId runtimeEntry* serverHistory | ARRAY_VALUE arrayId runtimeEntry* arrayIndex? nat?
-                 | ELEMENT_LOCATION nat arraykey | REFERENCE nat | HOST_OFFSET arraykey
+syntax slotValue = zval | CLI_ARRAY | CLI_ENV | CLI_UPDATED arrayId runtimeEntry* serverHistory | ARRAY_VALUE arrayId runtimeEntry* arrayIndex? nat?
+                 | STREAM nat
+                 | ELEMENT_LOCATION nat arraykey | SYMBOL_LOCATION nat | REFERENCE nat | HOST_OFFSET hostSource
 syntax borrowedTable = TABLE arrayId slotValue
 
 dec $current(borrowedTable*, slotValue) : slotValue
@@ -33,14 +36,19 @@ def $scalar_type_bit(TRUE) = 8
 def $scalar_type_bit(INT _) = 16
 def $scalar_type_bit(FLOAT _) = 32
 def $scalar_type_bit(STRING _) = 64
+def $scalar_type_bit(STREAM _) = 512
 def $scalar_type_bit(_) = 0
   -- otherwise
 
 dec $simple_value(slotValue) : bool
 def $simple_value(slotValue) = $scalar_type_bit(slotValue) =/= 0
 
+dec $host_offset(slotValue) : bool
+dec $host_type_values(slotValue) : slotValue*
+
 dec $server_array(slotValue) : bool
 def $server_array(CLI_ARRAY) = true
+def $server_array(CLI_ENV) = true
 def $server_array(CLI_UPDATED _ _ _) = true
 def $server_array(_) = false -- otherwise
 
@@ -78,6 +86,7 @@ def $gettype(slotValue) = [ 98, 111, 111, 108, 101, 97, 110 ]           ;; boole
 def $gettype(INT _) = [ 105, 110, 116, 101, 103, 101, 114 ]        ;; integer
 def $gettype(FLOAT _) = [ 100, 111, 117, 98, 108, 101 ]            ;; double
 def $gettype(STRING _) = [ 115, 116, 114, 105, 110, 103 ]          ;; string
+def $gettype(STREAM _) = [ 114, 101, 115, 111, 117, 114, 99, 101 ] ;; resource
 def $gettype(slotValue) = [ 97, 114, 114, 97, 121 ]               ;; array
   -- if $is_array_value(slotValue)
 def $gettype(_) = [ 117, 110, 107, 110, 111, 119, 110, 32, 116, 121, 112, 101 ] ;; unknown type
@@ -93,7 +102,7 @@ def $value_name(INT _) = [ 105, 110, 116 ]
 def $value_name(FLOAT _) = [ 102, 108, 111, 97, 116 ]
 def $value_name(STRING _) = [ 115, 116, 114, 105, 110, 103 ]
 def $value_name(slotValue) = $gettype(slotValue)
-  -- if $is_array_value(slotValue)
+  -- if $is_array_value(slotValue) \/ $scalar_type_bit(slotValue) = 512
 
 dec $zend_bool(bool) : zval
 def $zend_bool(true) = TRUE
@@ -114,6 +123,7 @@ def $truth(DEFERRED _) = false
 def $truth(NULL) = false
 def $truth(FALSE) = false
 def $truth(TRUE) = true
+def $truth(STREAM _) = true
 def $truth(INT i) = i =/= 0
 def $truth(FLOAT n) = $float_magnitude(n) =/= 0
 def $truth(STRING bytes) = (bytes =/= eps) /\ (bytes =/= [ 48 ])
@@ -139,6 +149,7 @@ dec $scalar_bytes(slotValue) : bytes
 def $scalar_bytes(STRING bytes) = bytes
 def $scalar_bytes(INT i) = $decimal(i)
 def $scalar_bytes(FLOAT n) = $f64_format(n, 14)
+def $scalar_bytes(STREAM n) = [ 82, 101, 115, 111, 117, 114, 99, 101, 32, 105, 100, 32, 35 ] ++ $digits(n) ;; Resource id #
 def $scalar_bytes(TRUE) = [ 49 ]
 def $scalar_bytes(FALSE) = eps
 def $scalar_bytes(NULL) = eps
@@ -151,7 +162,7 @@ dec $strlen(slotValue, bool) : lengthResult
 def $strlen(STRING bytes, true) = LENGTH $(|bytes|)
 def $strlen(NULL, false) = NULL_LENGTH
 def $strlen(slotValue, false) = LENGTH $(|bytes|)
-  -- if slotValue =/= NULL /\ $simple_value(slotValue)
+  -- if slotValue =/= NULL /\ $simple_value(slotValue) /\ $scalar_type_bit(slotValue) =/= 512
   -- if bytes = $scalar_bytes(slotValue)
 def $strlen(slotValue, b_strict) = LENGTH_ERROR $value_name(slotValue)
-  -- if $is_array_value(slotValue) \/ (b_strict /\ $scalar_type_bit(slotValue) =/= 64)
+  -- if $is_array_value(slotValue) \/ $scalar_type_bit(slotValue) = 512 \/ (b_strict /\ $scalar_type_bit(slotValue) =/= 64)

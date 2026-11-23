@@ -22,7 +22,7 @@ def $integer_offset_prefix(_) = false -- otherwise
 ;; These keys raise before Zend consults the extended write context.
 dec $invalid_string_offset(slotValue) : bool
 def $invalid_string_offset(STRING bytes) = ~$integer_offset_prefix($numeric_string(bytes))
-def $invalid_string_offset(slotValue) = ~$simple_value(slotValue) /\ slotValue =/= UNDEF
+def $invalid_string_offset(slotValue) = (~$simple_value(slotValue) \/ $scalar_type_bit(slotValue) = 512) /\ slotValue =/= UNDEF
   -- if $scalar_type_bit(slotValue) =/= 64
 
 dec $offset_integer_text(opcode, bytes, parsedNumber) : numericResult
@@ -72,7 +72,7 @@ def $string_offset(opcode, slotValue) = $offset_cast(opcode, 0)
   -- if slotValue <- [UNDEF, NULL, FALSE]
 def $string_offset(opcode, TRUE) = $offset_cast(opcode, 1)
 def $string_offset(ISSET_ISEMPTY_DIM_OBJ, slotValue) = NUM_VALUE NULL
-  -- if ~$simple_value(slotValue) /\ slotValue =/= UNDEF
+  -- if $scalar_type_bit(slotValue) =/= 64 /\ $invalid_string_offset(slotValue)
 def $string_offset(opcode, slotValue) = $bad_string_key(opcode, slotValue)
   -- if opcode =/= ISSET_ISEMPTY_DIM_OBJ /\ $scalar_type_bit(slotValue) =/= 64 /\ $invalid_string_offset(slotValue)
 

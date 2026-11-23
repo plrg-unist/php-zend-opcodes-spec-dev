@@ -1,0 +1,201 @@
+;; User constants keep their values alive. Lookup caches remember the selected
+;; name, including a namespace fallback, but do not own a separate array value.
+dec $eval_constant_expr(frame, expr, nat) : (frame, numericResult)
+
+dec $halt_name() : bytes
+def $halt_name() = [95, 95, 67, 79, 77, 80, 73, 76, 69, 82, 95, 72, 65, 76, 84, 95, 79, 70, 70, 83, 69, 84, 95, 95]
+
+dec $halt_key(bytes) : bytes
+def $halt_key(bytes_file) = [0] ++ $halt_name() ++ [0] ++ bytes_file
+
+def $initial_constants(_, eps) = eps
+def $initial_constants(bytes_file, n) = [ITEM (KEY $halt_key(bytes_file)) (INT n)]
+
+dec $registered_or_builtin(slotValue?, bytes) : constantInfo?
+def $registered_or_builtin(slotValue, _) = CONST_INFO slotValue eps
+def $registered_or_builtin(eps, bytes) = $builtin_constant(bytes)
+
+dec $table_constant(frame, bytes) : constantInfo?
+def $table_constant(frame, bytes) = $registered_or_builtin($array_find(frame.CONSTANTS, KEY bytes), bytes)
+
+dec $constant_spelling(frame, nat) : bytes
+def $constant_spelling(frame, n) = bytes
+  -- if LITERAL (STRING bytes) = frame.POOL[n]
+
+dec $const_lower(nat) : nat
+def $const_lower(n) = $(n + 32) -- if $(65 <= n) /\ $(n <= 90)
+def $const_lower(n) = n -- otherwise
+
+;; Return the offset after the final delimiter, or zero if absent.
+dec $constant_last(bytes, nat, nat, nat) : nat
+dec $constant_last_half(bytes, nat, nat, nat, nat, nat, bool) : nat
+def $constant_last(_, _, n, n) = n
+def $constant_last(bytes, n_char, n_lo, n_hi) =
+  $constant_last_half(bytes, n_char, n_lo, n_hi, n_mid, n_before, n_char <- bytes[n_before : n_size])
+  -- if $(n_lo < n_hi)
+  -- if n_mid = $((n_lo + n_hi + 1) / 2)
+  -- if n_before = $(n_mid - 1)
+  -- if n_size = $(n_hi - n_before)
+def $constant_last_half(bytes, n_char, _, n_hi, n_mid, _, true) = $constant_last(bytes, n_char, n_mid, n_hi)
+def $constant_last_half(bytes, n_char, n_lo, _, _, n_before, false) = $constant_last(bytes, n_char, n_lo, n_before)
+
+dec $constant_key(bytes, nat) : bytes
+def $constant_key(bytes, n) = ($const_lower(n_char))* ++ $numeric_tail(bytes, n)
+  -- if n_char* = bytes[0 : n]
+
+dec $constant_registered_key(bytes) : bytes
+;; Registration searches for the namespace separator only up to the first NUL.
+def $constant_registered_key(n_char*) = $constant_key(n_char*, $constant_last(n_char*, 92, 0, n_end))
+  -- if b* = (n_char =/= 0)*
+  -- if n_end = $prefix_end(b*, 0, |b*|)
+
+dec $constant_special(bytes) : bytes?
+def $constant_special([116, 114, 117, 101]) = [84, 82, 85, 69]
+def $constant_special([102, 97, 108, 115, 101]) = [70, 65, 76, 83, 69]
+def $constant_special([110, 117, 108, 108]) = [78, 85, 76, 76]
+def $constant_special(_) = eps -- otherwise
+
+dec $unqualified_constant(frame, bytes, constantInfo?) : constantInfo?
+def $unqualified_constant(_, _, constantInfo) = constantInfo
+def $unqualified_constant(frame, bytes, eps) = $table_constant(frame, $halt_key(frame.FILE))
+  -- if bytes = $halt_name()
+def $unqualified_constant(_, n_char*, eps) = $builtin_constant(bytes)
+  -- if bytes = $constant_special(($const_lower(n_char))*)
+def $unqualified_constant(_, _, _) = eps -- otherwise
+
+dec $constant_result(bytes, constantInfo?) : numericResult
+def $constant_result(_, CONST_INFO slotValue bytes) = NUM_DEPRECATED bytes (NUM_VALUE slotValue)
+def $constant_result(_, CONST_INFO slotValue eps) = NUM_VALUE slotValue
+def $constant_result(bytes, eps) = NUM_ERROR ([69, 114, 114, 111, 114, 58, 32, 85, 110, 100, 101, 102, 105, 110, 101, 100, 32, 99, 111, 110, 115, 116, 97, 110, 116, 32, 34] ++ bytes ++ [34])
+
+dec $without_initial_slash(bytes) : bytes
+def $without_initial_slash(92 :: bytes) = bytes
+def $without_initial_slash(bytes) = bytes -- otherwise
+
+dec $constant_fallback(frame, bytes, nat, constantInfo?) : constantInfo?
+def $constant_fallback(_, _, _, constantInfo) = constantInfo
+def $constant_fallback(frame, bytes, 2048, eps) = $unqualified_constant(frame, bytes, $table_constant(frame, bytes))
+def $constant_fallback(_, _, 0, eps) = eps
+
+dec $constant_expr_lookup(frame, bytes, nat, nat) : constantInfo?
+def $constant_expr_lookup(frame, bytes, _, 0) = $unqualified_constant(frame, bytes, $table_constant(frame, bytes))
+def $constant_expr_lookup(frame, bytes, n_flags, n_end) =
+  $constant_fallback(frame, $numeric_tail(bytes, n_end), n_flags, $table_constant(frame, $constant_key(bytes, n_end)))
+  -- if $(n_end > 0)
+
+dec $constant_class_name(bytes, nat) : bool
+def $constant_class_name(bytes, n_colon) = true
+  -- if $(n_colon >= 2)
+  -- if n_prev = $(n_colon - 2)
+  -- if bytes[n_prev] = 58
+def $constant_class_name(_, _) = false -- otherwise
+
+dec $constant_expr_bare(frame, bytes, nat, bool) : numericResult
+def $constant_expr_bare(_, _, _, true) = NUM_UNSUPPORTED
+def $constant_expr_bare(frame, bytes, n_flags, false) = $constant_result(bytes, $constant_expr_lookup(frame, bytes, n_flags, n_end))
+  -- if n_end = $constant_last(bytes, 92, 0, |bytes|)
+
+dec $constant_expr_name(frame, bytes, nat) : (frame, numericResult)
+def $constant_expr_name(frame, bytes, n_flags) = (frame, $constant_expr_bare(frame, bytes_bare, n_flags, $constant_class_name(bytes_bare, n_colon)))
+  -- if bytes_bare = $without_initial_slash(bytes)
+  -- if n_colon = $constant_last(bytes_bare, 58, 0, |bytes_bare|)
+
+dec $constant_deprecated_word(bytes) : bytes?
+dec $constant_declaration_notice(frame, bytes) : frame
+def $constant_declaration_notice(frame, n_char*) = $report(frame, DEPRECATED,
+    [67, 97, 108, 108, 105, 110, 103, 32, 97, 32, 99, 111, 110, 115, 116, 97, 110, 116, 32, 34] ++ bytes_word ++ [34, 32, 105, 115, 32, 100, 101, 112, 114, 101, 99, 97, 116, 101, 100, 32, 115, 105, 110, 99, 101, 32, 56, 46, 54])
+  -- if bytes_word = $constant_deprecated_word(n_char*)
+def $constant_declaration_notice(frame, _) = frame -- otherwise
+
+def $constant_deprecated_word(n_char*) = bytes_word
+  -- if bytes_word = ($const_lower(n_char))*
+  -- if bytes_word <- [[95], [108, 101, 116], [105, 115]]
+def $constant_deprecated_word(bytes) = bytes_word
+  -- if n_end = $constant_last(bytes, 92, 0, |bytes|)
+  -- if $(n_end > 0)
+  -- if bytes_word = $numeric_tail(bytes, n_end)
+  -- if bytes_word <- [[95], [108, 101, 116], [105, 115]]
+def $constant_deprecated_word(_) = eps -- otherwise
+
+dec $register_constant(frame, bytes, slotValue) : frame
+def $register_constant(frame, n_char*, _) = $report(frame, WARNING,
+    [67, 111, 110, 115, 116, 97, 110, 116, 32] ++ n_char* ++ [32, 97, 108, 114, 101, 97, 100, 121, 32, 100, 101, 102, 105, 110, 101, 100, 44, 32, 116, 104, 105, 115, 32, 119, 105, 108, 108, 32, 98, 101, 32, 97, 110, 32, 101, 114, 114, 111, 114, 32, 105, 110, 32, 80, 72, 80, 32, 57])
+  -- if n_char* = $halt_name() \/ $constant_special(($const_lower(n_char))*) =/= eps
+        \/ $table_constant(frame, n_char*) =/= eps
+def $register_constant(frame, bytes, slotValue) =
+  frame[.CONSTANTS = frame.CONSTANTS ++ [ITEM (KEY bytes) slotValue]] -- otherwise
+
+dec $declaration_result(frame, bytes, numericResult) : transition
+def $declaration_result(frame, bytes, NUM_VALUE slotValue) =
+  CONTINUE $register_constant($constant_declaration_notice(frame, bytes_key), bytes_key, slotValue)
+  -- if bytes_key = $constant_registered_key(bytes)
+def $declaration_result(frame, _, NUM_ERROR bytes) = $raise(frame, bytes)
+def $declaration_result(frame, _, NUM_UNSUPPORTED) = FINISH (UNSUPPORTED frame.STDOUT eps)
+
+dec $initializer_expr(slotValue) : expr?
+def $initializer_expr(DEFERRED expr) = expr
+def $initializer_expr(_) = eps -- otherwise
+
+dec $declare_constant(frame, bytes, nat, slotValue, expr?) : transition
+def $declare_constant(frame, bytes, n, _, expr) = $declaration_result(frame'', bytes, numericResult')
+  -- if (frame', numericResult) = $eval_constant_expr(frame, expr, n)
+  -- if (frame'', numericResult') = $dimension_diagnostics(frame', numericResult)
+def $declare_constant(frame, bytes, _, slotValue, eps) = $declaration_result(frame, bytes, NUM_VALUE slotValue)
+
+dec $cache_constant(frame, nat, slotValue) : frame
+def $cache_constant(frame, n, slotValue) =
+  frame[.CONSTCACHE = $put_entry(frame.CONSTCACHE, n_pos, ITEM (INDEX n) slotValue)]
+  -- if n_pos = $array_position(frame.CONSTCACHE, INDEX n)
+
+;; FETCH_CONSTANT carries a diagnostic spelling and separate lookup keys.
+dec $quick_constant_key(frame, nat, nat, bytes) : bytes
+def $quick_constant_key(frame, n, n_flags, bytes) = $constant_spelling(frame, $(n + 2))
+  -- if $((n_flags / 2048) \ 2 = 1)
+  -- if $table_constant(frame, bytes) = eps
+def $quick_constant_key(_, _, _, bytes) = bytes -- otherwise
+
+dec $cached_constant_name(slotValue?) : bytes?
+def $cached_constant_name(STRING bytes) = bytes
+def $cached_constant_name(_) = eps -- otherwise
+
+dec $fetched_cache(frame, nat, bytes, constantInfo?) : frame
+dec $fetch_constant(frame, operand, nat, nat, nat, bytes?) : transition
+def $fetch_constant(frame, operand_r, _, _, _, bytes) =
+  CONTINUE $write(frame, operand_r, slotValue)
+  -- if CONST_INFO slotValue _ = $table_constant(frame, bytes)
+def $fetch_constant(frame, operand_r, n, n_flags, n_cache, eps) =
+  $apply_numeric(frame', operand_r, UNUSED, eps, $constant_result($constant_spelling(frame, n), constantInfo?))
+  -- if bytes = $quick_constant_key(frame, n, n_flags, $constant_spelling(frame, $(n + 1)))
+  -- if constantInfo? = $table_constant(frame, bytes)
+  -- if frame' = $fetched_cache(frame, n_cache, bytes, constantInfo?)
+
+def $fetched_cache(frame, n, bytes, CONST_INFO _ eps) = $cache_constant(frame, n, STRING bytes)
+def $fetched_cache(frame, _, _, _) = frame -- otherwise
+
+;; A failed DEFINED lookup expires when a declaration grows the table.
+dec $cached_defined(nat, slotValue?) : bool?
+def $cached_defined(_, STRING _) = true
+def $cached_defined(n, INT i) = false -- if i = n
+def $cached_defined(_, _) = eps -- otherwise
+
+dec $defined_constant(frame, operand, smartbranch?, nat, bytes, bool?) : transition
+def $defined_constant(frame, operand_r, smartbranch?, _, _, b) =
+  CONTINUE $comparison(frame, operand_r, smartbranch?, b)
+def $defined_constant(frame, operand_r, smartbranch?, n, bytes, eps) =
+  CONTINUE $comparison($cache_constant(frame, n, STRING bytes), operand_r, smartbranch?, true)
+  -- if $table_constant(frame, bytes) =/= eps
+def $defined_constant(frame, operand_r, smartbranch?, n, bytes, eps) = CONTINUE $comparison(
+    $cache_constant(frame, n, INT n_count), operand_r, smartbranch?, false)
+  -- if $table_constant(frame, bytes) = eps
+  -- if n_count = |frame.CONSTANTS|
+
+def $constant_step(frame, DECLARE_CONST, _, LIT n_name, LIT n_value, _, _) =
+  $declare_constant(frame, $constant_spelling(frame, n_name), n_value, slotValue, $initializer_expr(slotValue))
+  -- if slotValue = $raw_read(frame, LIT n_value)
+def $constant_step(frame, FETCH_CONSTANT, operand_r, IMM n_flags, LIT n, extension?, _) =
+  $fetch_constant(frame, operand_r, n, n_flags, n_cache, $cached_constant_name($array_find(frame.CONSTCACHE, INDEX n_cache)))
+  -- if n_cache = $ext_value(extension?)
+def $constant_step(frame, DEFINED, operand_r, LIT n, _, extension?, smartbranch?) =
+  $defined_constant(frame, operand_r, smartbranch?, n_cache, $constant_spelling(frame, n),
+    $cached_defined(|frame.CONSTANTS|, $array_find(frame.CONSTCACHE, INDEX n_cache)))
+  -- if n_cache = $ext_value(extension?)

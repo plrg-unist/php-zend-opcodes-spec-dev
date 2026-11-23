@@ -22,4 +22,4 @@ rule DestructureStep/read:
   -- if (frame', slotValue_a) = $read_operand(frame, operand_a)
   -- if slotValue_k = $read(frame', operand_k)
   -- if (frame'', _) = $read_value(frame', operand_k, slotValue_k)
-  -- ListFetch: frame''; operand_r; operand_a; operand_k; slotValue_a; slotValue_k ~> transition
+  -- ListFetch: frame''; operand_r; operand_a; operand_k; $container_type(slotValue_a); slotValue_k ~> transition

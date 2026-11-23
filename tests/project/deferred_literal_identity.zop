@@ -1,0 +1,38 @@
+zend-opcodes
+file "deferred_literal_identity.php"
+main
+body - {
+  lines 1 11
+  frame 1 cache 24
+  size 13 literals 15 children 0
+  lit[0] = "SHARED"
+  lit[1] = ast(binary(16 1 value(0 1 array#1(0 => float(nan:0x7ff8000000000001))) value(0 1 array-ref(1))))
+  lit[2] = "DISTINCT"
+  lit[3] = ast(binary(17 2 value(0 2 array(0 => float(nan:0x7ff8000000000001))) value(0 2 array(0 => float(nan:0x7ff8000000000001)))))
+  lit[4] = "SCOPE"
+  lit[5] = ast(current_class(0 3))
+  lit[6] = "SHARED"
+  lit[7] = "SHARED"
+  lit[8] = "DISTINCT"
+  lit[9] = "DISTINCT"
+  lit[10] = "SCOPE"
+  lit[11] = "SCOPE"
+  lit[12] = "ENDSCOPE"
+  lit[13] = ast(class_name(2 99 none))
+  lit[14] = int(1)
+  code
+    0: DECLARE_CONST lit[0], lit[1] | line=1
+    1: DECLARE_CONST lit[2], lit[3] | line=2
+    2: DECLARE_CONST lit[4], lit[5] | line=3
+    3: T0 = FETCH_CONSTANT 0, lit[6] | line=4
+    4: ECHO T0 | line=4
+    5: T0 = FETCH_CONSTANT 0, lit[8] | line=5 ext=8
+    6: ECHO T0 | line=5
+    7: T0 = FETCH_CONSTANT 0, lit[10] | line=6 ext=16
+    8: T0 = STRLEN T0 | line=6
+    9: ECHO T0 | line=6
+    10: DECLARE_CONST lit[12], lit[13] | line=10
+    11: ECHO lit[14] | line=11
+    12: RETURN lit[14] | line=11
+}
+end

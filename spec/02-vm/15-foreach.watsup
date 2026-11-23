@@ -14,12 +14,16 @@ dec $iteration_signature(foreachIterator) : (opcode, nat)
 def $iteration_signature(SNAPSHOT n _) = (FE_FETCH_R, n)
 def $iteration_signature(LIVE n _ _) = (FE_FETCH_RW, n)
 
+dec $foreach_source(frame, operand) : bool
+def $foreach_source(frame, operand) = $known_value(slotValue) \/ slotValue = UNDEF
+  -- if slotValue = $container_type($read(frame, operand))
+
 def $foreach_input(_, FE_FREE, _) = true
-def $foreach_input(frame, opcode, operand) = $location_input(frame, operand)
+def $foreach_input(frame, opcode, operand) = $foreach_source(frame, operand)
   -- if opcode <- [FE_RESET_R, FE_RESET_RW]
 def $foreach_input(frame, opcode, operand) =
   ((opcode, $iteration_register(operand)) <- ($iteration_signature(foreachIterator))*) /\
-  $location_input(frame, operand) /\ (opcode = FE_FETCH_RW \/ $is_array_value($read(frame, operand)))
+  $foreach_source(frame, operand) /\ (opcode = FE_FETCH_RW \/ $is_array_value($read(frame, operand)))
   -- if opcode <- [FE_FETCH_R, FE_FETCH_RW]
   -- if foreachIterator* = frame.ITERATORS
 
@@ -147,10 +151,10 @@ def $fetch_foreach(frame, _, _, _, _, _, slotValue) = FINISH (UNSUPPORTED frame.
   -- if $server_array(slotValue)
 
 def $foreach_step(frame, opcode, operand_r, operand_a, TARGET n, _) =
-  $reset_foreach(frame', opcode, operand_r, operand_a, n, slotValue)
+  $reset_foreach(frame', opcode, operand_r, operand_a, n, $container_type(slotValue))
   -- if opcode <- [FE_RESET_R, FE_RESET_RW]
   -- if (frame', slotValue) = $read_operand(frame, operand_a)
 def $foreach_step(frame, opcode, operand_r, operand_a, operand_b, EXT_TARGET n) =
-  $fetch_foreach(frame, opcode, operand_r, operand_a, operand_b, n, $read(frame, operand_a))
+  $fetch_foreach(frame, opcode, operand_r, operand_a, operand_b, n, $container_type($read(frame, operand_a)))
   -- if opcode <- [FE_FETCH_R, FE_FETCH_RW]
 def $foreach_step(frame, FE_FREE, _, operand_a, _, _) = CONTINUE $end_iteration(frame, operand_a)

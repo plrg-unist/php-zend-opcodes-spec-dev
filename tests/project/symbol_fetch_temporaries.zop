@@ -1,0 +1,74 @@
+zend-opcodes
+file "symbol_fetch_temporaries.php"
+main
+body - {
+  lines 1 1
+  frame 5 cache 0
+  locals 3 ["this", "a", "b"]
+  size 54 literals 9 children 0
+  lit[0] = "absent"
+  lit[1] = null
+  lit[2] = "a"
+  lit[3] = "this"
+  lit[4] = int(0)
+  lit[5] = "changed"
+  lit[6] = int(1)
+  lit[7] = ":"
+  lit[8] = "\x0a"
+  code
+    0: T3 = FETCH_UNSET lit[0] | ext=4
+    1: T4 = IS_IDENTICAL T3, lit[1]
+    2: T5 = CAST T4 | ext=4
+    3: ECHO T5
+    4: ECHO lit[7]
+    5: ASSIGN CV0, lit[2]
+    6: T4 = INIT_ARRAY CV0 | ext=5
+    7: ASSIGN CV1, T4
+    8: T3 = MAKE_REF CV0
+    9: UNSET_CV CV0
+    10: T5 = FETCH_IS T3 | ext=4
+    11: FREE T5
+    12: ASSIGN CV2, CV1
+    13: ASSIGN_DIM CV2, lit[4]
+    14: OP_DATA lit[5]
+    15: T6 = FETCH_DIM_R CV1, lit[4]
+    16: ECHO T6
+    17: ECHO lit[7]
+    18: ASSIGN CV0, lit[3]
+    19: T4 = INIT_ARRAY CV0 | ext=5
+    20: ASSIGN CV1, T4
+    21: T3 = MAKE_REF CV0
+    22: UNSET_CV CV0
+    23: T5 = FETCH_IS T3 | ext=4
+    24: FREE T5
+    25: ASSIGN CV2, CV1
+    26: ASSIGN_DIM CV2, lit[4]
+    27: OP_DATA lit[5]
+    28: T6 = FETCH_DIM_R CV1, lit[4]
+    29: ECHO T6
+    30: ECHO lit[7]
+    31: FREE T3
+    32: ASSIGN CV0, lit[2]
+    33: T4 = INIT_ARRAY CV0 | ext=5
+    34: ASSIGN CV1, T4
+    35: T3 = MAKE_REF CV0
+    36: UNSET_CV CV0
+    37: T5 = FETCH_IS T3 | ext=8
+    38: FREE T5
+    39: ASSIGN CV2, CV1
+    40: ASSIGN_DIM CV2, lit[4]
+    41: OP_DATA lit[5]
+    42: T6 = FETCH_DIM_R CV1, lit[4]
+    43: ECHO T6
+    44: ECHO lit[7]
+    45: FREE T3
+    46: ASSIGN CV0, lit[2]
+    47: V3 = FETCH_R lit[3] | ext=4
+    48: UNSET_VAR V3 | ext=4
+    49: T4 = ISSET_ISEMPTY_VAR CV0 | ext=4
+    50: T5 = CAST T4 | ext=4
+    51: ECHO T5
+    52: ECHO lit[8]
+    53: RETURN lit[6]
+}
+end

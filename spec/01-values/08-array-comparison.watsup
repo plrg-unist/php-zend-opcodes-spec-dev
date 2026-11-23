@@ -1,15 +1,19 @@
 syntax comparisonMode = {
   STRICT bool, EQUALITY bool, SCRIPT bytes, CELLS slotValue*, TABLES borrowedTable*, ACTIVE arrayId*
 }
-syntax valueOrder = ORDER int | UNKNOWN_ORDER | RECURSIVE_ORDER | POSSIBLE_RECURSION
+syntax valueOrder = ORDER int | UNKNOWN_ORDER | RECURSIVE_ORDER | POSSIBLE_RECURSION bool
+;; The flag records whether an ordinary comparison can also find equality.
 dec $may_recurse(valueOrder) : bool
-def $may_recurse(valueOrder) = valueOrder <- [RECURSIVE_ORDER, POSSIBLE_RECURSION]
+def $may_recurse(valueOrder) = valueOrder <- [RECURSIVE_ORDER, POSSIBLE_RECURSION false, POSSIBLE_RECURSION true]
+dec $may_equal(valueOrder) : bool
+def $may_equal(valueOrder) = valueOrder <- [ORDER 0, UNKNOWN_ORDER, POSSIBLE_RECURSION true]
 
 ;; An unresolved prefix may match. Preserve a recursive error that would be
 ;; reached before a later key could settle the outer comparison.
-dec $unknown_before(valueOrder) : valueOrder
-def $unknown_before(valueOrder) = POSSIBLE_RECURSION -- if $may_recurse(valueOrder)
-def $unknown_before(_) = UNKNOWN_ORDER -- otherwise
+dec $unknown_before(valueOrder, valueOrder) : valueOrder
+def $unknown_before(valueOrder_l, valueOrder_r) = POSSIBLE_RECURSION $may_equal(valueOrder_r)
+  -- if $may_recurse(valueOrder_l) \/ $may_recurse(valueOrder_r)
+def $unknown_before(_, _) = UNKNOWN_ORDER -- otherwise
 
 dec $compare_deref(comparisonMode, slotValue) : slotValue
 def $compare_deref(comparisonMode, slotValue) = $cell_value(comparisonMode.TABLES, comparisonMode.CELLS, slotValue)
@@ -45,20 +49,21 @@ def $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_start, n_en
   -- if n_mid = $((n_start + n_end) / 2)
 def $entry_rest(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end, ORDER 0) =
   $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end)
-def $entry_rest(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end, UNKNOWN_ORDER) =
-  $unknown_before($entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end))
-def $entry_rest(_, _, _, _, _, valueOrder) = valueOrder
-  -- if valueOrder =/= ORDER 0 /\ valueOrder =/= UNKNOWN_ORDER
+def $entry_rest(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end, valueOrder) =
+  $unknown_before(valueOrder, $entry_range(comparisonMode, runtimeEntry_l*, runtimeEntry_r*, n_mid, n_end))
+  -- if valueOrder <- [UNKNOWN_ORDER, POSSIBLE_RECURSION true]
+def $entry_rest(_, _, _, _, _, valueOrder) = valueOrder -- if ~$may_equal(valueOrder)
 
 ;; Loose comparisons with null or a boolean use array emptiness. Arrays rank
-;; above every integer, float (including NaN), and string.
-dec $array_scalar_order(bool, slotValue, zval) : int
-def $array_scalar_order(false, slotValue, zval) = $bool_order($truth(slotValue), $truth(zval))
-  -- if $($scalar_type_bit(zval) < 16)
+;; above every integer, float (including NaN), string, and resource.
+dec $array_scalar_order(bool, slotValue, slotValue) : int
+def $array_scalar_order(false, slotValue_a, slotValue_s) = $bool_order($truth(slotValue_a), $truth(slotValue_s))
+  -- if $($scalar_type_bit(slotValue_s) < 16)
 def $array_scalar_order(_, _, _) = 1
   -- otherwise
 
 dec $server_pair_order(comparisonMode, slotValue, slotValue) : valueOrder
+dec $mixed_equality(comparisonMode, slotValue, runtimeEntry*, bool) : valueOrder
 
 dec $comparison_table(slotValue) : arrayId
 def $comparison_table(ARRAY_VALUE arrayId _ _ _) = arrayId
@@ -79,6 +84,14 @@ def $table_order(_, slotValue_l, ARRAY_VALUE _ runtimeEntry* _ _) = ORDER 1
 def $table_order(_, ARRAY_VALUE _ runtimeEntry* _ _, slotValue_r) = ORDER (-1)
   -- if $server_array(slotValue_r)
   -- if $(|runtimeEntry*| < $server_min_size(slotValue_r))
+def $table_order(comparisonMode, slotValue_l, ARRAY_VALUE _ runtimeEntry* _ _) =
+  $mixed_equality(comparisonMode, slotValue_l, runtimeEntry*, false)
+  -- if comparisonMode.EQUALITY /\ $server_array(slotValue_l)
+  -- if $(|runtimeEntry*| >= $server_min_size(slotValue_l))
+def $table_order(comparisonMode, ARRAY_VALUE _ runtimeEntry* _ _, slotValue_r) =
+  $mixed_equality(comparisonMode, slotValue_r, runtimeEntry*, true)
+  -- if comparisonMode.EQUALITY /\ $server_array(slotValue_r)
+  -- if $(|runtimeEntry*| >= $server_min_size(slotValue_r))
 def $table_order(_, _, _) = UNKNOWN_ORDER -- otherwise
 
 ;; Zend accepts identical table pointers before checking recursion. It protects
@@ -94,24 +107,44 @@ def $array_order(comparisonMode, arrayId_l, arrayId_r, slotValue_l, slotValue_r)
 dec $strict_pointer(slotValue) : bool
 def $strict_pointer(REFERENCE _) = true
 def $strict_pointer(ELEMENT_LOCATION _ _) = true
+def $strict_pointer(SYMBOL_LOCATION _) = true
 def $strict_pointer(_) = false -- otherwise
+
+dec $typed_host_order(comparisonMode, nat, slotValue, int) : valueOrder
+def $typed_host_order(comparisonMode, 64, FLOAT n, _) = ORDER 1
+  -- if ~comparisonMode.STRICT /\ $is_nan(FLOAT n)
+def $typed_host_order(comparisonMode, n, slotValue, i) = ORDER i
+  -- if $is_array_value(slotValue) \/ (comparisonMode.STRICT /\ $scalar_type_bit(slotValue) =/= n)
+def $typed_host_order(_, _, _, _) = UNKNOWN_ORDER -- otherwise
 
 dec $deref_order(comparisonMode, slotValue, slotValue) : valueOrder
 def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER 1
   -- if comparisonMode.STRICT /\ ($strict_pointer(slotValue_l) \/ $strict_pointer(slotValue_r))
-def $deref_order(comparisonMode, zval_l, zval_r) = ORDER $bool_order(~$identical_scalar(zval_l, zval_r), false)
-  -- if $simple_value(zval_l) /\ $simple_value(zval_r) /\ comparisonMode.STRICT
-def $deref_order(comparisonMode, zval_l, zval_r) = ORDER $scalar_order(zval_l, zval_r)
-  -- if $simple_value(zval_l) /\ $simple_value(zval_r) /\ ~comparisonMode.STRICT
+def $deref_order(_, HOST_OFFSET (INSTALL_ENTRY text), HOST_OFFSET (INSTALL_ENTRY text)) = ORDER 0
+def $deref_order(comparisonMode, HOST_OFFSET hostSource_l, HOST_OFFSET hostSource_r) = ORDER 1
+  -- if comparisonMode.STRICT
+  -- if slotValue_l* = $host_type_values(HOST_OFFSET hostSource_l)
+  -- if slotValue_r* = $host_type_values(HOST_OFFSET hostSource_r)
+  -- if ~(true <- (slotValue_l <- slotValue_r*)*)
+def $deref_order(comparisonMode, HOST_OFFSET (INSTALL_ENTRY text), slotValue) =
+  $typed_host_order(comparisonMode, 64, slotValue, -1)
+  -- if ~$host_offset(slotValue)
+def $deref_order(comparisonMode, slotValue, HOST_OFFSET (INSTALL_ENTRY text)) =
+  $typed_host_order(comparisonMode, 64, slotValue, 1)
+  -- if ~$host_offset(slotValue)
+def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER $bool_order(~$identical_scalar(slotValue_l, slotValue_r), false)
+  -- if $simple_value(slotValue_l) /\ $simple_value(slotValue_r) /\ comparisonMode.STRICT
+def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER $simple_order(slotValue_l, slotValue_r)
+  -- if $simple_value(slotValue_l) /\ $simple_value(slotValue_r) /\ ~comparisonMode.STRICT
 def $deref_order(comparisonMode, slotValue_l, slotValue_r) =
   $array_order(comparisonMode, $comparison_table(slotValue_l), $comparison_table(slotValue_r), slotValue_l, slotValue_r)
   -- if $is_array_value(slotValue_l) /\ $is_array_value(slotValue_r)
-def $deref_order(comparisonMode, slotValue_l, zval_r) = ORDER $array_scalar_order(comparisonMode.STRICT, slotValue_l, zval_r)
-  -- if $is_array_value(slotValue_l) /\ $simple_value(zval_r)
-  -- if comparisonMode.STRICT \/ $($scalar_type_bit(zval_r) >= 16) \/ $truth_known(slotValue_l)
-def $deref_order(comparisonMode, zval_l, slotValue_r) = ORDER $(-$array_scalar_order(comparisonMode.STRICT, slotValue_r, zval_l))
-  -- if $simple_value(zval_l) /\ $is_array_value(slotValue_r)
-  -- if comparisonMode.STRICT \/ $($scalar_type_bit(zval_l) >= 16) \/ $truth_known(slotValue_r)
+def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER $array_scalar_order(comparisonMode.STRICT, slotValue_l, slotValue_r)
+  -- if $is_array_value(slotValue_l) /\ $simple_value(slotValue_r)
+  -- if comparisonMode.STRICT \/ $($scalar_type_bit(slotValue_r) >= 16) \/ $truth_known(slotValue_l)
+def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER $(-$array_scalar_order(comparisonMode.STRICT, slotValue_r, slotValue_l))
+  -- if $simple_value(slotValue_l) /\ $is_array_value(slotValue_r)
+  -- if comparisonMode.STRICT \/ $($scalar_type_bit(slotValue_l) >= 16) \/ $truth_known(slotValue_r)
 def $deref_order(_, _, _) = UNKNOWN_ORDER -- otherwise
 
 def $value_order(comparisonMode, slotValue_l, slotValue_r) =
@@ -119,7 +152,7 @@ def $value_order(comparisonMode, slotValue_l, slotValue_r) =
 
 dec $comparison_result(opcode, valueOrder) : numericResult
 def $comparison_result(opcode, ORDER i) = NUM_VALUE $order_result(opcode, i)
-def $comparison_result(_, valueOrder) = NUM_UNSUPPORTED -- if valueOrder <- [UNKNOWN_ORDER, POSSIBLE_RECURSION]
+def $comparison_result(_, valueOrder) = NUM_UNSUPPORTED -- if valueOrder <- [UNKNOWN_ORDER, POSSIBLE_RECURSION false, POSSIBLE_RECURSION true]
 
 ;; Error: Nesting level too deep - recursive dependency?
 def $comparison_result(_, RECURSIVE_ORDER) =

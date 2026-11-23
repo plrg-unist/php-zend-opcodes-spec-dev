@@ -92,9 +92,23 @@ def $scalar_order(zval_l, zval_r) = $number_or_string_order(zval_l, zval_r)
   -- if $($scalar_type_bit(zval_l) >= 16) /\ $($scalar_type_bit(zval_r) >= 16)
   -- if ~($is_nan(zval_l) \/ $is_nan(zval_r))
 
-dec $identical_scalar(zval, zval) : bool
+;; Loose resource comparisons convert both operands numerically, including the
+;; leading numeric portion of a string. Booleans and null retain truth comparison.
+dec $resource_operand(slotValue) : zval
+def $resource_operand(STREAM n) = INT n
+def $resource_operand(STRING bytes) = zval -- if NUMERIC zval _ _ = $numeric_string(bytes)
+def $resource_operand(STRING bytes) = INT 0 -- if $numeric_string(bytes) = NONNUMERIC
+def $resource_operand(zval) = zval -- if $scalar_type_bit(zval) <- [2, 4, 8, 16, 32]
+
+dec $simple_order(slotValue, slotValue) : int
+def $simple_order(slotValue_l, slotValue_r) = $scalar_order($resource_operand(slotValue_l), $resource_operand(slotValue_r))
+  -- if $scalar_type_bit(slotValue_l) = 512 \/ $scalar_type_bit(slotValue_r) = 512
+def $simple_order(zval_l, zval_r) = $scalar_order(zval_l, zval_r)
+  -- if $scalar_type_bit(zval_l) =/= 512 /\ $scalar_type_bit(zval_r) =/= 512
+
+dec $identical_scalar(slotValue, slotValue) : bool
 def $identical_scalar(FLOAT n_l, FLOAT n_r) = ~$is_nan(FLOAT n_l) /\ ($float_order_key(n_l) = $float_order_key(n_r))
-def $identical_scalar(zval_l, zval_r) = zval_l = zval_r
+def $identical_scalar(slotValue_l, slotValue_r) = slotValue_l = slotValue_r
   -- otherwise
 
 dec $order_result(opcode, int) : zval

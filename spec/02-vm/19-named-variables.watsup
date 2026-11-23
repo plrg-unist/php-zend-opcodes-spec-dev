@@ -1,0 +1,70 @@
+;; isset/empty quietly obtain the name. All other variable fetches read it normally,
+;; even when the resulting lookup is silent (FETCH_IS, FETCH_UNSET).
+dec $name_operand(frame, opcode, operand) : (frame, slotValue)
+def $name_operand(frame, ISSET_ISEMPTY_VAR, operand) = (frame, $read(frame, operand))
+def $name_operand(frame, opcode, operand) = $read_operand(frame, operand)
+  -- if opcode =/= ISSET_ISEMPTY_VAR
+
+dec $symbol_value(frame, nat?) : slotValue
+def $symbol_value(_, eps) = UNDEF
+def $symbol_value(frame, n) = $read(frame, CV n)
+
+;; Undefined [global ]variable $<name>. The special $this read has the local diagnostic.
+dec $symbol_qualifier(bytes, nat) : bytes
+def $symbol_qualifier(bytes, n) = [ 103, 108, 111, 98, 97, 108, 32 ]
+  -- if $((n / 2) \ 2 = 1) /\ bytes =/= [ 116, 104, 105, 115 ]
+def $symbol_qualifier(_, _) = eps -- otherwise
+
+dec $missing_symbol_warning(frame, bytes, nat) : frame
+def $missing_symbol_warning(frame, bytes, n) = $report(frame, WARNING,
+    [ 85, 110, 100, 101, 102, 105, 110, 101, 100, 32 ] ++ $symbol_qualifier(bytes, n)
+    ++ [ 118, 97, 114, 105, 97, 98, 108, 101, 32, 36 ] ++ bytes)
+
+dec $missing_write_frame(frame, opcode, bytes, nat) : frame
+def $missing_write_frame(frame, FETCH_RW, bytes, n) = $missing_symbol_warning(frame, bytes, n)
+def $missing_write_frame(frame, FETCH_W, _, _) = frame
+
+dec $named_fetch(frame, opcode, operand, bytes, nat, nat?, slotValue) : transition
+def $named_fetch(frame, FETCH_R, operand_r, bytes, n, _, UNDEF) =
+  CONTINUE $write($missing_symbol_warning(frame, bytes, n), operand_r, NULL)
+def $named_fetch(frame, FETCH_IS, operand_r, _, _, _, UNDEF) = CONTINUE $write(frame, operand_r, NULL)
+def $named_fetch(frame, opcode, operand_r, _, _, _, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
+  -- if (opcode = FETCH_R \/ opcode = FETCH_IS) /\ slotValue =/= UNDEF
+def $named_fetch(frame, FETCH_UNSET, _, [ 116, 104, 105, 115 ], _, _, UNDEF) =
+  $raise(frame, [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 110, 115, 101, 116,
+                  32, 36, 116, 104, 105, 115 ]) ;; Error: Cannot unset $this
+def $named_fetch(frame, FETCH_UNSET, operand_r, bytes, _, _, UNDEF) =
+  CONTINUE $write(frame, operand_r, SYMBOL_LOCATION frame.MISSING)
+  -- if bytes =/= [ 116, 104, 105, 115 ]
+def $named_fetch(frame, opcode, _, [ 116, 104, 105, 115 ], _, _, UNDEF) =
+  $raise(frame, [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 114, 101, 45, 97, 115, 115,
+                  105, 103, 110, 32, 36, 116, 104, 105, 115 ]) ;; Error: Cannot re-assign $this
+  -- if opcode = FETCH_W \/ opcode = FETCH_RW
+def $named_fetch(frame, opcode, operand_r, bytes, n, _, UNDEF) =
+  CONTINUE $write($write(frame', CV n_slot, NULL), operand_r, SYMBOL_LOCATION n_slot)
+  -- if (opcode = FETCH_W \/ opcode = FETCH_RW) /\ bytes =/= [ 116, 104, 105, 115 ]
+  -- if (frame', n_slot) = $ensure_symbol($missing_write_frame(frame, opcode, bytes, n), bytes)
+def $named_fetch(frame, opcode, operand_r, _, _, n_slot, slotValue) =
+  CONTINUE $write(frame, operand_r, SYMBOL_LOCATION n_slot)
+  -- if opcode <- [FETCH_W, FETCH_RW, FETCH_UNSET] /\ slotValue =/= UNDEF
+
+;; GLOBAL_LOCK keeps the temporary name alive. The special $this path returns before release too.
+dec $release_name(frame, operand, operand, bytes, nat, slotValue) : frame
+def $release_name(frame, operand_name, operand_r, bytes, n, slotValue) = $release(frame, operand_name, operand_r)
+  -- if $((n / 8) \ 2 = 0) /\ (bytes =/= [ 116, 104, 105, 115 ] \/ slotValue =/= UNDEF)
+def $release_name(frame, _, _, _, _, _) = frame -- otherwise
+
+dec $named_lookup(frame, opcode, operand, operand, bytes, nat, smartbranch?) : transition
+def $named_lookup(frame, UNSET_VAR, _, _, bytes, _, _) = CONTINUE $unset_symbol(frame, bytes)
+def $named_lookup(frame, ISSET_ISEMPTY_VAR, operand_r, _, bytes, n, smartbranch?) =
+  $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, $symbol_value(frame, $symbol_slot(frame, bytes)))
+def $named_lookup(frame, opcode, operand_r, operand_name, bytes, n, _) =
+  $named_fetch($release_name(frame, operand_name, operand_r, bytes, n, slotValue), opcode, operand_r, bytes, n, n_slot?, slotValue)
+  -- if opcode <- [FETCH_R, FETCH_W, FETCH_RW, FETCH_IS, FETCH_UNSET]
+  -- if n_slot? = $symbol_slot(frame, bytes)
+  -- if slotValue = $symbol_value(frame, n_slot?)
+
+def $named_step(frame, opcode, operand_r, operand_name, n, smartbranch?) =
+  $named_lookup($string_frame(frame', slotValue), opcode, operand_r, operand_name, $scalar_bytes(slotValue), n, smartbranch?)
+  -- if (frame', slotValue_name) = $name_operand(frame, opcode, operand_name)
+  -- if slotValue = $reference_initial(slotValue_name)

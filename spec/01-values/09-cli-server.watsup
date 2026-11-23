@@ -3,26 +3,39 @@ dec $cli_argv(bytes) : slotValue
 def $cli_argv(bytes_script) =
   ARRAY_VALUE (CLI_ARRAY_ID 1) ([ ITEM (INDEX 0) (STRING bytes_script) ]) eps eps
 
-syntax serverLookup = SERVER_KNOWN slotValue? | SERVER_PRESENT | SERVER_UNKNOWN | SERVER_CAPTURED arraykey
+syntax serverLookup = SERVER_KNOWN slotValue? | SERVER_PRESENT | SERVER_UNKNOWN | SERVER_CAPTURED hostSource
 
-;; The CLI overwrites these environment entries when constructing $_SERVER.
-dec $server_lookup(arraykey, bytes) : serverLookup
-def $server_lookup(KEY bytes, bytes_script) = SERVER_KNOWN (STRING bytes_script)
-  -- if bytes <- [ [ 80, 72, 80, 95, 83, 69, 76, 70 ],
-                   [ 83, 67, 82, 73, 80, 84, 95, 78, 65, 77, 69 ],
-                   [ 83, 67, 82, 73, 80, 84, 95, 70, 73, 76, 69, 78, 65, 77, 69 ],
-                   [ 80, 65, 84, 72, 95, 84, 82, 65, 78, 83, 76, 65, 84, 69, 68 ] ] ;; PHP_SELF, SCRIPT_NAME, SCRIPT_FILENAME, PATH_TRANSLATED
-def $server_lookup(KEY ([ 68, 79, 67, 85, 77, 69, 78, 84, 95, 82, 79, 79, 84 ]), _) = SERVER_KNOWN (STRING eps) ;; DOCUMENT_ROOT
-def $server_lookup(KEY ([ 97, 114, 103, 99 ]), _) = SERVER_KNOWN (INT 1) ;; argc
-def $server_lookup(KEY ([ 97, 114, 103, 118 ]), bytes_script) = SERVER_KNOWN $cli_argv(bytes_script) ;; argv
-def $server_lookup(KEY bytes, _) = SERVER_PRESENT
-  -- if bytes <- [ [ 82, 69, 81, 85, 69, 83, 84, 95, 84, 73, 77, 69 ],
-                   [ 82, 69, 81, 85, 69, 83, 84, 95, 84, 73, 77, 69, 95, 70, 76, 79, 65, 84 ] ] ;; REQUEST_TIME, REQUEST_TIME_FLOAT
+;; Zend's CLI inserts these nine keys in this order, retaining the position
+;; of any key already supplied by the process environment.
+dec $cli_path_keys() : arraykey*
+def $cli_path_keys() =
+  [ KEY ([ 80, 72, 80, 95, 83, 69, 76, 70 ]),
+    KEY ([ 83, 67, 82, 73, 80, 84, 95, 78, 65, 77, 69 ]),
+    KEY ([ 83, 67, 82, 73, 80, 84, 95, 70, 73, 76, 69, 78, 65, 77, 69 ]),
+    KEY ([ 80, 65, 84, 72, 95, 84, 82, 65, 78, 83, 76, 65, 84, 69, 68 ]) ] ;; PHP_SELF, SCRIPT_NAME, SCRIPT_FILENAME, PATH_TRANSLATED
+
+dec $cli_clock_keys() : arraykey*
+def $cli_clock_keys() =
+  [ KEY ([ 82, 69, 81, 85, 69, 83, 84, 95, 84, 73, 77, 69, 95, 70, 76, 79, 65, 84 ]),
+    KEY ([ 82, 69, 81, 85, 69, 83, 84, 95, 84, 73, 77, 69 ]) ] ;; REQUEST_TIME_FLOAT, REQUEST_TIME
+
+dec $cli_server_keys() : arraykey*
+def $cli_server_keys() = $cli_path_keys() ++ [KEY ([ 68, 79, 67, 85, 77, 69, 78, 84, 95, 82, 79, 79, 84 ])] ++ $cli_clock_keys()
+  ++ [KEY ([ 97, 114, 103, 118 ]), KEY ([ 97, 114, 103, 99 ])] ;; DOCUMENT_ROOT, clocks, argv, argc
+
+dec $server_lookup(cliOrigin, arraykey, bytes) : serverLookup
+def $server_lookup(SERVER, arraykey, bytes_script) = SERVER_KNOWN (STRING bytes_script)
+  -- if arraykey <- $cli_path_keys()
+def $server_lookup(SERVER, KEY ([ 68, 79, 67, 85, 77, 69, 78, 84, 95, 82, 79, 79, 84 ]), _) = SERVER_KNOWN (STRING eps) ;; DOCUMENT_ROOT
+def $server_lookup(SERVER, KEY ([ 97, 114, 103, 99 ]), _) = SERVER_KNOWN (INT 1) ;; argc
+def $server_lookup(SERVER, KEY ([ 97, 114, 103, 118 ]), bytes_script) = SERVER_KNOWN $cli_argv(bytes_script) ;; argv
+def $server_lookup(SERVER, arraykey, _) = SERVER_PRESENT
+  -- if arraykey <- $cli_clock_keys()
 ;; NUL and '=' delimit an environment entry. Zend skips empty names and names containing space, dot or '['.
-def $server_lookup(KEY bytes, _) = SERVER_KNOWN eps
+def $server_lookup(_, KEY bytes, _) = SERVER_KNOWN eps
   -- if (bytes = eps) \/ (0 <- bytes) \/ (32 <- bytes) \/ (46 <- bytes) \/ (61 <- bytes) \/ (91 <- bytes)
 ;; A canonical numeric environment name is stored only under its integer key.
-def $server_lookup(KEY bytes, _) = SERVER_KNOWN eps
+def $server_lookup(_, KEY bytes, _) = SERVER_KNOWN eps
   -- if INT _ = $string_array_key(bytes)
-def $server_lookup(_, _) = SERVER_UNKNOWN
+def $server_lookup(_, _, _) = SERVER_UNKNOWN
   -- otherwise

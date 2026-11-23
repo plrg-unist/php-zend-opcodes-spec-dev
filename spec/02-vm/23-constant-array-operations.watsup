@@ -1,0 +1,49 @@
+def $expr_array_insert(frame, slotValue_array, eps, slotValue_item) =
+  (frame, $array_insert(slotValue_array, eps, slotValue_item))
+def $expr_array_insert(frame, slotValue_array, slotValue_key, slotValue_item) =
+  (frame, $array_insert_at(slotValue_array, slotValue_item, $array_key(INIT_ARRAY, TMP 0, slotValue_key)))
+
+;; Constant unpack appends each integer-keyed element individually, including the first.
+dec $expr_unpack_entries(numericResult, runtimeEntry*) : numericResult
+def $expr_unpack_entries(NUM_VALUE slotValue_dst, (ITEM arraykey slotValue) :: runtimeEntry*) =
+  $expr_unpack_entries($array_insert(slotValue_dst, $unpack_key(arraykey), slotValue), runtimeEntry*)
+def $expr_unpack_entries(numericResult, _) = numericResult -- otherwise
+
+def $expr_array_unpack(frame, slotValue_dst, ARRAY_VALUE _ runtimeEntry* _ _) =
+  (frame, $expr_unpack_entries(NUM_VALUE slotValue_dst, runtimeEntry*))
+;; Error: Only arrays can be unpacked in constant expression
+def $expr_array_unpack(frame, _, _) = (frame, NUM_ERROR (
+  [ 69, 114, 114, 111, 114, 58, 32, 79, 110, 108, 121, 32, 97, 114, 114, 97, 121, 115, 32,
+    99, 97, 110, 32, 98, 101, 32, 117, 110, 112, 97, 99, 107, 101, 100, 32, 105, 110, 32,
+    99, 111, 110, 115, 116, 97, 110, 116, 32, 101, 120, 112, 114, 101, 115, 115, 105, 111, 110 ]))
+  -- otherwise
+
+dec $expr_offset_result(frame, opcode, slotValue, numericResult) : (frame, numericResult)
+def $expr_offset_result(frame, opcode, ARRAY_VALUE _ runtimeEntry* _ _, NUM_VALUE slotValue_key) =
+  (frame', NUM_VALUE slotValue)
+  -- if arraykey = $array_key_tag(slotValue_key)
+  -- if (frame', slotValue) = $read_array_entry(frame, opcode, arraykey, $array_find(runtimeEntry*, arraykey))
+def $expr_offset_result(frame, opcode, STRING bytes, NUM_VALUE slotValue_key) = (frame', NUM_VALUE slotValue)
+  -- if (frame', slotValue) = $read_offset_byte(frame, opcode, slotValue_key, $string_byte(bytes, slotValue_key))
+def $expr_offset_result(frame, _, _, NUM_ERROR bytes) = (frame, NUM_ERROR bytes)
+
+dec $expr_read_offset(frame, opcode, slotValue, slotValue) : (frame, numericResult)
+def $expr_read_offset(frame, opcode, slotValue_array, slotValue_key) =
+  $expr_offset_result(frame', opcode, slotValue_array, numericResult)
+  -- if $is_array_value(slotValue_array)
+  -- if (frame', numericResult) = $dimension_diagnostics(frame, $array_key(opcode, TMP 0, slotValue_key))
+def $expr_read_offset(frame, opcode, STRING bytes, slotValue_key) =
+  $expr_offset_result(frame', opcode, STRING bytes, numericResult)
+  -- if (frame', numericResult) = $dimension_diagnostics(frame, $string_offset(opcode, slotValue_key))
+def $expr_read_offset(frame, opcode, slotValue, _) = ($scalar_offset_frame(frame, opcode, slotValue), NUM_VALUE NULL)
+  -- if ~$is_array_value(slotValue) /\ $scalar_type_bit(slotValue) =/= 64
+
+def $expr_dimension(frame, n, slotValue, slotValue_key) = $expr_read_offset(frame, opcode_modes*[n], slotValue, slotValue_key)
+  -- if opcode_modes* = [FETCH_DIM_R, FETCH_DIM_IS]
+
+;; Warning: Attempt to read property "<name>" on <type>
+def $expr_property(frame, slotValue_subject, slotValue_key) =
+  ($report($string_frame(frame, slotValue_key), WARNING,
+    [ 65, 116, 116, 101, 109, 112, 116, 32, 116, 111, 32, 114, 101, 97, 100, 32, 112, 114,
+      111, 112, 101, 114, 116, 121, 32, 34 ] ++ $scalar_bytes(slotValue_key) ++ [ 34, 32, 111, 110, 32 ]
+      ++ $value_name(slotValue_subject)), NUM_VALUE NULL)

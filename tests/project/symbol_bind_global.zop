@@ -1,0 +1,45 @@
+zend-opcodes
+file "symbol_bind_global.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 8
+  locals 3 ["local", "peer", "alias"]
+  size 27 literals 7 children 0
+  lit[0] = "dynamic"
+  lit[1] = int(4)
+  lit[2] = int(7)
+  lit[3] = "peer"
+  lit[4] = int(9)
+  lit[5] = "|"
+  lit[6] = "\x0a"
+  code
+    0: BIND_GLOBAL CV0, lit[0] | line=1
+    1: ASSIGN CV0, lit[1] | line=1
+    2: T3 = FETCH_R lit[0] | line=1 ext=2
+    3: ECHO T3 | line=1
+    4: ASSIGN_REF CV1, CV0 | line=1
+    5: UNSET_VAR lit[0] | line=1 ext=2
+    6: BIND_GLOBAL CV2, lit[0] | line=1
+    7: ASSIGN CV2, lit[2] | line=1
+    8: ECHO CV0 | line=1
+    9: ECHO CV1 | line=1
+    10: ECHO CV2 | line=1
+    11: ECHO lit[5] | line=1
+    12: BIND_GLOBAL CV0, lit[3] | line=1
+    13: BIND_GLOBAL CV1, lit[0] | line=1
+    14: ASSIGN CV1, lit[4] | line=1
+    15: ECHO CV0 | line=1
+    16: ECHO CV1 | line=1
+    17: ECHO CV2 | line=1
+    18: UNSET_CV CV2 | line=1
+    19: UNSET_VAR lit[0] | line=1 ext=2
+    20: BIND_GLOBAL CV0, lit[3] | line=1
+    21: ASSIGN CV0, lit[2] | line=1
+    22: ECHO lit[5] | line=1
+    23: ECHO CV0 | line=1
+    24: ECHO CV1 | line=1
+    25: ECHO lit[6] | line=1
+    26: RETURN lit[1] | line=1
+}
+end

@@ -1,0 +1,165 @@
+;; A literal inside an AST has its own path in the declaring pool slot.
+syntax exprSite = SITE literalRoot arraykey*
+dec $expr_child(exprSite, nat) : exprSite
+def $expr_child(SITE literalRoot arraykey*, n) = SITE literalRoot (arraykey* ++ [INDEX n])
+
+syntax exprBinary = BINARY_ATTR nat | REVERSED opcode | DIM_ATTR nat | PROPERTY_READ bool
+syntax exprUnary = UNARY_ATTR nat | CAST_ATTR nat | WITH_ZERO | WITH_MINUS_ONE | TO_BOOL
+syntax exprAction =
+  | APPLY_UNARY exprUnary | RIGHT_CHILD exprBinary expr exprSite | APPLY_BINARY exprBinary slotValue
+  | LOGICAL bool expr exprSite | FALLBACK expr exprSite | CHOOSE expr expr exprSite | END_CHAIN | CLASS_MEMBER
+  | ARRAY_ITEMS expr* exprSite nat | ELEMENT_VALUE slotValue expr exprSite | INSERT_VALUE slotValue slotValue?
+  | UNPACK_VALUE slotValue
+
+dec $expr_walk(frame, expr, exprSite, exprAction*) : (frame, numericResult)
+dec $expr_resume(frame, slotValue, bool, exprAction*) : (frame, numericResult)
+dec $expr_applied((frame, numericResult), exprAction*) : (frame, numericResult)
+dec $expr_result(frame, numericResult, exprAction*) : (frame, numericResult)
+dec $expr_unary(frame, exprUnary, slotValue) : (frame, numericResult)
+dec $expr_binary(frame, exprBinary, slotValue, slotValue) : (frame, numericResult)
+dec $expr_array_insert(frame, slotValue, slotValue?, slotValue) : (frame, numericResult)
+dec $expr_array_unpack(frame, slotValue, slotValue) : (frame, numericResult)
+dec $expr_dimension(frame, nat, slotValue, slotValue) : (frame, numericResult)
+dec $expr_property(frame, slotValue, slotValue) : (frame, numericResult)
+
+def $eval_constant_expr(frame, expr, n) = $expr_walk(frame, expr, SITE (POOL_LITERAL n false) eps, eps)
+
+def $expr_walk(frame, VALUE _ _ zval, SITE literalRoot arraykey*, exprAction*) =
+  $expr_resume(frame, $runtime_value(zval, literalRoot, arraykey*), false, exprAction*)
+def $expr_walk(frame, CONSTANT n _ bytes, _, exprAction*) = $expr_applied($constant_expr_name(frame, bytes, n), exprAction*)
+def $expr_walk(frame, CURRENT_CLASS _ _, _, exprAction*) = $expr_resume(frame, STRING eps, false, exprAction*)
+def $expr_walk(frame, CLASS_CONSTANT _ _ _ expr, exprSite, exprAction*) =
+  $expr_walk(frame, expr, $expr_child(exprSite, 1), CLASS_MEMBER :: exprAction*)
+;; Error: Cannot use "self" when no class scope is active
+def $expr_walk(frame, CLASS_NAME _ _ _, _, _) = (frame, NUM_ERROR (
+  [69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32, 34, 115, 101, 108, 102, 34,
+   32, 119, 104, 101, 110, 32, 110, 111, 32, 99, 108, 97, 115, 115, 32, 115, 99, 111, 112, 101, 32, 105, 115,
+   32, 97, 99, 116, 105, 118, 101]))
+def $expr_walk(frame, UNARY n _ expr, exprSite, exprAction*) =
+  $expr_walk(frame, expr, $expr_child(exprSite, 0), (APPLY_UNARY (UNARY_ATTR n)) :: exprAction*)
+def $expr_walk(frame, CAST n _ expr, exprSite, exprAction*) =
+  $expr_walk(frame, expr, $expr_child(exprSite, 0), (APPLY_UNARY (CAST_ATTR n)) :: exprAction*)
+def $expr_walk(frame, PLUS _ _ expr, exprSite, exprAction*) =
+  $expr_walk(frame, expr, $expr_child(exprSite, 0), (APPLY_UNARY WITH_ZERO) :: exprAction*)
+def $expr_walk(frame, MINUS _ _ expr, exprSite, exprAction*) =
+  $expr_walk(frame, expr, $expr_child(exprSite, 0), (APPLY_UNARY WITH_MINUS_ONE) :: exprAction*)
+def $expr_walk(frame, BINARY n _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (RIGHT_CHILD (BINARY_ATTR n) expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, GREATER _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (RIGHT_CHILD (REVERSED IS_SMALLER) expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, GREATER_EQUAL _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (RIGHT_CHILD (REVERSED IS_SMALLER_OR_EQUAL) expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, DIMENSION n _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (RIGHT_CHILD (DIM_ATTR n) expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, PROPERTY _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (RIGHT_CHILD (PROPERTY_READ false) expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, NULLSAFE_PROPERTY _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (RIGHT_CHILD (PROPERTY_READ true) expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, AND _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (LOGICAL false expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, OR _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (LOGICAL true expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, COALESCE _ _ expr_l expr_r, exprSite, exprAction*) =
+  $expr_walk(frame, expr_l, $expr_child(exprSite, 0), (FALLBACK expr_r ($expr_child(exprSite, 1))) :: exprAction*)
+def $expr_walk(frame, CONDITIONAL _ _ expr_c expr_y expr_n, exprSite, exprAction*) =
+  $expr_walk(frame, expr_c, $expr_child(exprSite, 0), (CHOOSE expr_y expr_n exprSite) :: exprAction*)
+def $expr_walk(frame, ARRAY _ _ expr*, exprSite, exprAction*) =
+  $expr_resume(frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)],
+    ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) eps ($initial_array_index(0)) eps, false, (ARRAY_ITEMS expr* exprSite 0) :: exprAction*)
+def $expr_walk(frame, _, _, _) = (frame, NUM_UNSUPPORTED) -- otherwise
+
+;; Only a neighboring property/dimension access inherits a nullsafe short circuit.
+dec $expr_skips_key(exprBinary, slotValue, bool) : bool
+def $expr_skips_key(DIM_ATTR _, _, b) = b
+def $expr_skips_key(PROPERTY_READ b_nullsafe, slotValue, b) = b \/ (b_nullsafe /\ slotValue = NULL)
+def $expr_skips_key(_, _, _) = false -- otherwise
+
+def $expr_resume(frame, slotValue, _, eps) = (frame, NUM_VALUE slotValue)
+def $expr_resume(frame, slotValue, _, END_CHAIN :: exprAction*) = $expr_resume(frame, slotValue, false, exprAction*)
+def $expr_resume(frame, STRING _, _, CLASS_MEMBER :: _) = (frame, NUM_UNSUPPORTED)
+;; TypeError: Cannot use value of type <type> as class constant name
+def $expr_resume(frame, slotValue, _, CLASS_MEMBER :: _) = (frame, NUM_ERROR (
+    [84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32, 118,
+     97, 108, 117, 101, 32, 111, 102, 32, 116, 121, 112, 101, 32] ++ $operand_type_name(slotValue)
+    ++ [32, 97, 115, 32, 99, 108, 97, 115, 115, 32, 99, 111, 110, 115, 116, 97, 110, 116, 32, 110, 97, 109, 101]))
+  -- if $scalar_type_bit(slotValue) =/= 64
+def $expr_resume(frame, slotValue, _, (APPLY_UNARY exprUnary) :: exprAction*) =
+  $expr_applied($expr_unary(frame, exprUnary, slotValue), exprAction*)
+def $expr_resume(frame, slotValue, b, (RIGHT_CHILD exprBinary _ _) :: exprAction*) = $expr_resume(frame, NULL, true, exprAction*)
+  -- if $expr_skips_key(exprBinary, slotValue, b)
+def $expr_resume(frame, slotValue, b, (RIGHT_CHILD exprBinary expr exprSite) :: exprAction*) =
+  $expr_walk(frame, expr, exprSite, (APPLY_BINARY exprBinary slotValue) :: exprAction*)
+  -- if ~$expr_skips_key(exprBinary, slotValue, b)
+def $expr_resume(frame, slotValue_r, _, (APPLY_BINARY exprBinary slotValue_l) :: exprAction*) =
+  $expr_applied($expr_binary(frame, exprBinary, slotValue_l, slotValue_r), exprAction*)
+def $expr_resume(frame, slotValue, _, (LOGICAL b _ _) :: exprAction*) =
+  $expr_resume($truth_frame(frame, slotValue), $zend_bool(b), false, exprAction*)
+  -- if $truth(slotValue) = b
+def $expr_resume(frame, slotValue, _, (LOGICAL b expr exprSite) :: exprAction*) =
+  $expr_walk($truth_frame(frame, slotValue), expr, exprSite, (APPLY_UNARY TO_BOOL) :: exprAction*)
+  -- if $truth(slotValue) =/= b
+def $expr_resume(frame, NULL, _, (FALLBACK expr exprSite) :: exprAction*) =
+  $expr_walk(frame, expr, exprSite, END_CHAIN :: exprAction*)
+def $expr_resume(frame, slotValue, _, (FALLBACK _ _) :: exprAction*) = $expr_resume(frame, slotValue, false, exprAction*)
+  -- if slotValue =/= NULL
+def $expr_resume(frame, slotValue, _, (CHOOSE ABSENT _ _) :: exprAction*) =
+  $expr_resume($truth_frame(frame, slotValue), slotValue, false, exprAction*)
+  -- if $truth(slotValue)
+def $expr_resume(frame, slotValue, _, (CHOOSE expr_y _ exprSite) :: exprAction*) =
+  $expr_walk($truth_frame(frame, slotValue), expr_y, $expr_child(exprSite, 1), END_CHAIN :: exprAction*)
+  -- if $truth(slotValue) /\ expr_y =/= ABSENT
+def $expr_resume(frame, slotValue, _, (CHOOSE _ expr_n exprSite) :: exprAction*) =
+  $expr_walk($truth_frame(frame, slotValue), expr_n, $expr_child(exprSite, 2), END_CHAIN :: exprAction*)
+  -- if ~$truth(slotValue)
+def $expr_resume(frame, slotValue, _, (ARRAY_ITEMS eps _ _) :: exprAction*) = $expr_resume(frame, slotValue, false, exprAction*)
+def $expr_resume(frame, slotValue, _, (ARRAY_ITEMS ((UNPACK _ _ expr) :: expr_rest*) exprSite n) :: exprAction*) =
+  $expr_walk(frame, expr, $expr_child($expr_child(exprSite, n), 0),
+    (UNPACK_VALUE slotValue) :: (ARRAY_ITEMS expr_rest* exprSite $(n + 1)) :: exprAction*)
+def $expr_resume(frame, slotValue, _, (ARRAY_ITEMS ((ELEMENT _ _ expr ABSENT) :: expr_rest*) exprSite n) :: exprAction*) =
+  $expr_walk(frame, expr, $expr_child($expr_child(exprSite, n), 0),
+    (INSERT_VALUE slotValue eps) :: (ARRAY_ITEMS expr_rest* exprSite $(n + 1)) :: exprAction*)
+def $expr_resume(frame, slotValue, _, (ARRAY_ITEMS ((ELEMENT _ _ expr_v expr_k) :: expr_rest*) exprSite n) :: exprAction*) =
+  $expr_walk(frame, expr_k, $expr_child(exprSite_el, 1),
+    (ELEMENT_VALUE slotValue expr_v ($expr_child(exprSite_el, 0))) :: (ARRAY_ITEMS expr_rest* exprSite $(n + 1)) :: exprAction*)
+  -- if expr_k =/= ABSENT
+  -- if exprSite_el = $expr_child(exprSite, n)
+def $expr_resume(frame, slotValue_k, _, (ELEMENT_VALUE slotValue expr_v exprSite) :: exprAction*) =
+  $expr_walk(frame, expr_v, exprSite, (INSERT_VALUE slotValue slotValue_k) :: exprAction*)
+def $expr_resume(frame, slotValue_v, _, (INSERT_VALUE slotValue slotValue_k?) :: exprAction*) =
+  $expr_applied($expr_array_insert(frame, slotValue, slotValue_k?, slotValue_v), exprAction*)
+def $expr_resume(frame, slotValue_v, _, (UNPACK_VALUE slotValue) :: exprAction*) =
+  $expr_applied($expr_array_unpack(frame, slotValue, slotValue_v), exprAction*)
+
+def $expr_applied((frame, numericResult), exprAction*) =
+  $expr_result(frame', numericResult', exprAction*)
+  -- if (frame', numericResult') = $dimension_diagnostics(frame, numericResult)
+
+def $expr_result(frame, NUM_VALUE slotValue, exprAction*) = $expr_resume(frame, slotValue, false, exprAction*)
+def $expr_result(frame, numericResult, _) = (frame, numericResult) -- otherwise
+
+def $expr_unary(frame, UNARY_ATTR 13, slotValue) = (frame, $bitwise(BW_NOT, slotValue, NULL))
+def $expr_unary(frame, UNARY_ATTR 14, slotValue) = ($truth_frame(frame, slotValue), NUM_VALUE $zend_bool(~$truth(slotValue)))
+def $expr_unary(frame, WITH_ZERO, slotValue) = $binary_operation(frame, false, ADD, INT 0, slotValue)
+def $expr_unary(frame, WITH_MINUS_ONE, slotValue) = $binary_operation(frame, false, MUL, INT (-1), slotValue)
+def $expr_unary(frame, TO_BOOL, slotValue) = ($truth_frame(frame, slotValue), NUM_VALUE $zend_bool($truth(slotValue)))
+def $expr_unary(frame, CAST_ATTR 18, slotValue) = $expr_unary(frame, TO_BOOL, slotValue)
+def $expr_unary(frame, CAST_ATTR n, slotValue) = (frame, $numeric_cast(n, slotValue)) -- if n = 4 \/ n = 5
+def $expr_unary(frame, CAST_ATTR 6, slotValue) = ($string_frame(frame, slotValue), NUM_VALUE (STRING $scalar_bytes(slotValue)))
+def $expr_unary(frame, CAST_ATTR 7, slotValue) = (frame, NUM_VALUE slotValue) -- if $is_array_value(slotValue)
+def $expr_unary(frame, CAST_ATTR 7, slotValue) =
+  (frame'[.NEXTARRAY = $(frame.NEXTARRAY + 1)], NUM_VALUE (ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) ($cast_entries(slotValue)) eps eps))
+  -- if ~$is_array_value(slotValue)
+  -- if frame' = $nan_frame(frame, slotValue, [97, 114, 114, 97, 121])
+def $expr_unary(frame, CAST_ATTR 8, _) = (frame, NUM_UNSUPPORTED)
+
+def $expr_binary(frame, DIM_ATTR n, slotValue_l, slotValue_r) = $expr_dimension(frame, n, slotValue_l, slotValue_r)
+def $expr_binary(frame, PROPERTY_READ _, slotValue_l, slotValue_r) = $expr_property(frame, slotValue_l, slotValue_r)
+def $expr_binary(frame, REVERSED opcode, slotValue_l, slotValue_r) = $binary_operation(frame, false, opcode, slotValue_r, slotValue_l)
+def $expr_binary(frame, BINARY_ATTR 8, slotValue_l, slotValue_r) = $concat_values(frame, false, slotValue_l, slotValue_r)
+def $expr_binary(frame, BINARY_ATTR 15, slotValue_l, slotValue_r) =
+  ($truth_frame($truth_frame(frame, slotValue_l), slotValue_r), NUM_VALUE $zend_bool($truth(slotValue_l) =/= $truth(slotValue_r)))
+def $expr_binary(frame, BINARY_ATTR 170, slotValue_l, slotValue_r) = $binary_operation(frame, false, SPACESHIP, slotValue_l, slotValue_r)
+def $expr_binary(frame, BINARY_ATTR n, slotValue_l, slotValue_r) = $binary_operation(frame, false, opcode_ops*[n], slotValue_l, slotValue_r)
+  -- if n =/= 8 /\ n =/= 15 /\ n =/= 170
+  -- if opcode_ops* = [NOP, ADD, SUB, MUL, DIV, MOD, SL, SR, CONCAT, BW_OR, BW_AND, BW_XOR, POW, BW_NOT, BOOL_NOT, BOOL_XOR,
+                        IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL, IS_SMALLER, IS_SMALLER_OR_EQUAL]

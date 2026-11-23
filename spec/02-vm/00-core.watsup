@@ -2,27 +2,22 @@ syntax outcome = PHP bytes bytes nat | UNSUPPORTED bytes bytes
 syntax fragment = FRAGMENT nat nat bytes
 syntax iteratorPosition = ITER_AT arrayId nat
 syntax foreachIterator = SNAPSHOT nat nat | LIVE nat iteratorPosition iteratorPosition*
+syntax symbolRow = SYMBOL bytes nat
 syntax frameSlot = { VALUE slotValue, OWNS bool }
 dec $owned(slotValue) : frameSlot
 def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
   CODE instruction*, POOL poolentry*, FROZEN nat*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
-  CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, STRICT bool, TRIES tryregion*, STDOUT bytes
+  CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, SYMBOLS slotValue, MISSING nat,
+  CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
 syntax transition = CONTINUE frame | FINISH outcome
 
-;; PHP puts the CLI script argument in argv, even if the unit has a different logical filename.
-dec $initial_local(bytes, bytes) : slotValue
-def $initial_local([ 97, 114, 103, 99 ], _) = INT 1
-def $initial_local([ 97, 114, 103, 118 ], bytes_script) = $cli_argv(bytes_script)
-def $initial_local(bytes, _) = ARRAY_VALUE (CLI_ARRAY_ID 0) eps eps eps
-  -- if bytes <- [ [ 95, 71, 69, 84 ],
-                   [ 95, 80, 79, 83, 84 ],
-                   [ 95, 67, 79, 79, 75, 73, 69 ],
-                   [ 95, 70, 73, 76, 69, 83 ] ]
-def $initial_local([ 95, 83, 69, 82, 86, 69, 82 ], _) = CLI_ARRAY
-def $initial_local(_, _) = UNDEF
-  -- otherwise
+dec $global_names(bytes*) : bytes*
+dec $initial_global(bytes, bytes) : slotValue
+dec $initial_constants(bytes, nat?) : runtimeEntry*
+dec $start_symbols(frame, bytes*) : frame
+dec $bind_global(frame, operand, bytes) : frame
 
 dec $empty_slots(nat) : slotValue*
 def $empty_slots(0) = eps
@@ -64,12 +59,17 @@ dec $server_fresh(frame, slotValue, arrayId?) : (frame, slotValue)
 dec $server_separate(frame, operand, slotValue) : (frame, slotValue)
 
 ;; CV, TMP and VAR indices address the same frame.
+dec $address_value(frame, slotValue) : slotValue
+def $address_value(frame, SYMBOL_LOCATION n) = frame.SLOTS[n].VALUE
+def $address_value(_, slotValue) = slotValue -- otherwise
+dec $slot_value(frame, nat) : slotValue
+def $slot_value(frame, n) = $current(frame.BORROWED, $address_value(frame, frame.SLOTS[n].VALUE))
 dec $raw_read(frame, operand) : slotValue
 def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE, n <- frame.FROZEN)
   -- if LITERAL zval = frame.POOL[n]
-def $raw_read(frame, CV n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
-def $raw_read(frame, TMP n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
-def $raw_read(frame, VAR n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
+def $raw_read(frame, CV n) = $slot_value(frame, n)
+def $raw_read(frame, TMP n) = $slot_value(frame, n)
+def $raw_read(frame, VAR n) = $slot_value(frame, n)
 
 dec $read(frame, operand) : slotValue
 def $read(frame, operand) = $cell_value(frame.BORROWED, frame.CELLS, $raw_read(frame, operand))
@@ -318,11 +318,13 @@ dec $cast(frame, operand, operand, nat, slotValue) : transition
 def $cast(frame, operand_r, _, n, slotValue) = $apply_numeric(frame, operand_r, UNUSED, eps, $numeric_cast(n, slotValue))
   -- if n = 4 \/ n = 5
   -- if $known_value(slotValue) /\ $truth_known(slotValue)
+def $cast(frame, operand_r, _, 6, HOST_OFFSET (INSTALL_ENTRY text)) =
+  CONTINUE $write(frame, operand_r, HOST_OFFSET (INSTALL_ENTRY text))
 def $cast(frame, operand_r, _, 6, slotValue) =
   CONTINUE $write($string_frame(frame, slotValue), operand_r, STRING $scalar_bytes(slotValue))
   -- if $known_value(slotValue)
 def $cast(frame, operand_r, operand_src, 7, slotValue) = $array_cast(frame, operand_r, $copy_value(frame, operand_src, slotValue))
-  -- if $known_value(slotValue)
+  -- if $known_value(slotValue) \/ $nonnull_host(slotValue)
 def $cast(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
@@ -352,6 +354,14 @@ dec $dimension_write_step(frame, opcode, operand, operand, operand, nat) : trans
 dec $reference_step(frame, opcode, operand, operand, operand, nat) : transition
 dec $foreach_step(frame, opcode, operand, operand, operand, extension?) : transition
 dec $foreach_input(frame, opcode, operand) : bool
+;; Iteration and destructuring of a scalar can report its type without its bytes.
+dec $container_type(slotValue) : slotValue
+def $container_type(HOST_OFFSET hostSource) = slotValue
+  -- if [slotValue] = $host_type_values(HOST_OFFSET hostSource)
+def $container_type(slotValue) = slotValue -- otherwise
+dec $named_step(frame, opcode, operand, operand, nat, smartbranch?) : transition
+dec $fetch_globals(frame, operand) : transition
+dec $constant_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 relation DestructureStep: frame; operand; operand; operand ~> transition
   hint(input %0 %1 %2 %3)
 
@@ -361,6 +371,16 @@ def $step(frame, COPY_TMP, operand_r, operand_src, _, _, _) =
   CONTINUE $write(frame, operand_r, $temporary_value(frame, operand_src))
 def $step(frame, JMP, _, TARGET n, _, _, _) = CONTINUE frame[.PC = n]
 def $step(frame, UNSET_CV, _, operand_a, _, _, _) = CONTINUE $write(frame, operand_a, UNDEF)
+def $step(frame, BIND_GLOBAL, _, operand_a, operand_b, _, _) = CONTINUE $bind_global(frame, operand_a, bytes)
+  -- if STRING bytes = $raw_read(frame, operand_b)
+def $step(frame, FETCH_GLOBALS, operand_r, _, _, _, _) = $fetch_globals(frame, operand_r)
+def $step(frame, opcode, operand_r, operand_a, _, extension?, smartbranch?) =
+  $named_step(frame, opcode, operand_r, operand_a, $ext_value(extension?), smartbranch?)
+  -- if opcode <- [FETCH_R, FETCH_W, FETCH_RW, FETCH_IS, FETCH_UNSET, UNSET_VAR, ISSET_ISEMPTY_VAR]
+  -- if $known_value($read(frame, operand_a)) \/ $read(frame, operand_a) = UNDEF
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?) =
+  $constant_step(frame, opcode, operand_r, operand_a, operand_b, extension?, smartbranch?)
+  -- if opcode <- [DECLARE_CONST, FETCH_CONSTANT, DEFINED]
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) =
   $reference_step(frame, opcode, operand_r, operand_a, operand_b, $ext_value(extension?))
   -- if opcode <- [ASSIGN_REF, MAKE_REF, SEPARATE, FETCH_LIST_W]
@@ -445,9 +465,24 @@ def $host_operand(_, _) = false -- otherwise
 dec $handles_host_input(opcode) : bool
 def $handles_host_input(opcode) = ($binary_kind(opcode) =/= eps) \/
   (opcode <- [ASSIGN, ASSIGN_OP, ASSIGN_REF, MAKE_REF, SEPARATE, COPY_TMP, QM_ASSIGN, FREE, FE_FREE, CHECK_VAR, UNSET_CV,
-              RETURN, TYPE_CHECK, GET_TYPE, CASE, CASE_STRICT, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT])
-def $observes_host(frame, opcode, operand_a, operand_b) = ~$handles_host_input(opcode) /\
-  ($host_operand(frame, operand_a) \/ (~(opcode <- [FE_FETCH_R, FE_FETCH_RW]) /\ $host_operand(frame, operand_b)))
+              RETURN, TYPE_CHECK, GET_TYPE, COUNT, CAST, CASE, CASE_STRICT, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT, BIND_GLOBAL,
+              FE_RESET_R, FE_RESET_RW, FE_FETCH_RW, FETCH_LIST_W, SWITCH_LONG, SWITCH_STRING, MATCH])
+dec $host_type_suffices(frame, opcode, operand, operand) : bool
+def $host_type_suffices(frame, opcode, operand_a, _) = true
+  -- if opcode = COALESCE \/ opcode = JMP_NULL
+  -- if $nonnull_host($read(frame, operand_a))
+def $host_type_suffices(frame, ARRAY_KEY_EXISTS, _, operand_a) = true
+  -- if HOST_OFFSET hostSource = $read(frame, operand_a)
+  -- if [slotValue] = $host_type_values(HOST_OFFSET hostSource)
+def $host_type_suffices(frame, FETCH_LIST_R, operand_a, _) = true
+  -- if slotValue = $container_type($read(frame, operand_a))
+  -- if $simple_value(slotValue) \/ slotValue = UNDEF
+def $host_type_suffices(_, _, _, _) = false -- otherwise
+
+def $observes_host(frame, opcode, operand_a, operand_b) = ~$host_type_suffices(frame, opcode, operand_a, operand_b)
+  -- if ~$handles_host_input(opcode)
+  -- if $host_operand(frame, operand_a) \/ (~(opcode <- [FE_FETCH_R, FE_FETCH_RW]) /\ $host_operand(frame, operand_b))
+def $observes_host(_, _, _, _) = false -- otherwise
 
 dec $checked_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 def $checked_step(frame, opcode, _, operand_a, operand_b, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
@@ -476,10 +511,12 @@ def $dormant_class(_) = false
 
 dec $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*) : nat*
 dec $execute(unit, bytes, bytes) : outcome
-def $execute(UNIT bytes_file _ eps (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script)
-  = $run({ CODE instruction*, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS ($owned(slotValue))*, ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
-           CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps })
+def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script)
+  = $run($start_symbols({ CODE instruction*, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS (($owned(slotValue))* ++ [$owned(NULL)]), ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
+           CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*,
+           SYMBOLS ARRAY_VALUE SYMBOL_TABLE eps (STORAGE (-9223372036854775808) (MIXED 64 eps)) eps, MISSING $(|slotValue*|),
+           CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
   -- if ~(false <- ($dormant_class(classDecl))*)
-  -- if slotValue* = ($initial_local(bytes_cv, bytes_script))* ++ $empty_slots(n)
+  -- if slotValue* = $empty_slots($(|bytes_cv*| + n))
 def $execute(_, _, _) = UNSUPPORTED eps eps
   -- otherwise

@@ -55,11 +55,24 @@ dec $case_comparison(opcode) : opcode
 def $case_comparison(CASE) = IS_EQUAL
 def $case_comparison(CASE_STRICT) = IS_IDENTICAL
 
+;; A string falls through SWITCH_LONG. An empty string switch or an integer-only
+;; match takes the default without reading any string bytes.
+dec $host_dispatch(frame, opcode, zval, nat, slotValue*) : transition
+def $host_dispatch(frame, SWITCH_LONG, _, _, [STRING _]) = CONTINUE frame
+def $host_dispatch(frame, SWITCH_STRING, ARRAY eps _ _ _, n_default, [STRING _]) = CONTINUE frame[.PC = n_default]
+def $host_dispatch(frame, MATCH, ARRAY (ENTRY (INDEX i) zval)* _ _ _, n_default, [STRING _]) = CONTINUE frame[.PC = n_default]
+def $host_dispatch(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
 def $dispatch_step(frame, opcode, operand_r, operand_l, operand_h, _, smartbranch?) =
   $apply_numeric(frame', operand_r, UNUSED, smartbranch?,
                  $operate(COMPARISON, $case_comparison(opcode), slotValue_l, slotValue_h, frame'))
   -- if opcode = CASE \/ opcode = CASE_STRICT
   -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, opcode, operand_l, operand_h)
+def $dispatch_step(frame, opcode, _, operand_subject, LIT n, EXT_TARGET n_default, _) =
+  $host_dispatch(frame, opcode, zval, n_default, $host_type_values(HOST_OFFSET hostSource))
+  -- if HOST_OFFSET hostSource = $read(frame, operand_subject)
+  -- if LITERAL zval = frame.POOL[n]
 def $dispatch_step(frame, opcode, _, operand_subject, operand_table, EXT_TARGET n_default, _) =
   CONTINUE $table_branch(frame', opcode, operand_table, n_default, $dispatch_key(opcode, slotValue))
   -- if (frame', slotValue) = $dispatch_subject(frame, opcode, operand_subject)
+  -- if ~$host_offset(slotValue)

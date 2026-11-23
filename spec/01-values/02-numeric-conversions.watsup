@@ -259,6 +259,7 @@ def $cast_string_float(DECIMAL_TOKEN bytes _ _ _) = $f64_parse(bytes)
 def $cast_string_float(eps) = 0
 
 dec $numeric_cast(nat, slotValue) : numericResult
+def $numeric_cast(n, STREAM n_id) = $numeric_cast(n, INT n_id)
 def $numeric_cast(n, slotValue) = $numeric_cast(n, $zend_bool($truth(slotValue)))
   -- if $is_array_value(slotValue)
 def $numeric_cast(4, STRING bytes) = $string_integer($numeric_string(bytes), bytes, false, NUM_VALUE (INT 0))

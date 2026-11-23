@@ -4,7 +4,7 @@ def $cell_value(borrowedTable*, slotValue_cell*, REFERENCE n) = $current(borrowe
 def $cell_value(borrowedTable*, _, slotValue) = $current(borrowedTable*, slotValue)
   -- if ~$is_reference(slotValue)
 
-def $deref(frame, slotValue) = $cell_value(frame.BORROWED, frame.CELLS, $current(frame.BORROWED, slotValue))
+def $deref(frame, slotValue) = $cell_value(frame.BORROWED, frame.CELLS, $current(frame.BORROWED, $address_value(frame, slotValue)))
 
 def $new_reference(frame, slotValue) =
   (frame[.CELLS = frame.CELLS ++ [slotValue]], REFERENCE $(|frame.CELLS|))
@@ -91,7 +91,8 @@ def $retained_edges(_, _, _, owners) = owners -- otherwise
 dec $shared_owner(frame, owner) : bool
 def $shared_owner(frame, owner) = $(owners'.COUNT > 1)
   -- if frameSlot* = frame.SLOTS
-  -- if owners = $visit_edges(frame, ($owned_value(frameSlot))*, owner, { SEEN eps, COUNT 0 })
+  -- if (ITEM _ slotValue_const)* = frame.CONSTANTS
+  -- if owners = $visit_edges(frame, ($owned_value(frameSlot))* ++ slotValue_const*, owner, { SEEN eps, COUNT 0 })
   -- if owners' = $retained_edges(frame, 0, owner, owners)
 
 def $shared_array(frame, slotValue) = $shared_owner(frame, TABLE_OWNER (FRESH_ARRAY n))

@@ -1,0 +1,45 @@
+zend-opcodes
+file "main.php"
+autoglobal "_SERVER"
+main
+body - {
+  lines 1 1
+  frame 2 cache 0
+  size 22 literals 12 children 0
+  lit[0] = "argv"
+  lit[1] = "argc"
+  lit[2] = "_GET"
+  lit[3] = "_POST"
+  lit[4] = "_COOKIE"
+  lit[5] = "_FILES"
+  lit[6] = "_SERVER"
+  lit[7] = ":"
+  lit[8] = "-4"
+  lit[9] = int(1)
+  lit[10] = array(-4 => int(1))
+  lit[11] = "\x0a"
+  code
+    0: T0 = FETCH_GLOBALS
+    1: T1 = COUNT T0
+    2: ECHO T1
+    3: ECHO lit[7]
+    4: UNSET_VAR lit[0] | ext=2
+    5: UNSET_VAR lit[1] | ext=2
+    6: UNSET_VAR lit[2] | ext=2
+    7: UNSET_VAR lit[3] | ext=2
+    8: UNSET_VAR lit[4] | ext=2
+    9: UNSET_VAR lit[5] | ext=2
+    10: UNSET_VAR lit[6] | ext=2
+    11: T0 = FETCH_GLOBALS
+    12: T1 = COUNT T0
+    13: ECHO T1
+    14: ECHO lit[7]
+    15: V0 = FETCH_W lit[8] | ext=2
+    16: ASSIGN V0, lit[9]
+    17: T0 = FETCH_GLOBALS
+    18: T1 = IS_IDENTICAL T0, lit[10]
+    19: ECHO T1
+    20: ECHO lit[11]
+    21: RETURN lit[9]
+}
+end

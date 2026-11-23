@@ -1,0 +1,94 @@
+zend-opcodes
+file "constant_name_resolution.php"
+halt 76
+main
+body - {
+  lines 1 14
+  frame 1 cache 72
+  size 39 literals 44 children 0
+  lit[0] = "NoRtH\\EaSt\\Label"
+  lit[1] = int(31)
+  lit[2] = "Root"
+  lit[3] = int(41)
+  lit[4] = "Local"
+  lit[5] = ast(constant(0 14 "\\NORTH\\East\\Label"))
+  lit[6] = "Fallback"
+  lit[7] = ast(constant(2048 14 "North\\Root"))
+  lit[8] = "Special"
+  lit[9] = ast(constant(2048 14 "North\\tRuE"))
+  lit[10] = "Offset"
+  lit[11] = ast(constant(0 14 "__COMPILER_HALT_OFFSET__"))
+  lit[12] = "SpecialFalse"
+  lit[13] = ast(constant(0 14 "FaLsE"))
+  lit[14] = "SpecialNull"
+  lit[15] = ast(constant(0 14 "nUlL"))
+  lit[16] = "Local"
+  lit[17] = "Local"
+  lit[18] = ":"
+  lit[19] = "Fallback"
+  lit[20] = "Fallback"
+  lit[21] = ":"
+  lit[22] = "Special"
+  lit[23] = "Special"
+  lit[24] = ":"
+  lit[25] = "Offset"
+  lit[26] = "Offset"
+  lit[27] = ":"
+  lit[28] = "SpecialFalse"
+  lit[29] = "SpecialFalse"
+  lit[30] = ":"
+  lit[31] = "SpecialNull"
+  lit[32] = "SpecialNull"
+  lit[33] = ":"
+  lit[34] = "hidden"
+  lit[35] = "\x00__COMPILER_HALT_OFFSET__\x00constant_name_resolution.php"
+  lit[36] = ":"
+  lit[37] = ""
+  lit[38] = undef
+  lit[39] = ""
+  lit[40] = ""
+  lit[41] = ""
+  lit[42] = "\x0a"
+  lit[43] = int(1)
+  code
+    0: DECLARE_CONST lit[0], lit[1] | line=14
+    1: DECLARE_CONST lit[2], lit[3] | line=14
+    2: DECLARE_CONST lit[4], lit[5] | line=14
+    3: DECLARE_CONST lit[6], lit[7] | line=14
+    4: DECLARE_CONST lit[8], lit[9] | line=14
+    5: DECLARE_CONST lit[10], lit[11] | line=14
+    6: DECLARE_CONST lit[12], lit[13] | line=14
+    7: DECLARE_CONST lit[14], lit[15] | line=14
+    8: T0 = FETCH_CONSTANT 0, lit[16] | line=14
+    9: ECHO T0 | line=14
+    10: ECHO lit[18] | line=14
+    11: T0 = FETCH_CONSTANT 0, lit[19] | line=14 ext=8
+    12: ECHO T0 | line=14
+    13: ECHO lit[21] | line=14
+    14: T0 = FETCH_CONSTANT 0, lit[22] | line=14 ext=16
+    15: ECHO T0 | line=14
+    16: ECHO lit[24] | line=14
+    17: T0 = FETCH_CONSTANT 0, lit[25] | line=14 ext=24
+    18: ECHO T0 | line=14
+    19: ECHO lit[27] | line=14
+    20: T0 = FETCH_CONSTANT 0, lit[28] | line=14 ext=32
+    21: T0 = GET_TYPE T0 | line=14
+    22: ECHO T0 | line=14
+    23: ECHO lit[30] | line=14
+    24: T0 = FETCH_CONSTANT 0, lit[31] | line=14 ext=40
+    25: T0 = GET_TYPE T0 | line=14
+    26: ECHO T0 | line=14
+    27: ECHO lit[33] | line=14
+    28: T0 = FETCH_CONSTANT 0, lit[34] | line=14 ext=48
+    29: ECHO T0 | line=14
+    30: ECHO lit[36] | line=14
+    31: DECLARE_CONST lit[37], lit[38] | line=14
+    32: T0 = DEFINED lit[39] | line=14 ext=56
+    33: ECHO T0 | line=14
+    34: T0 = FETCH_CONSTANT 0, lit[40] | line=14 ext=64
+    35: T0 = TYPE_CHECK T0 | line=14 ext=1
+    36: ECHO T0 | line=14
+    37: ECHO lit[42] | line=14
+    38: RETURN lit[43] | line=14
+}
+end

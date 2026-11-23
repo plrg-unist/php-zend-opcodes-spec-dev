@@ -2,45 +2,58 @@
 ;; changed by the program has one overriding value or an explicit UNDEF deletion.
 dec $server_changes(slotValue) : runtimeEntry*
 def $server_changes(CLI_ARRAY) = eps
+def $server_changes(CLI_ENV) = eps
 def $server_changes(CLI_UPDATED _ runtimeEntry* _) = runtimeEntry*
 
 def $server_id(CLI_ARRAY) = CLI_ARRAY_ID 2
+def $server_id(CLI_ENV) = CLI_ARRAY_ID 3
 def $server_id(CLI_UPDATED arrayId _ _) = arrayId
 
 ;; A writable lookup can establish a bucket without reading the inherited value.
-dec $host_offset(slotValue) : bool
 def $host_offset(HOST_OFFSET _) = true
 def $host_offset(_) = false -- otherwise
 
 ;; These representatives answer only type queries. Reading an actual host value
 ;; still requires the host. A newly established environment bucket can be null.
-dec $host_type_values(slotValue) : slotValue*
-def $host_type_values(HOST_OFFSET (KEY bytes)) = [INT 0]
-  -- if $server_lookup(KEY bytes, eps) = SERVER_PRESENT /\ |bytes| = 12
-def $host_type_values(HOST_OFFSET (KEY bytes)) = [FLOAT 0]
-  -- if $server_lookup(KEY bytes, eps) = SERVER_PRESENT /\ |bytes| = 18
-def $host_type_values(HOST_OFFSET arraykey) = [NULL, STRING eps]
-  -- if $server_lookup(arraykey, eps) = SERVER_UNKNOWN
+def $host_type_values(HOST_OFFSET (CLOCK_ENTRY (KEY bytes))) = [INT 0]
+  -- if |bytes| = 12
+def $host_type_values(HOST_OFFSET (CLOCK_ENTRY (KEY bytes))) = [FLOAT 0]
+  -- if |bytes| = 18
+def $host_type_values(HOST_OFFSET (ENV_ENTRY _)) = [NULL, STRING eps]
+def $host_type_values(HOST_OFFSET (INSTALL_ENTRY _)) = [STRING eps]
 def $host_type_values(slotValue) = [slotValue] -- if ~$host_offset(slotValue)
 
-dec $server_entry_at(slotValue?, arraykey, bytes) : serverLookup
-def $server_entry_at(eps, arraykey, bytes) = $server_lookup(arraykey, bytes)
-def $server_entry_at(UNDEF, _, _) = SERVER_KNOWN eps
-def $server_entry_at(HOST_OFFSET arraykey, _, _) = SERVER_CAPTURED arraykey
-def $server_entry_at(slotValue, _, _) = SERVER_KNOWN slotValue
+dec $nonnull_host(slotValue) : bool
+def $nonnull_host(HOST_OFFSET hostSource) = ~(NULL <- $host_type_values(HOST_OFFSET hostSource))
+def $nonnull_host(_) = false -- otherwise
+
+dec $server_history(slotValue) : serverHistory
+def $server_history(CLI_ARRAY) = { ORIGIN SERVER, TAIL eps, SATURATED false }
+def $server_history(CLI_ENV) = { ORIGIN ENVIRONMENT, TAIL eps, SATURATED false }
+def $server_history(CLI_UPDATED _ _ serverHistory) = serverHistory
+
+dec $server_origin(slotValue) : cliOrigin
+def $server_origin(slotValue) = serverHistory.ORIGIN
+  -- if serverHistory = $server_history(slotValue)
+
+dec $host_source(serverLookup, arraykey) : hostSource
+def $host_source(SERVER_PRESENT, arraykey) = CLOCK_ENTRY arraykey
+def $host_source(SERVER_UNKNOWN, arraykey) = ENV_ENTRY arraykey
+
+dec $server_entry_at(slotValue?, serverLookup) : serverLookup
+def $server_entry_at(eps, serverLookup) = serverLookup
+def $server_entry_at(UNDEF, _) = SERVER_KNOWN eps
+def $server_entry_at(HOST_OFFSET hostSource, _) = SERVER_CAPTURED hostSource
+def $server_entry_at(slotValue, _) = SERVER_KNOWN slotValue
   -- if slotValue =/= UNDEF /\ ~$host_offset(slotValue)
 
 dec $server_entry(slotValue, arraykey, bytes) : serverLookup
 def $server_entry(slotValue, arraykey, bytes) =
-  $server_entry_at($array_find($server_changes(slotValue), arraykey), arraykey, bytes)
+  $server_entry_at($array_find($server_changes(slotValue), arraykey), $server_lookup($server_origin(slotValue), arraykey, bytes))
 
 dec $server_override(slotValue?) : slotValue
 def $server_override(eps) = UNDEF
 def $server_override(slotValue) = slotValue
-
-dec $server_history(slotValue) : serverHistory
-def $server_history(CLI_ARRAY) = { TAIL eps, SATURATED false }
-def $server_history(CLI_UPDATED _ _ serverHistory) = serverHistory
 
 dec $server_order(slotValue) : runtimeEntry*
 def $server_order(slotValue) = serverHistory.TAIL
@@ -73,25 +86,62 @@ dec $server_changed(slotValue, arrayId, arraykey, slotValue?) : slotValue
 def $server_changed(slotValue_server, arrayId, arraykey, slotValue?) =
   CLI_UPDATED arrayId ($put_entry(runtimeEntry*, $array_position(runtimeEntry*, arraykey),
                                ITEM arraykey ($server_override(slotValue?))))
-    { TAIL $server_tail(serverHistory.TAIL, arraykey, slotValue?, $server_entry(slotValue_server, arraykey, eps)),
+    { ORIGIN serverHistory.ORIGIN, TAIL $server_tail(serverHistory.TAIL, arraykey, slotValue?, $server_entry(slotValue_server, arraykey, eps)),
       SATURATED (serverHistory.SATURATED \/ $pins_cursor(arraykey, slotValue?)) }
   -- if runtimeEntry* = $server_changes(slotValue_server)
   -- if serverHistory = $server_history(slotValue_server)
 
 ;; The CLI always installs nine keys. Deleting one lowers the guaranteed
 ;; count; setting another key raises it even if the host also supplied it.
-dec $server_guaranteed(arraykey) : bool
-def $server_guaranteed(arraykey) = serverLookup =/= SERVER_UNKNOWN /\ serverLookup =/= SERVER_KNOWN eps
-  -- if serverLookup = $server_lookup(arraykey, eps)
+dec $server_guaranteed(cliOrigin, arraykey) : bool
+def $server_guaranteed(cliOrigin, arraykey) = serverLookup =/= SERVER_UNKNOWN /\ serverLookup =/= SERVER_KNOWN eps
+  -- if serverLookup = $server_lookup(cliOrigin, arraykey, eps)
 
-dec $server_lower_bound(runtimeEntry*, nat) : nat
-def $server_lower_bound(eps, n) = n
-def $server_lower_bound((ITEM arraykey UNDEF) :: runtimeEntry*, n) = $server_lower_bound(runtimeEntry*, n_prev)
-  -- if $server_guaranteed(arraykey)
+dec $server_lower_bound(cliOrigin, runtimeEntry*, nat) : nat
+def $server_lower_bound(_, eps, n) = n
+def $server_lower_bound(cliOrigin, (ITEM arraykey UNDEF) :: runtimeEntry*, n) = $server_lower_bound(cliOrigin, runtimeEntry*, n_prev)
+  -- if $server_guaranteed(cliOrigin, arraykey)
   -- if n_prev = $(n - 1)
-def $server_lower_bound((ITEM arraykey slotValue) :: runtimeEntry*, n) = $server_lower_bound(runtimeEntry*, $(n + 1))
-  -- if slotValue =/= UNDEF /\ ~$server_guaranteed(arraykey)
-def $server_lower_bound((ITEM arraykey slotValue) :: runtimeEntry*, n) = $server_lower_bound(runtimeEntry*, n)
-  -- if (slotValue =/= UNDEF) = $server_guaranteed(arraykey)
+def $server_lower_bound(cliOrigin, (ITEM arraykey slotValue) :: runtimeEntry*, n) = $server_lower_bound(cliOrigin, runtimeEntry*, $(n + 1))
+  -- if slotValue =/= UNDEF /\ ~$server_guaranteed(cliOrigin, arraykey)
+def $server_lower_bound(cliOrigin, (ITEM arraykey slotValue) :: runtimeEntry*, n) = $server_lower_bound(cliOrigin, runtimeEntry*, n)
+  -- if (slotValue =/= UNDEF) = $server_guaranteed(cliOrigin, arraykey)
 
-def $server_min_size(slotValue) = $server_lower_bound($server_changes(slotValue), 9)
+dec $server_base_size(cliOrigin) : nat
+def $server_base_size(SERVER) = 9
+def $server_base_size(ENVIRONMENT) = 0
+
+def $server_min_size(slotValue) = $server_lower_bound(cliOrigin, $server_changes(slotValue), $server_base_size(cliOrigin))
+  -- if cliOrigin = $server_origin(slotValue)
+
+;; A comparison or union between $_ENV and $_SERVER uses the same inherited
+;; environment on both sides. Express the CLI overwrites as ordinary deltas.
+dec $cli_override(serverLookup, arraykey) : slotValue
+def $cli_override(SERVER_KNOWN slotValue, _) = slotValue
+def $cli_override(SERVER_PRESENT, arraykey) = HOST_OFFSET (CLOCK_ENTRY arraykey)
+
+dec $cli_delta(slotValue, arraykey, bytes) : runtimeEntry*
+def $cli_delta(slotValue, arraykey, bytes) = [ITEM arraykey ($cli_override($server_lookup(SERVER, arraykey, bytes), arraykey))]
+  -- if $array_find($server_changes(slotValue), arraykey) = eps
+def $cli_delta(_, _, _) = eps -- otherwise
+
+dec $cli_tail(slotValue, arraykey) : runtimeEntry*
+def $cli_tail(slotValue, arraykey) = [ITEM arraykey FALSE]
+  -- if $array_find($server_changes(slotValue), arraykey) =/= UNDEF
+  -- if $array_find($server_order(slotValue), arraykey) = eps
+def $cli_tail(_, _) = eps -- otherwise
+
+dec $cli_deltas(slotValue, arraykey*, bytes) : (runtimeEntry*, runtimeEntry*)
+def $cli_deltas(_, eps, _) = (eps, eps)
+def $cli_deltas(slotValue, arraykey :: arraykey_rest*, bytes) =
+  ($cli_delta(slotValue, arraykey, bytes) ++ runtimeEntry_base*, $cli_tail(slotValue, arraykey) ++ runtimeEntry_tail*)
+  -- if (runtimeEntry_base*, runtimeEntry_tail*) = $cli_deltas(slotValue, arraykey_rest*, bytes)
+
+dec $server_view(slotValue, slotValue, bytes) : slotValue
+def $server_view(slotValue, slotValue_other, bytes) =
+  CLI_UPDATED ($server_id(slotValue)) (runtimeEntry_base* ++ $server_changes(slotValue))
+    serverHistory[.ORIGIN = ENVIRONMENT][.TAIL = runtimeEntry_tail* ++ serverHistory.TAIL]
+  -- if $server_origin(slotValue) = SERVER /\ $server_origin(slotValue_other) = ENVIRONMENT
+  -- if serverHistory = $server_history(slotValue)
+  -- if (runtimeEntry_base*, runtimeEntry_tail*) = $cli_deltas(slotValue, $cli_server_keys(), bytes)
+def $server_view(slotValue, _, _) = slotValue -- otherwise

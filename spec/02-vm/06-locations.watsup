@@ -60,10 +60,12 @@ def $publish(frame, slotValue) = frame[.BORROWED = frame.BORROWED ++ [TABLE (FRE
 def $publish(frame, _) = frame
   -- otherwise
 
-syntax bucket = BUCKET nat arraykey
+syntax bucket = BUCKET nat arraykey | SYMBOL_BUCKET nat
 dec $captured(frame, operand) : bucket?
 def $captured(frame, VAR n) = BUCKET n_table arraykey
   -- if ELEMENT_LOCATION n_table arraykey = frame.SLOTS[n].VALUE
+def $captured(frame, VAR n) = SYMBOL_BUCKET n_slot
+  -- if SYMBOL_LOCATION n_slot = frame.SLOTS[n].VALUE
 def $captured(_, _) = eps
   -- otherwise
 
@@ -78,6 +80,8 @@ def $bind(frame, operand, slotValue) = frame'[.BORROWED[n_table] = TABLE arrayId
   -- if frame' = $publish(frame, slotValue)
   -- if TABLE arrayId slotValue_old = frame'.BORROWED[n_table]
   -- if slotValue_new = $store_bucket(slotValue_old, arraykey, slotValue)
+def $bind(frame, operand, slotValue) = $write($publish(frame, slotValue), CV n_slot, slotValue)
+  -- if SYMBOL_BUCKET n_slot = $captured(frame, operand)
 def $bind(frame, operand, slotValue) = $write($publish(frame, slotValue), operand, slotValue)
   -- if $captured(frame, operand) = eps
 
@@ -118,13 +122,14 @@ def $release(frame, TMP n, operand_r) = $release_slot(frame, n, operand_r)
 def $release(frame, VAR n, operand_r) = $release_slot(frame, n, operand_r)
 def $release(frame, _, _) = frame
   -- otherwise
+;; Named fetches release the name in their handler after selecting the target.
 def $release_inputs(CONTINUE frame, opcode, _, _, _) = CONTINUE frame
-  -- if opcode <- [FE_FETCH_R, FE_FETCH_RW]
+  -- if opcode <- [FE_FETCH_R, FE_FETCH_RW, FETCH_R, FETCH_W, FETCH_RW, FETCH_IS, FETCH_UNSET]
 def $release_inputs(CONTINUE frame, opcode, operand_r, _, operand_b) = CONTINUE $release(frame, operand_b, operand_r)
   -- if opcode <- [COPY_TMP, SEPARATE, FETCH_LIST_R, FETCH_LIST_W, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL]
 def $release_inputs(CONTINUE frame, opcode, operand_r, operand_a, operand_b) =
   CONTINUE $release($release(frame, operand_a, operand_r), operand_b, operand_r)
-  -- if ~(opcode <- [FE_FETCH_R, FE_FETCH_RW, COPY_TMP, SEPARATE, FETCH_LIST_R, FETCH_LIST_W, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL])
+  -- if ~(opcode <- [FE_FETCH_R, FE_FETCH_RW, FETCH_R, FETCH_W, FETCH_RW, FETCH_IS, FETCH_UNSET, COPY_TMP, SEPARATE, FETCH_LIST_R, FETCH_LIST_W, CASE, CASE_STRICT, SWITCH_LONG, SWITCH_STRING, MATCH, JMP_NULL])
 def $release_inputs(FINISH outcome, _, _, _, _) = FINISH outcome
 
 dec $false_array_frame(frame, slotValue) : frame
@@ -181,7 +186,7 @@ def $server_capture(frame, _, operand_r, operand_a, slotValue, arraykey, SERVER_
 def $server_capture(frame, opcode, operand_r, operand_a, slotValue, arraykey, SERVER_KNOWN eps) =
   $fetch_bucket(frame, opcode, operand_r, operand_a, slotValue, arraykey, eps)
 def $server_capture(frame, opcode, operand_r, operand_a, slotValue, arraykey, serverLookup) =
-  $capture_insert(frame, operand_r, operand_a, arraykey, NUM_VALUE $store_bucket(slotValue, arraykey, HOST_OFFSET arraykey))
+  $capture_insert(frame, operand_r, operand_a, arraykey, NUM_VALUE $store_bucket(slotValue, arraykey, HOST_OFFSET $host_source(serverLookup, arraykey)))
   -- if serverLookup = SERVER_PRESENT \/ (serverLookup = SERVER_UNKNOWN /\ opcode = FETCH_DIM_W)
 def $server_capture(frame, _, operand_r, operand_a, slotValue, arraykey, SERVER_CAPTURED _) =
   $capture(frame, operand_r, operand_a, slotValue, arraykey)
@@ -259,10 +264,10 @@ def $fetch_container(frame, opcode, _, _, operand_k, n, STRING _) =
 def $fetch_container(frame, FETCH_DIM_UNSET, _, _, _, _, slotValue) = $raise(frame,
     [69,114,114,111,114,58,32,67,97,110,110,111,116,32,117,110,115,101,116,32,111,102,102,115,101,116,
      32,105,110,32,97,32,110,111,110,45,97,114,114,97,121,32,118,97,114,105,97,98,108,101])
-  -- if $scalar_type_bit(slotValue) <- [8, 16, 32]
+  -- if $scalar_type_bit(slotValue) <- [8, 16, 32, 512]
 def $fetch_container(frame, opcode, _, _, _, _, slotValue) = $scalar_array_error(frame)
   -- if opcode =/= FETCH_DIM_UNSET
-  -- if $scalar_type_bit(slotValue) <- [8, 16, 32]
+  -- if $scalar_type_bit(slotValue) <- [8, 16, 32, 512]
 
 def $location_input(_, UNUSED) = true
 def $location_input(frame, operand) = $known_value(slotValue) \/ (slotValue = UNDEF)

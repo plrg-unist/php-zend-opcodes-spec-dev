@@ -1,0 +1,20 @@
+<?php
+$name = "not\0there";
+echo 'local=', $$name, ';global=', $GLOBALS[$name], "\n";
+echo 'coalesce=', $$name ?? 'absent', ';global=', $GLOBALS[$name] ?? 'absent', "\n";
+unset($$name[0], $GLOBALS[$name][0], $$name);
+echo (int)isset($$name), ':', (int)empty($$name), "\n";
+++$$name;
+echo $$name, "\n";
+unset($$name);
+echo ++$GLOBALS[$name], ':', $$name, "\n";
+$name = 'dormant';
+unset($dormant);
+echo $$name, ':', (int)isset($$name), ':', $$name ?? 'absent', "\n";
+unset($$name[0]);
+echo ++$$name, ':', $dormant, "\n";
+echo 'silent name=', (int)isset($$missing), ':', (int)empty($$missing), "\n";
+echo 'noisy name=', $$missing ?? 'absent', "\n";
+unset($$missing[0], $$missing);
+$$missing = 'empty name';
+echo $$missing, ':', (int)isset($$missing), "\n";

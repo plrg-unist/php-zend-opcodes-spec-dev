@@ -1,0 +1,20 @@
+zend-opcodes
+file "constant_qualified_missing.php"
+main
+body - {
+  lines 1 14
+  frame 1 cache 0
+  size 4 literals 6 children 0
+  lit[0] = "before|"
+  lit[1] = "DoesExist"
+  lit[2] = int(71)
+  lit[3] = "DoesExist"
+  lit[4] = ast(constant(0 14 "\\Area\\DoesExist"))
+  lit[5] = int(1)
+  code
+    0: ECHO lit[0] | line=14
+    1: DECLARE_CONST lit[1], lit[2] | line=14
+    2: DECLARE_CONST lit[3], lit[4] | line=14
+    3: RETURN lit[5] | line=14
+}
+end

@@ -1,0 +1,28 @@
+zend-opcodes
+file "review_constant_deprecated_cache.php"
+main
+body - {
+  lines 1 5
+  frame 1 cache 16
+  size 13 literals 5 children 0
+  lit[0] = "E_STRICT"
+  lit[1] = "E_STRICT"
+  lit[2] = "|"
+  lit[3] = "\x0a"
+  lit[4] = int(1)
+  code
+    0: T0 = DEFINED lit[0] | line=2
+    1: ECHO T0 | line=1
+    2: ECHO lit[2] | line=1
+    3: T0 = FETCH_CONSTANT 0, lit[0] | line=3
+    4: ECHO T0 | line=1
+    5: ECHO lit[2] | line=1
+    6: T0 = FETCH_CONSTANT 0, lit[0] | line=4 ext=8
+    7: ECHO T0 | line=1
+    8: ECHO lit[2] | line=1
+    9: T0 = FETCH_CONSTANT 0, lit[0] | line=5 ext=8
+    10: ECHO T0 | line=1
+    11: ECHO lit[3] | line=1
+    12: RETURN lit[4] | line=1
+}
+end

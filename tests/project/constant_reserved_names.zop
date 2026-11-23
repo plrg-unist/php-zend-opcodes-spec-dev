@@ -1,0 +1,51 @@
+zend-opcodes
+file "constant_reserved_names.php"
+main
+body - {
+  lines 1 14
+  frame 1 cache 8
+  size 15 literals 26 children 0
+  lit[0] = "_"
+  lit[1] = int(11)
+  lit[2] = "lET"
+  lit[3] = int(11)
+  lit[4] = "NS\\is"
+  lit[5] = int(11)
+  lit[6] = "NS\\IS"
+  lit[7] = int(11)
+  lit[8] = "NS\\_"
+  lit[9] = int(11)
+  lit[10] = "NS\\is"
+  lit[11] = int(11)
+  lit[12] = "fAlSe"
+  lit[13] = int(11)
+  lit[14] = "TRUE"
+  lit[15] = int(11)
+  lit[16] = "null"
+  lit[17] = int(11)
+  lit[18] = "__COMPILER_HALT_OFFSET__"
+  lit[19] = int(11)
+  lit[20] = "PHP_INT_MAX"
+  lit[21] = int(11)
+  lit[22] = "name"
+  lit[23] = "ns\\IS"
+  lit[24] = "\x0a"
+  lit[25] = int(1)
+  code
+    0: DECLARE_CONST lit[0], lit[1] | line=14
+    1: DECLARE_CONST lit[2], lit[3] | line=14
+    2: DECLARE_CONST lit[4], lit[5] | line=14
+    3: DECLARE_CONST lit[6], lit[7] | line=14
+    4: DECLARE_CONST lit[8], lit[9] | line=14
+    5: DECLARE_CONST lit[10], lit[11] | line=14
+    6: DECLARE_CONST lit[12], lit[13] | line=14
+    7: DECLARE_CONST lit[14], lit[15] | line=14
+    8: DECLARE_CONST lit[16], lit[17] | line=14
+    9: DECLARE_CONST lit[18], lit[19] | line=14
+    10: DECLARE_CONST lit[20], lit[21] | line=14
+    11: T0 = FETCH_CONSTANT 0, lit[22] | line=14
+    12: ECHO T0 | line=14
+    13: ECHO lit[24] | line=14
+    14: RETURN lit[25] | line=14
+}
+end

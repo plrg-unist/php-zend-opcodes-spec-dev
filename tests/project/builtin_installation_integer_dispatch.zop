@@ -1,0 +1,31 @@
+zend-opcodes
+file "builtin_installation_integer_dispatch.php"
+main
+body - {
+  lines 1 6
+  frame 1 cache 8
+  locals 1 ["path"]
+  size 11 literals 9 children 0
+  lit[0] = "PHP_BINARY"
+  lit[1] = "PHP_BINARY"
+  lit[2] = array(1 => int(5))
+  lit[3] = array(2 => int(5))
+  lit[4] = "fallthrough/"
+  lit[5] = "integer key"
+  lit[6] = "default\x0a"
+  lit[7] = int(1)
+  lit[8] = array()
+  code
+    0: T1 = FETCH_CONSTANT 0, lit[0] | line=2
+    1: ASSIGN CV0, T1 | line=2
+    2: SWITCH_LONG CV0, lit[2] | line=3 ext=@6
+    3: ECHO lit[4] | line=3
+    4: MATCH CV0, lit[3] | line=4 ext=@7
+    5: ECHO lit[5] | line=4
+    6: RETURN lit[7] | line=5
+    7: SWITCH_STRING CV0, lit[8] | line=6 ext=@9
+    8: RETURN lit[7] | line=6
+    9: ECHO lit[6] | line=6
+    10: RETURN lit[7] | line=6
+}
+end

@@ -1,0 +1,23 @@
+
+Deprecated: Calling a constant "_" is deprecated since 8.6 in constant_reserved_names.php on line 14
+
+Deprecated: Calling a constant "let" is deprecated since 8.6 in constant_reserved_names.php on line 14
+
+Deprecated: Calling a constant "is" is deprecated since 8.6 in constant_reserved_names.php on line 14
+
+Deprecated: Calling a constant "_" is deprecated since 8.6 in constant_reserved_names.php on line 14
+
+Deprecated: Calling a constant "is" is deprecated since 8.6 in constant_reserved_names.php on line 14
+
+Warning: Constant ns\is already defined, this will be an error in PHP 9 in constant_reserved_names.php on line 14
+
+Warning: Constant fAlSe already defined, this will be an error in PHP 9 in constant_reserved_names.php on line 14
+
+Warning: Constant TRUE already defined, this will be an error in PHP 9 in constant_reserved_names.php on line 14
+
+Warning: Constant null already defined, this will be an error in PHP 9 in constant_reserved_names.php on line 14
+
+Warning: Constant __COMPILER_HALT_OFFSET__ already defined, this will be an error in PHP 9 in constant_reserved_names.php on line 14
+
+Warning: Constant PHP_INT_MAX already defined, this will be an error in PHP 9 in constant_reserved_names.php on line 14
+11

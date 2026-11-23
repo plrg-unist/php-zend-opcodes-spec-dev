@@ -22,15 +22,20 @@ syntax offsetAction =
   | REJECT_OFFSET opcode nat
 dec $wrong_offset_error(opcode, nat) : bytes
 
-dec $read_string_byte(frame, opcode, operand, nat, smartbranch?, slotValue, slotValue) : transition
 ;; An ordinary miss returns the empty string after warning. A quiet miss yields null.
 ;; Uninitialized string offset …
-def $read_string_byte(frame, FETCH_DIM_R, operand_r, _, _, INT i, NULL) =
-  CONTINUE $write($report(frame, WARNING,
+dec $read_offset_byte(frame, opcode, slotValue, slotValue) : (frame, slotValue)
+def $read_offset_byte(frame, FETCH_DIM_R, INT i, NULL) =
+  ($report(frame, WARNING,
     [ 85, 110, 105, 110, 105, 116, 105, 97, 108, 105, 122, 101, 100, 32, 115, 116, 114, 105, 110, 103,
-      32, 111, 102, 102, 115, 101, 116, 32 ] ++ $decimal(i)), operand_r, STRING eps)
-def $read_string_byte(frame, opcode, operand_r, _, _, _, slotValue) = CONTINUE $write(frame, operand_r, slotValue)
-  -- if opcode = FETCH_DIM_IS \/ (opcode = FETCH_DIM_R /\ slotValue =/= NULL)
+      32, 111, 102, 102, 115, 101, 116, 32 ] ++ $decimal(i)), STRING eps)
+def $read_offset_byte(frame, _, _, slotValue) = (frame, slotValue) -- otherwise
+
+dec $read_string_byte(frame, opcode, operand, nat, smartbranch?, slotValue, slotValue) : transition
+def $read_string_byte(frame, opcode, operand_r, _, _, slotValue_key, slotValue_byte) =
+  CONTINUE $write(frame', operand_r, slotValue)
+  -- if opcode = FETCH_DIM_R \/ opcode = FETCH_DIM_IS
+  -- if (frame', slotValue) = $read_offset_byte(frame, opcode, slotValue_key, slotValue_byte)
 def $read_string_byte(frame, ISSET_ISEMPTY_DIM_OBJ, operand_r, n, smartbranch?, _, slotValue) =
   $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, slotValue)
 

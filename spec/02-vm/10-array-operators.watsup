@@ -3,7 +3,7 @@ def $array_cast(frame, operand_r, slotValue) = CONTINUE $write(frame, operand_r,
 def $array_cast(frame, operand_r, slotValue) =
   CONTINUE $write(frame'[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand_r,
                   ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) ($cast_entries(slotValue)) eps eps)
-  -- if $simple_value(slotValue) \/ $is_reference(slotValue)
+  -- if $simple_value(slotValue) \/ $is_reference(slotValue) \/ $nonnull_host(slotValue)
   -- if frame' = $nan_frame(frame, slotValue, [97, 114, 114, 97, 121])
 
 dec $server_copied_entries(frame, arrayId?, runtimeEntry*) : runtimeEntry*
@@ -48,13 +48,19 @@ def $array_union(frame, b_inplace, slotValue_l, slotValue_h) =
   (frame', NUM_VALUE $add_server_entries(slotValue_out, $server_copied_entries(frame, eps, runtimeEntry_base* ++ runtimeEntry_tail*)))
   -- if $server_array(slotValue_l) /\ $server_array(slotValue_h)
   -- if ~b_inplace \/ slotValue_l =/= slotValue_h
-  -- if runtimeEntry_restored* = $server_union_entries(LEFT_DELETIONS slotValue_h, $server_changes(slotValue_l), frame.SCRIPT)
-  -- if runtimeEntry_new* = $server_union_entries(RIGHT_ENTRIES slotValue_l, $server_changes(slotValue_h), frame.SCRIPT)
+  -- if slotValue_lview = $server_view(slotValue_l, slotValue_h, frame.SCRIPT)
+  -- if slotValue_rview = $server_view(slotValue_h, slotValue_l, frame.SCRIPT)
+  -- if runtimeEntry_restored* = $server_union_entries(LEFT_DELETIONS slotValue_rview, $server_changes(slotValue_lview), frame.SCRIPT)
+  -- if runtimeEntry_new* = $server_union_entries(RIGHT_ENTRIES slotValue_lview, $server_changes(slotValue_rview), frame.SCRIPT)
   -- if (runtimeEntry_base*, runtimeEntry_tail*, _) =
-    $server_union_order(runtimeEntry_restored* ++ runtimeEntry_new*, $server_order(slotValue_h))
+    $server_union_order(runtimeEntry_restored* ++ runtimeEntry_new*, $server_order(slotValue_rview))
   -- if $(|runtimeEntry_base*| <= 1)
   -- if (frame', slotValue_out) = $union_left(frame, b_inplace, slotValue_l)
 
+def $binary_operation(frame, _, ADD, slotValue_l, HOST_OFFSET hostSource) =
+  (frame, $operand_type_error(ADD, slotValue_l, slotValue))
+  -- if $is_array_value(slotValue_l)
+  -- if [slotValue] = $host_type_values(HOST_OFFSET hostSource)
 def $binary_operation(frame, b_inplace, ADD, slotValue_l, slotValue_h) =
   (frame', numericResult)
   -- if $is_array_value(slotValue_l) /\ $is_array_value(slotValue_h)

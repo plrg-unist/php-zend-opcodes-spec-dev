@@ -4,7 +4,7 @@ def $server_fresh(frame, slotValue, arrayId?) =
 
 dec $server_writable(frame, slotValue) : (frame, slotValue)
 def $server_writable(frame, slotValue) = $server_fresh(frame, slotValue, $server_id(slotValue))
-  -- if slotValue = CLI_ARRAY \/ $shared_array(frame, slotValue)
+  -- if (slotValue <- [CLI_ARRAY, CLI_ENV]) \/ $shared_array(frame, slotValue)
 def $server_writable(frame, slotValue) = (frame, slotValue) -- otherwise
 
 def $server_separate(frame, operand, slotValue_server) = ($assign(frame', operand, slotValue_new), slotValue_new)

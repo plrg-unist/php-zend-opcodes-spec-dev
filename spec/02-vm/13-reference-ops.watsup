@@ -49,12 +49,22 @@ def $reference_step(frame, SEPARATE, _, operand_a, _, _) =
   CONTINUE $separate_reference(frame, operand_a)
 
 ;; Writable list fetches use the reference context for string-offset errors.
+dec $list_write_address(frame, operand, operand, operand, slotValue) : transition
+def $list_write_address(frame, operand_r, operand_a, operand_k, HOST_OFFSET hostSource) =
+  $fetch_container(frame, FETCH_DIM_W, operand_r, operand_a, operand_k, 1, slotValue)
+  -- if [slotValue] = $host_type_values(HOST_OFFSET hostSource)
+  -- if $location_input(frame, operand_k) \/ $scalar_type_bit(slotValue) =/= 64
+def $list_write_address(frame, operand_r, operand_a, operand_k, slotValue) =
+  $checked_step(frame, FETCH_DIM_W, operand_r, operand_a, operand_k, (EXT_VALUE 1), eps)
+  -- if ~$host_offset(slotValue)
+def $list_write_address(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
 def $reference_step(frame, FETCH_LIST_W, operand_r, operand_a, operand_k, _) =
-  $step(frame, FETCH_DIM_W, operand_r, operand_a, operand_k, (EXT_VALUE 1), eps)
+  $list_write_address(frame, operand_r, operand_a, operand_k, $read(frame, operand_a))
   -- if $reference_address(frame, operand_a) \/ $is_reference($raw_read(frame, operand_a))
 ;; Notice: Attempting to set reference to non referenceable value
 def $reference_step(frame, FETCH_LIST_W, operand_r, operand_a, operand_k, _) =
-  $step($report(frame, NOTICE,
+  $checked_step($report(frame, NOTICE,
     [ 65, 116, 116, 101, 109, 112, 116, 105, 110, 103, 32, 116, 111, 32, 115, 101, 116, 32, 114, 101,
       102, 101, 114, 101, 110, 99, 101, 32, 116, 111, 32, 110, 111, 110, 32, 114, 101, 102, 101,
       114, 101, 110, 99, 101, 97, 98, 108, 101, 32, 118, 97, 108, 117, 101 ]),

@@ -1,0 +1,17 @@
+zend-opcodes
+file "constant_class_lookup_boundary.php"
+main
+body - {
+  lines 1 14
+  frame 1 cache 0
+  size 3 literals 4 children 0
+  lit[0] = "class|"
+  lit[1] = "Result"
+  lit[2] = ast(constant(0 14 "stdClass::UNDEFINED"))
+  lit[3] = int(1)
+  code
+    0: ECHO lit[0] | line=14
+    1: DECLARE_CONST lit[1], lit[2] | line=14
+    2: RETURN lit[3] | line=14
+}
+end

@@ -33,10 +33,10 @@ def $server_union_item(RIGHT_ENTRIES slotValue_l, ITEM arraykey slotValue, bytes
   -- if slotValue = UNDEF \/ (serverLookup =/= SERVER_UNKNOWN /\ serverLookup =/= SERVER_KNOWN eps)
 def $server_union_item(LEFT_DELETIONS slotValue_h, ITEM arraykey UNDEF, bytes_script) = [ITEM arraykey slotValue]
   -- if $array_find($server_changes(slotValue_h), arraykey) = eps
-  -- if SERVER_KNOWN slotValue = $server_lookup(arraykey, bytes_script)
+  -- if SERVER_KNOWN slotValue = $server_lookup($server_origin(slotValue_h), arraykey, bytes_script)
 def $server_union_item(LEFT_DELETIONS slotValue_h, ITEM arraykey slotValue, bytes_script) = eps
   -- if slotValue =/= UNDEF \/ $array_find($server_changes(slotValue_h), arraykey) =/= eps
-       \/ $server_lookup(arraykey, bytes_script) = SERVER_KNOWN eps
+       \/ $server_lookup($server_origin(slotValue_h), arraykey, bytes_script) = SERVER_KNOWN eps
 
 dec $server_union_entries(serverUnionPart, runtimeEntry*, bytes) : runtimeEntry*
 def $server_union_entries(_, eps, _) = eps
