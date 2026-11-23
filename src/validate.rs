@@ -9,6 +9,11 @@ use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
 
 /// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
 pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
+    validate_unit_and_collect_bodies(arena, unit).map(|_| ())
+}
+
+/// Checks the unit and returns all bodies, including closures inside deferred expressions.
+pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<Vec<Value>> {
     let [filename, _, _, main, functions, classes] = fields(arena, *unit, "UNIT")?;
     let filename = get::list(arena, &filename)?;
     if filename.is_empty() {
@@ -20,6 +25,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
         }
     }
     let mut pending = vec![classes, functions, main];
+    let mut bodies = Vec::new();
     let mut shared_arrays = HashMap::new();
     let mut constant_literals = HashSet::new();
     while let Some(value) = pending.pop() {
@@ -55,6 +61,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                     };
                     let code = get::list(arena, &code)?;
                     layout.validate_code(arena, code, tries, ranges)?;
+                    bodies.push(value);
                     // Deferred expressions anywhere in declarations or values can contain another body.
                     pending.extend([decl, frame, pool, children]);
                 }
@@ -102,7 +109,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
             _ => {}
         }
     }
-    Ok(())
+    Ok(bodies)
 }
 
 // A zval inside a constant-expression VALUE cannot itself defer another expression.

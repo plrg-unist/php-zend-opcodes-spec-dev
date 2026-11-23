@@ -6,18 +6,18 @@ def $uses_dispatch_table(n, OPLINE opcode _ _ (LIT n_table) _ _ _ _ _ _ _) =
 def $uses_dispatch_table(_, _) = false
   -- otherwise
 
-dec $ordinary_array(zval, nat, nat, nat) : slotValue
-def $ordinary_array(zval, n_lit, n_end, n_end) = $runtime_value(zval, POOL_LITERAL n_lit, eps)
-def $ordinary_array(ARRAY (ENTRY arraykey (INT i_target))* i_next? literalCursor? literalLayout?, n_lit, n_owner, n_end) =
-  $runtime_value(ARRAY (ENTRY arraykey (INT $((i_target - n_owner) * 32)))* i_next? literalCursor? literalLayout?, POOL_LITERAL n_lit, eps)
+dec $ordinary_array(zval, nat, bool, nat, nat) : slotValue
+def $ordinary_array(zval, n_lit, b, n_end, n_end) = $runtime_value(zval, POOL_LITERAL n_lit b, eps)
+def $ordinary_array(ARRAY (ENTRY arraykey (INT i_target))* i_next? literalCursor? literalLayout?, n_lit, b, n_owner, n_end) =
+  $runtime_value(ARRAY (ENTRY arraykey (INT $((i_target - n_owner) * 32)))* i_next? literalCursor? literalLayout?, POOL_LITERAL n_lit b, eps)
   -- if $(n_owner < n_end)
 
-def $literal_value(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, instruction*) =
-  $ordinary_array(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, n_owner, |instruction*|)
+def $literal_value(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, instruction*, b_frozen) =
+  $ordinary_array(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, b_frozen, n_owner, |instruction*|)
   -- if b* = (~$uses_dispatch_table(n_lit, instruction))*
   -- if n_owner = $prefix_end(b*, 0, |instruction*|)
-def $literal_value(SHARED_ARRAY n zval, n_lit, _) = $runtime_value(SHARED_ARRAY n zval, POOL_LITERAL n_lit, eps)
-def $literal_value(zval, _, _) = zval
+def $literal_value(SHARED_ARRAY n zval, n_lit, _, _) = $runtime_value(SHARED_ARRAY n zval, POOL_LITERAL n_lit false, eps)
+def $literal_value(zval, _, _, _) = zval
   -- otherwise
 
 ;; Table entries hold validated absolute instruction indices. Search exact keys,

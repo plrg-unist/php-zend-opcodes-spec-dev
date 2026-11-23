@@ -1,0 +1,86 @@
+zend-opcodes
+file "foreach_cursor_partial_descendants.php"
+main
+body - {
+  lines 1 16
+  frame 22 cache 24
+  locals 10 ["frozen", "mutable", "wrapper", "b", "a", "first", "v", "key", "argc", "unused"]
+  size 48 literals 22 children 0
+  lit[0] = array(0 => array(mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8), 1 => array#91(0 => float(nan:0x7ff8000000000001)))
+  lit[1] = array(0 => array(mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8), 1 => array-ref(91))
+  lit[2] = int(1)
+  lit[3] = int(1)
+  lit[4] = "shared;"
+  lit[5] = "different;"
+  lit[6] = int(0)
+  lit[7] = "x"
+  lit[8] = true
+  lit[9] = "y"
+  lit[10] = true
+  lit[11] = array(0 => int(0))
+  lit[12] = true
+  lit[13] = false
+  lit[14] = "|"
+  lit[15] = "\x0a"
+  lit[16] = int(42)
+  lit[17] = "array_merge"
+  lit[18] = array-ref(91)
+  lit[19] = null
+  lit[20] = "{closure:pfa:foreach_cursor_partial_descendants.php:15}"
+  lit[21] = int(1)
+  ranges 4
+  live T12 kind 0 @3 @4
+  live T16 kind 0 @11 @12
+  live T17 kind 1 @13 @36
+  live T24 kind 1 @23 @32
+  code
+    0: ASSIGN CV0, lit[0] | line=2
+    1: ASSIGN CV1, lit[1] | line=3
+    2: T12 = FETCH_DIM_R CV0, lit[2] | line=4
+    3: T13 = FETCH_DIM_R CV1, lit[3] | line=4
+    4: T14 = IS_IDENTICAL T12, T13 | line=4 smart=JMPZ
+    5: JMPZ T14, @8 | line=4
+    6: T15 = QM_ASSIGN lit[4] | line=4
+    7: JMP @9 | line=4
+    8: T15 = QM_ASSIGN lit[5] | line=4
+    9: ECHO T15 | line=4
+    10: T16 = INIT_ARRAY CV0 | line=5 ext=8
+    11: T16 = ADD_ARRAY_ELEMENT CV1 | line=5
+    12: T17 = FE_RESET_R T16, @36 | line=5
+    13: FE_FETCH_R T17, CV2 | line=5 ext=@36
+    14: T18 = FETCH_DIM_R CV2, lit[6] | line=6
+    15: ASSIGN CV3, T18 | line=6
+    16: ASSIGN_DIM CV3, lit[7] | line=6
+    17: OP_DATA lit[8] | line=6
+    18: ASSIGN_DIM CV3, lit[9] | line=6
+    19: OP_DATA lit[10] | line=6
+    20: ASSIGN CV4, lit[11] | line=7
+    21: ASSIGN CV5, lit[12] | line=7
+    22: V24 = FE_RESET_RW CV4, @32 | line=8
+    23: T25 = FE_FETCH_RW V24, CV6 | line=8 ext=@32
+    24: ASSIGN CV7, T25 | line=8
+    25: JMPZ CV5, @30 | line=9
+    26: ASSIGN CV5, lit[13] | line=9
+    27: ASSIGN CV4, CV3 | line=9
+    28: UNSET_CV CV3 | line=9
+    29: JMP @31 | line=9
+    30: ECHO CV7 | line=9
+    31: JMP @23 | line=8
+    32: FE_FREE V24 | line=8
+    33: UNSET_CV CV6 | line=11
+    34: ECHO lit[14] | line=12
+    35: JMP @13 | line=5
+    36: FE_FREE T17 | line=5
+    37: ECHO lit[15] | line=14
+    38: T29 = IS_IDENTICAL CV8, lit[16] | line=15 smart=JMPZ
+    39: JMPZ T29, @47 | line=15
+    40: INIT_FCALL 144, lit[17] | line=15 ext=4 cache=0
+    41: SEND_VAL_EX lit[0], 1 | line=15
+    42: SEND_USER lit[1], 2 | line=15
+    43: SEND_VAL lit[18], 3 | line=15
+    44: SEND_PLACEHOLDER _, 4 | line=15
+    45: T30 = CALLABLE_CONVERT_PARTIAL lit[20], 5 | line=15 ext=8
+    46: ASSIGN CV9, T30 | line=15
+    47: RETURN lit[21] | line=16 ext=4294967295
+}
+end

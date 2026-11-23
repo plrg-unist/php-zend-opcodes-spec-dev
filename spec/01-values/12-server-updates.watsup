@@ -12,6 +12,17 @@ dec $host_offset(slotValue) : bool
 def $host_offset(HOST_OFFSET _) = true
 def $host_offset(_) = false -- otherwise
 
+;; These representatives answer only type queries. Reading an actual host value
+;; still requires the host. A newly established environment bucket can be null.
+dec $host_type_values(slotValue) : slotValue*
+def $host_type_values(HOST_OFFSET (KEY bytes)) = [INT 0]
+  -- if $server_lookup(KEY bytes, eps) = SERVER_PRESENT /\ |bytes| = 12
+def $host_type_values(HOST_OFFSET (KEY bytes)) = [FLOAT 0]
+  -- if $server_lookup(KEY bytes, eps) = SERVER_PRESENT /\ |bytes| = 18
+def $host_type_values(HOST_OFFSET arraykey) = [NULL, STRING eps]
+  -- if $server_lookup(arraykey, eps) = SERVER_UNKNOWN
+def $host_type_values(slotValue) = [slotValue] -- if ~$host_offset(slotValue)
+
 dec $server_entry_at(slotValue?, arraykey, bytes) : serverLookup
 def $server_entry_at(eps, arraykey, bytes) = $server_lookup(arraykey, bytes)
 def $server_entry_at(UNDEF, _, _) = SERVER_KNOWN eps

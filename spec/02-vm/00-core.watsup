@@ -6,7 +6,7 @@ syntax frameSlot = { VALUE slotValue, OWNS bool }
 dec $owned(slotValue) : frameSlot
 def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
-  CODE instruction*, POOL poolentry*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
+  CODE instruction*, POOL poolentry*, FROZEN nat*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
   CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
 syntax transition = CONTINUE frame | FINISH outcome
@@ -46,7 +46,7 @@ def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITE
 def $runtime_value(zval, _, _) = zval
   -- otherwise
 
-dec $literal_value(zval, nat, instruction*) : slotValue
+dec $literal_value(zval, nat, instruction*, bool) : slotValue
 dec $deref(frame, slotValue) : slotValue
 dec $bind(frame, operand, slotValue) : frame
 dec $as_reference(frame, operand) : (frame, slotValue)
@@ -65,7 +65,7 @@ dec $server_separate(frame, operand, slotValue) : (frame, slotValue)
 
 ;; CV, TMP and VAR indices address the same frame.
 dec $raw_read(frame, operand) : slotValue
-def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE)
+def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE, n <- frame.FROZEN)
   -- if LITERAL zval = frame.POOL[n]
 def $raw_read(frame, CV n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
 def $raw_read(frame, TMP n) = $current(frame.BORROWED, frame.SLOTS[n].VALUE)
@@ -233,7 +233,10 @@ def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write($truth_f
   -- if $truth_known(slotValue)
   -- if b = ($truth(slotValue) = (opcode = BOOL))
 def $unary(frame, GET_TYPE, operand_r, operand_src, _, slotValue) =
-  CONTINUE $write(frame, operand_r, STRING $gettype($copy_value(frame, operand_src, slotValue)))
+  CONTINUE $write(frame, operand_r, STRING bytes)
+  -- if slotValue_type* = $host_type_values($copy_value(frame, operand_src, slotValue))
+  -- if bytes :: bytes_rest* = ($gettype(slotValue_type))*
+  -- if ~(false <- (bytes = bytes_rest)*)
 def $unary(frame, STRLEN, operand_r, operand_src, _, slotValue) =
   $length_result(frame, operand_r, slotValue, LENGTH_ERROR $value_name(slotValue))
   -- if $is_reference($copy_value(frame, operand_src, slotValue))
@@ -414,10 +417,13 @@ def $step(frame, opcode, operand_r, operand_a, operand_b, _, smartbranch?) =
   -- if (frame', slotValue_l, slotValue_h) = $binary_inputs(frame, opcode, operand_a, operand_b)
   -- if (frame'', numericResult) = $binary_operation(frame', operand_r = operand_a, opcode, slotValue_l, slotValue_h)
 def $step(frame, TYPE_CHECK, operand_r, operand_a, _, extension?, smartbranch?) =
-  CONTINUE $comparison(frame', operand_r, smartbranch?, $type_check(slotValue', n_mask))
+  CONTINUE $comparison(frame', operand_r, smartbranch?, b)
   -- if slotValue = $raw_read(frame, operand_a)
   -- if n_mask = $ext_value(extension?)
   -- if (frame', slotValue') = $type_operand(frame, operand_a, slotValue, n_mask)
+  -- if slotValue_type* = $host_type_values(slotValue')
+  -- if b :: b_rest* = ($type_check(slotValue_type, n_mask))*
+  -- if ~(false <- (b = b_rest)*)
 def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) = transition
   -- if opcode <- [CONCAT, FAST_CONCAT, ROPE_INIT, ROPE_ADD, ROPE_END]
   -- StringStep: frame; opcode; operand_r; operand_a; operand_b; extension? ~> transition
@@ -425,17 +431,22 @@ def $step(frame, _, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
   -- otherwise
 
 dec $observes_host(frame, opcode, operand, operand) : bool
+dec $host_slot(frame, slotValue) : bool
+def $host_slot(frame, slotValue) = $host_offset($deref(frame, slotValue)) -- if $strict_pointer(slotValue)
+def $host_slot(_, slotValue) = $host_offset(slotValue) -- if ~$strict_pointer(slotValue)
 dec $host_operand(frame, operand) : bool
-def $host_operand(frame, CV n) = $host_offset($read(frame, CV n))
-def $host_operand(frame, TMP n) = $host_offset($read(frame, TMP n))
-def $host_operand(frame, VAR n) = $host_offset($read(frame, VAR n))
+def $host_operand(frame, CV n) = $host_slot(frame, frame.SLOTS[n].VALUE)
+def $host_operand(frame, TMP n) = $host_slot(frame, frame.SLOTS[n].VALUE)
+def $host_operand(frame, VAR n) = $host_slot(frame, frame.SLOTS[n].VALUE)
 def $host_operand(_, _) = false -- otherwise
 
-;; Copying or rebinding a captured host bucket does not inspect its inherited value.
-dec $host_transfer(opcode) : bool
-def $host_transfer(opcode) = opcode <- [ASSIGN, ASSIGN_REF, MAKE_REF, SEPARATE, COPY_TMP, QM_ASSIGN, FREE, FE_FREE,
-  CHECK_VAR, UNSET_CV, RETURN, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT]
-def $observes_host(frame, opcode, operand_a, operand_b) = ~$host_transfer(opcode) /\
+;; Transfers do not inspect the inherited value. Other handlers listed here
+;; check it after fetching their operands in Zend order.
+dec $handles_host_input(opcode) : bool
+def $handles_host_input(opcode) = ($binary_kind(opcode) =/= eps) \/
+  (opcode <- [ASSIGN, ASSIGN_OP, ASSIGN_REF, MAKE_REF, SEPARATE, COPY_TMP, QM_ASSIGN, FREE, FE_FREE, CHECK_VAR, UNSET_CV,
+              RETURN, TYPE_CHECK, GET_TYPE, CASE, CASE_STRICT, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT])
+def $observes_host(frame, opcode, operand_a, operand_b) = ~$handles_host_input(opcode) /\
   ($host_operand(frame, operand_a) \/ (~(opcode <- [FE_FETCH_R, FE_FETCH_RW]) /\ $host_operand(frame, operand_b)))
 
 dec $checked_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
@@ -463,9 +474,10 @@ def $dormant_class(CLASS (CLASSHEADER bytes_key _ classLink _ _ _ bytes_parent? 
 def $dormant_class(_) = false
   -- otherwise
 
+dec $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*) : nat*
 dec $execute(unit, bytes, bytes) : outcome
-def $execute(UNIT bytes_file _ eps (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) _ classDecl*, _, bytes_script)
-  = $run({ CODE instruction*, POOL poolentry*, PC 0, SLOTS ($owned(slotValue))*, ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
+def $execute(UNIT bytes_file _ eps (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script)
+  = $run({ CODE instruction*, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS ($owned(slotValue))*, ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
            CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps })
   -- if ~(false <- ($dormant_class(classDecl))*)
   -- if slotValue* = ($initial_local(bytes_cv, bytes_script))* ++ $empty_slots(n)

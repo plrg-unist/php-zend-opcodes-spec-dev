@@ -20,12 +20,8 @@ def $actual_tail((ITEM arraykey FALSE) :: runtimeEntry*, arraykey_present*) = $a
   -- if arraykey <- arraykey_present*
 
 dec $inherited_field(arraykey, arraykey*) : serverField
-def $inherited_field(arraykey, _) = HOST_FIELD 16 arraykey
-  -- if KEY bytes = arraykey
-  -- if $server_lookup(arraykey, eps) = SERVER_PRESENT /\ |bytes| = 12
-def $inherited_field(arraykey, _) = HOST_FIELD 32 arraykey
-  -- if KEY bytes = arraykey
-  -- if $server_lookup(arraykey, eps) = SERVER_PRESENT /\ |bytes| = 18
+def $inherited_field(arraykey, _) = HOST_FIELD $scalar_type_bit(slotValue) arraykey
+  -- if [slotValue] = $host_type_values(HOST_OFFSET arraykey)
 def $inherited_field(arraykey, arraykey_present*) = HOST_FIELD 64 arraykey
   -- if $server_lookup(arraykey, eps) = SERVER_UNKNOWN /\ (arraykey <- arraykey_present*)
 def $inherited_field(_, _) = FIELD NULL -- otherwise

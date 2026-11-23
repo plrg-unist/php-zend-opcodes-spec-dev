@@ -20,7 +20,7 @@ use parse::Parser;
 pub use parse::parse_zop;
 use print::Printer;
 pub use print::print_zop;
-pub use validate::validate_unit;
+pub use validate::{validate_unit, validate_unit_and_collect_bodies};
 
 /// A malformed listing or a value that cannot be printed as a Zend opcode unit.
 #[derive(Debug)]

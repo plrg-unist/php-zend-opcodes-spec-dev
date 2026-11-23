@@ -3,7 +3,7 @@ var i : int
 var b : bool
 
 ;; Shared arrays compare equal immediately, even when an element is NaN.
-syntax literalRoot = POOL_LITERAL nat | SHARED_LITERAL nat bool
+syntax literalRoot = POOL_LITERAL nat bool | SHARED_LITERAL nat bool
 syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat
 syntax slotValue
 syntax runtimeEntry = ITEM arraykey slotValue

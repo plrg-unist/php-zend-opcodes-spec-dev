@@ -217,6 +217,7 @@ def $freezable_literal(SHARED_ARRAY _ zval) = $freezable_literal(zval)
 def $freezable_literal(_) = true -- otherwise
 
 dec $frozen_literal(arrayId) : bool
+def $frozen_literal(LITERAL_ARRAY (POOL_LITERAL _ b) _) = b
 def $frozen_literal(LITERAL_ARRAY (SHARED_LITERAL _ b) _) = b
 def $frozen_literal(_) = false -- otherwise
 

@@ -1,0 +1,71 @@
+zend-opcodes
+file "foreach_dormant_named_handlers.php"
+main
+body - {
+  flags 32768 0
+  lines 1 17
+  frame 2 cache 80
+  locals 6 ["b", "a", "value", "argc", "callback", "e"]
+  size 34 literals 20 children 0
+  lit[0] = array(mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
+  lit[1] = "x"
+  lit[2] = true
+  lit[3] = array(0 => int(0))
+  lit[4] = "resumed"
+  lit[5] = "done\x0a"
+  lit[6] = int(42)
+  lit[7] = "array_merge"
+  lit[8] = array("first" => true)
+  lit[9] = "rest"
+  lit[10] = "{closure:pfa:foreach_dormant_named_handlers.php:12}"
+  lit[11] = array("rest" => int(0))
+  lit[12] = "Throwable"
+  lit[13] = "throwable"
+  lit[14] = "catch"
+  lit[15] = array("second" => true)
+  lit[16] = "{closure:pfa:foreach_dormant_named_handlers.php:14}"
+  lit[17] = array("rest" => int(0))
+  lit[18] = "finally"
+  lit[19] = int(1)
+  tries 2
+  try @16 catch @22 finally @0 end @0
+  try @24 catch @0 finally @31 end @32
+  ranges 1
+  live T7 kind 1 @5 @12
+  code
+    0: ASSIGN CV0, lit[0] | line=2
+    1: ASSIGN_DIM CV0, lit[1] | line=3
+    2: OP_DATA lit[2] | line=3
+    3: ASSIGN CV1, lit[3] | line=4
+    4: V7 = FE_RESET_RW CV1, @12 | line=5
+    5: FE_FETCH_RW V7, CV2 | line=5 ext=@12
+    6: JMPZ CV2, @9 | line=6
+    7: ECHO lit[4] | line=6
+    8: JMP @12 | line=6
+    9: ASSIGN CV1, CV0 | line=7
+    10: UNSET_CV CV0 | line=8
+    11: JMP @5 | line=5
+    12: FE_FREE V7 | line=5
+    13: ECHO lit[5] | line=10
+    14: T7 = IS_IDENTICAL CV3, lit[6] | line=11 smart=JMPZ
+    15: JMPZ T7, @33 | line=11
+    16: INIT_FCALL 96, lit[7] | line=12 ext=1 cache=0
+    17: SEND_VAL lit[0], 1 | line=12
+    18: SEND_PLACEHOLDER _, lit[9] | line=12 cache=8
+    19: T7 = CALLABLE_CONVERT_PARTIAL lit[10], lit[11] | line=12 ext=24
+    20: ASSIGN CV4, T7 | line=12
+    21: JMP @24 | line=12
+    22: CV5 = CATCH lit[12] | line=13 ext=41
+    23: ECHO lit[14] | line=13
+    24: INIT_FCALL 96, lit[7] | line=14 ext=1 cache=0
+    25: SEND_VAL lit[15], 1 | line=14
+    26: SEND_PLACEHOLDER _, lit[9] | line=14 cache=48
+    27: T7 = CALLABLE_CONVERT_PARTIAL lit[16], lit[11] | line=14 ext=64 bound-mask=1
+    28: ASSIGN CV4, T7 | line=14
+    29: T6 = FAST_CALL @31 | line=15
+    30: JMP @33 | line=15
+    31: ECHO lit[18] | line=15
+    32: FAST_RET T6, 4294967295 | line=15
+    33: RETURN lit[19] | line=17 ext=4294967295
+}
+end

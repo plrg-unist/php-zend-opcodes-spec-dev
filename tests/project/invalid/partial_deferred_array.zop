@@ -1,0 +1,22 @@
+zend-opcodes
+file "partial_deferred_array.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 24
+  size 7 literals 5 children 0
+  lit[0] = "unreached"
+  lit[1] = array#7(0 => array(0 => ast(constant(0 1 "NAME"))))
+  lit[2] = "array_merge"
+  lit[3] = "{closure:pfa:partial_deferred_array.php:1}"
+  lit[4] = int(1)
+  code
+    0: ECHO lit[0]
+    1: JMP @6
+    2: INIT_FCALL 112, lit[2] | ext=2 cache=0
+    3: SEND_VAL lit[1], 1
+    4: SEND_PLACEHOLDER _, 2
+    5: T0 = CALLABLE_CONVERT_PARTIAL lit[3], 1 | ext=8
+    6: RETURN lit[4]
+}
+end

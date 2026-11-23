@@ -3,9 +3,9 @@ file "ref_server_pending_values.php"
 main
 body - {
   lines 1 8
-  frame 25 cache 0
+  frame 36 cache 0
   locals 8 ["s", "_SERVER", "clock", "maybe", "t", "a", "other", "fr"]
-  size 43 literals 18 children 0
+  size 64 literals 18 children 0
   lit[0] = "REQUEST_TIME"
   lit[1] = "REQUEST_TIME"
   lit[2] = "ZEND_UNREAD_VALUE"
@@ -25,50 +25,71 @@ body - {
   lit[16] = "left.x"
   lit[17] = int(1)
   ranges 1
-  live T18 kind 0 @18 @19
+  live T23 kind 0 @26 @27
   code
     0: ASSIGN CV0, CV1 | line=2
     1: V9 = FETCH_DIM_W CV0, lit[0] | line=2 ext=1
     2: ASSIGN_REF CV2, V9 | line=2
-    3: T10 = ISSET_ISEMPTY_CV CV2 | line=2
-    4: ECHO T10 | line=2
-    5: T11 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[1] | line=2
-    6: ECHO T11 | line=2
-    7: V12 = FETCH_DIM_W CV0, lit[2] | line=3 ext=1
-    8: ASSIGN_REF CV3, V12 | line=3
-    9: ASSIGN CV4, CV0 | line=3
-    10: ASSIGN_DIM CV4, lit[3] | line=3
-    11: OP_DATA lit[4] | line=3
-    12: ASSIGN_DIM CV0, lit[5] | line=3
-    13: OP_DATA lit[6] | line=3
-    14: T16 = IS_IDENTICAL CV4, CV0 | line=3
-    15: T17 = CAST T16 | line=3 ext=4
-    16: ECHO T17 | line=3
-    17: T18 = INIT_ARRAY CV3 | line=3 ext=9
-    18: T18 = ADD_ARRAY_ELEMENT CV3 | line=3
-    19: ASSIGN CV5, T18 | line=3
-    20: ASSIGN_DIM CV5, lit[7] | line=3
-    21: OP_DATA lit[8] | line=3
-    22: T21 = FETCH_DIM_R CV0, lit[9] | line=3
-    23: ECHO T21 | line=3
-    24: ASSIGN CV6, CV2 | line=4
-    25: ASSIGN_DIM CV0, lit[10] | line=4
-    26: OP_DATA CV6 | line=4
-    27: ASSIGN CV4, CV0 | line=4
-    28: ASSIGN_DIM CV0, lit[11] | line=4
-    29: OP_DATA lit[12] | line=4
-    30: ASSIGN_DIM CV4, lit[13] | line=4
-    31: OP_DATA lit[14] | line=4
-    32: T27 = IS_IDENTICAL CV0, CV4 | line=5
-    33: T28 = CAST T27 | line=5 ext=4
-    34: ECHO T28 | line=5
-    35: V29 = FETCH_DIM_W CV4, lit[15] | line=6 ext=1
-    36: ASSIGN_REF CV7, V29 | line=6
-    37: ASSIGN_DIM CV4, lit[16] | line=6
-    38: OP_DATA CV7 | line=6
-    39: T31 = IS_IDENTICAL CV0, CV4 | line=7
-    40: T32 = CAST T31 | line=7 ext=4
-    41: ECHO T32 | line=7
-    42: RETURN lit[17] | line=8 ext=4294967295
+    3: V41 = MAKE_REF CV2 | line=2
+    4: T42 = COPY_TMP V41 | line=2
+    5: T43 = TYPE_CHECK T42 | line=2 ext=1024
+    6: ECHO T43 | line=2
+    7: T42 = COPY_TMP V41 | line=2
+    8: T43 = IS_NOT_IDENTICAL T42, lit[0] | line=2
+    9: ECHO T43 | line=2
+    10: FREE V41 | line=2
+    11: T10 = ISSET_ISEMPTY_CV CV2 | line=2
+    12: ECHO T10 | line=2
+    13: T11 = ISSET_ISEMPTY_DIM_OBJ CV0, lit[1] | line=2
+    14: ECHO T11 | line=2
+    15: T12 = GET_TYPE CV2 | line=2
+    16: ECHO T12 | line=2
+    17: T13 = TYPE_CHECK CV2 | line=2 ext=16
+    18: T14 = CAST T13 | line=2 ext=4
+    19: ECHO T14 | line=2
+    20: V15 = FETCH_DIM_W CV0, lit[2] | line=3 ext=1
+    21: ASSIGN_REF CV3, V15 | line=3
+    22: T16 = TYPE_CHECK CV3 | line=3 ext=16
+    23: T17 = CAST T16 | line=3 ext=4
+    24: ECHO T17 | line=3
+    25: ASSIGN CV4, CV0 | line=3
+    26: ASSIGN_DIM CV4, lit[3] | line=3
+    27: OP_DATA lit[4] | line=3
+    28: ASSIGN_DIM CV0, lit[5] | line=3
+    29: OP_DATA lit[6] | line=3
+    30: T21 = IS_IDENTICAL CV4, CV0 | line=3
+    31: T22 = CAST T21 | line=3 ext=4
+    32: ECHO T22 | line=3
+    33: T23 = INIT_ARRAY CV3 | line=3 ext=9
+    34: T23 = ADD_ARRAY_ELEMENT CV3 | line=3
+    35: ASSIGN CV5, T23 | line=3
+    36: ASSIGN_DIM CV5, lit[7] | line=3
+    37: OP_DATA lit[8] | line=3
+    38: T26 = FETCH_DIM_R CV0, lit[9] | line=3
+    39: ECHO T26 | line=3
+    40: ASSIGN CV6, CV2 | line=4
+    41: ASSIGN_DIM CV0, lit[10] | line=4
+    42: OP_DATA CV6 | line=4
+    43: ASSIGN CV4, CV0 | line=4
+    44: ASSIGN_DIM CV0, lit[11] | line=4
+    45: OP_DATA lit[12] | line=4
+    46: ASSIGN_DIM CV4, lit[13] | line=4
+    47: OP_DATA lit[14] | line=4
+    48: T32 = IS_IDENTICAL CV0, CV4 | line=5
+    49: T33 = CAST T32 | line=5 ext=4
+    50: ECHO T33 | line=5
+    51: V34 = FETCH_DIM_W CV4, lit[15] | line=6 ext=1
+    52: ASSIGN_REF CV7, V34 | line=6
+    53: T35 = GET_TYPE CV7 | line=6
+    54: ECHO T35 | line=6
+    55: T36 = TYPE_CHECK CV7 | line=6 ext=32
+    56: T37 = CAST T36 | line=6 ext=4
+    57: ECHO T37 | line=6
+    58: ASSIGN_DIM CV4, lit[16] | line=6
+    59: OP_DATA CV7 | line=6
+    60: T39 = IS_IDENTICAL CV0, CV4 | line=7
+    61: T40 = CAST T39 | line=7 ext=4
+    62: ECHO T40 | line=7
+    63: RETURN lit[17] | line=8 ext=4294967295
 }
 end

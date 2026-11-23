@@ -1,0 +1,43 @@
+zend-opcodes
+file "partial_deferred_nested_body.php"
+main
+body - {
+  lines 1 6
+  frame 0 cache 0
+  size 2 literals 2 children 0
+  lit[0] = "unreached"
+  lit[1] = int(1)
+  code
+    0: ECHO lit[0] | line=2
+    1: RETURN lit[1] | line=6 ext=4294967295
+}
+function "dormant"
+body "dormant" {
+  flags 512 0
+  lines 3 5
+  frame 1 cache 16
+  size 3 literals 1 children 1
+  lit[0] = null
+body "{closure:dormant():4}" {
+  flags 4194320 0
+  lines 4 4
+  frame 1 cache 24
+  size 6 literals 4 children 0
+  lit[0] = "array_merge"
+  lit[1] = array(0 => ast(constant(0 1 "NAME")))
+  lit[2] = "{closure:pfa:{closure:dormant():4}:4}"
+  lit[3] = null
+  code
+    0: INIT_FCALL 112, lit[0] | line=4 ext=2 cache=0
+    1: SEND_VAL lit[1], 1 | line=4
+    2: SEND_PLACEHOLDER _, 2 | line=4
+    3: T0 = CALLABLE_CONVERT_PARTIAL lit[2], 1 | line=4 ext=8
+    4: RETURN T0 | line=4
+    5: RETURN lit[3] | line=4 ext=4294967295
+}
+  code
+    0: T0 = DECLARE_LAMBDA_FUNCTION _, 0 | line=4
+    1: RETURN T0 | line=4
+    2: RETURN lit[0] | line=5 ext=4294967295
+}
+end
