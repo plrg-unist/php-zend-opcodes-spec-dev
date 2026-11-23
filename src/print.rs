@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write};
 
 use p4spectec::lang::{common::prim::num, data::value::flat::get};
 
@@ -9,14 +9,16 @@ pub fn print_zop(arena: &Arena, unit: &Value) -> Result<String> {
     let mut printer = Printer {
         arena,
         out: String::new(),
+        shared_arrays: HashMap::new(),
     };
     printer.unit(*unit)?;
     Ok(printer.out)
 }
 
 pub(crate) struct Printer<'a> {
-    arena: &'a Arena,
+    pub(crate) arena: &'a Arena,
     pub(crate) out: String,
+    pub(crate) shared_arrays: HashMap<u32, Option<Value>>,
 }
 
 impl<'a> Printer<'a> {

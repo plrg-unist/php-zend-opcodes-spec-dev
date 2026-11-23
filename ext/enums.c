@@ -80,8 +80,9 @@ void zo_check_enum(zo_reader *r, const zend_class_entry *ce)
     }
 }
 
-void zo_put_enum_case(smart_str *out, zend_string *name, const zend_class_constant *constant)
+void zo_put_enum_case(zo_writer *writer, zend_string *name, const zend_class_constant *constant)
 {
+    smart_str *out = writer->out;
     uint32_t flags = ZEND_CLASS_CONST_FLAGS(constant) & ~CONST_OWNED;
     if (Z_TYPE(constant->value) != IS_CONSTANT_AST ||
         (flags & ~CASE_FLAGS) != (ZEND_ACC_PUBLIC | ZEND_CLASS_CONST_IS_CASE)) {
@@ -113,9 +114,9 @@ void zo_put_enum_case(smart_str *out, zend_string *name, const zend_class_consta
         smart_str_appendc(out, '-');
     }
     smart_str_appends(out, " = ");
-    zo_put_expression(out, init->child[3]);
+    zo_put_expression(writer, init->child[3]);
     smart_str_appendc(out, '\n');
-    zo_put_attributes(out, constant->attributes);
+    zo_put_attributes(writer, constant->attributes);
 }
 
 void zo_get_enum_case(zo_reader *r, zend_class_entry *ce, uint32_t expected_id)

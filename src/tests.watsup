@@ -42,3 +42,23 @@ def $property_and_attribute = UNIT ([ 100 ]) eps eps
        eps eps (TRAITS eps eps eps)
        ([ PROPERTY (MEMBER ([ 112 ]) 1 (MASK 16) eps (INT 12) eps) eps eps ])
        eps eps ])
+
+dec $sharing_program(zval, zval) : unit
+def $sharing_program(zval_l, zval_r) = UNIT ([ 115 ]) eps eps
+  (BODY (BODYDECL eps 0 0 eps (LINES 1 1 eps) eps eps) (FRAME 0 0 eps eps)
+    ([ LITERAL zval_l, LITERAL zval_r ]) eps eps eps
+    ([ OPLINE RETURN UNUSED (LIT 1) UNUSED 1 eps eps eps eps eps false ]))
+  eps eps
+
+dec $shared_arrays : unit
+def $shared_arrays = $sharing_program(zval, zval)
+  -- if zval_inner = SHARED_ARRAY 7 (ARRAY ([ ENTRY (INDEX 0) (INT 9) ]) eps eps)
+  -- if zval = SHARED_ARRAY 42 (ARRAY ([ ENTRY (INDEX 0) zval_inner, ENTRY (INDEX 1) zval_inner ]) eps eps)
+
+dec $conflicting_arrays : unit
+def $conflicting_arrays = $sharing_program(
+  SHARED_ARRAY 7 (ARRAY eps eps eps),
+  SHARED_ARRAY 7 (ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps))
+
+dec $bad_array_payload : unit
+def $bad_array_payload = $sharing_program(SHARED_ARRAY 7 TRUE, TRUE)

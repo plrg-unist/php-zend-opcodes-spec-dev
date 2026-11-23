@@ -62,8 +62,9 @@ static bool valid_node_attr(zend_ast_kind kind, uint32_t attr)
     }
 }
 
-static void put_node(smart_str *out, zend_ast *ast, unsigned depth)
+static void put_node(zo_writer *writer, zend_ast *ast, unsigned depth)
 {
+    smart_str *out = writer->out;
     if (!ast) {
         smart_str_appends(out, "none");
         return;
@@ -82,10 +83,10 @@ static void put_node(smart_str *out, zend_ast *ast, unsigned depth)
     smart_str_append_printf(out, "%u %u", attr, zend_ast_get_lineno(ast));
     if (ast->kind == ZEND_AST_ZVAL || ast->kind == ZEND_AST_CONSTANT) {
         smart_str_appendc(out, ' ');
-        zo_put_value(out, &((zend_ast_zval *)ast)->val);
+        zo_put_value(writer, &((zend_ast_zval *)ast)->val);
     } else if (ast->kind == ZEND_AST_OP_ARRAY) {
         smart_str_appendc(out, '\n');
-        zo_print_body(out, zend_ast_get_op_array(ast)->op_array);
+        zo_print_body(writer, zend_ast_get_op_array(ast)->op_array);
     } else if (ast->kind == ZEND_AST_CALLABLE_CONVERT) {
         zend_ast_fcc *fcc = (zend_ast_fcc *)ast;
         smart_str_appendc(out, ' ');
@@ -95,7 +96,7 @@ static void put_node(smart_str *out, zend_ast *ast, unsigned depth)
         if (fcc->name) zo_put_string(out, fcc->name);
         else smart_str_appends(out, "none");
         smart_str_appendc(out, ' ');
-        put_node(out, fcc->args, depth + 1);
+        put_node(writer, fcc->args, depth + 1);
     } else {
         uint32_t count;
         zend_ast **children;
@@ -110,22 +111,23 @@ static void put_node(smart_str *out, zend_ast *ast, unsigned depth)
         }
         for (uint32_t i = 0; i < count; i++) {
             smart_str_appendc(out, ' ');
-            put_node(out, children[i], depth + 1);
+            put_node(writer, children[i], depth + 1);
         }
     }
     smart_str_appendc(out, ')');
 }
 
-void zo_put_ast(smart_str *out, const zval *value)
+void zo_put_ast(zo_writer *writer, const zval *value)
 {
+    smart_str *out = writer->out;
     smart_str_appends(out, "ast(");
-    put_node(out, Z_ASTVAL_P(value), 0);
+    put_node(writer, Z_ASTVAL_P(value), 0);
     smart_str_appendc(out, ')');
 }
 
-void zo_put_expression(smart_str *out, zend_ast *ast)
+void zo_put_expression(zo_writer *writer, zend_ast *ast)
 {
-    put_node(out, ast, 0);
+    put_node(writer, ast, 0);
 }
 
 static bool string_node(zend_ast *node)

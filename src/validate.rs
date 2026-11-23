@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use p4spectec::lang::{
     common::prim::num,
@@ -20,11 +20,16 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
         }
     }
     let mut pending = vec![classes, functions, main];
+    let mut shared_arrays = HashMap::new();
+    let mut constant_literals = HashSet::new();
     while let Some(value) = pending.pop() {
         match arena.value.kind(value.node) {
             ValueKind::Case(_) => match case_fields(arena, value)? {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
-                    let [temps, _, locals, _] = fields(arena, frame, "FRAME")?;
+                    let [temps, _, locals, statics] = fields(arena, frame, "FRAME")?;
+                    if let Some(table) = get::opt(arena, &statics)? {
+                        fields::<3>(arena, table, "ARRAY")?;
+                    }
                     let locals = get::list(arena, &locals)?.len();
                     let slots = locals + index(arena, temps)?;
                     // On the pinned 64-bit ABI, offsets use 16-byte zvals after five call-frame slots.
@@ -43,6 +48,25 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                     pending.extend([decl, frame, pool, children]);
                 }
                 ("BODY", _) => return Err(Error::new("invalid body fields")),
+                ("VALUE", &[_, _, value]) => {
+                    check_constant_literal(arena, value, &mut constant_literals)?;
+                    pending.push(value);
+                }
+                ("SHARED_ARRAY", &[id, array]) => {
+                    let id = u32::try_from(index(arena, id)?)
+                        .map_err(|_| Error::new("shared array id exceeds u32"))?;
+                    let [entries, _, _] = fields(arena, array, "ARRAY")?;
+                    get::list(arena, &entries)?;
+                    let payload = arena.value.canon_id(array.node);
+                    match shared_arrays.insert(id, payload) {
+                        None => pending.push(array),
+                        Some(known) if known == payload => {}
+                        Some(_) => {
+                            return Err(Error::new(format!("conflicting shared array {id}")));
+                        }
+                    }
+                }
+                ("SHARED_ARRAY", _) => return Err(Error::new("invalid shared array fields")),
                 // A deferred ARRAY expression starts with numeric flags; a zval starts with entries.
                 ("ARRAY", &[entries, next, cursor])
                     if matches!(arena.value.kind(entries.node), ValueKind::List(_)) =>
@@ -60,6 +84,32 @@ pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
                 }
             }
             ValueKind::Opt(Some(child)) => pending.push(*child),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+// A zval inside a constant-expression VALUE cannot itself defer another expression.
+fn check_constant_literal(arena: &Arena, value: Value, checked: &mut HashSet<Value>) -> Result<()> {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        if !checked.insert(value) {
+            continue;
+        }
+        match case_fields(arena, value)? {
+            ("DEFERRED", _) => {
+                return Err(Error::new(
+                    "a constant-expression value cannot contain a deferred zval",
+                ));
+            }
+            ("SHARED_ARRAY", &[_, array]) => pending.push(array),
+            ("ARRAY", &[entries, _, _]) => {
+                for &entry in get::list(arena, &entries)? {
+                    let [_, item] = fields(arena, entry, "ENTRY")?;
+                    pending.push(item);
+                }
+            }
             _ => {}
         }
     }
@@ -318,7 +368,11 @@ impl<'a> Instruction<'a> {
         }
         if let ("IN_ARRAY", Operand::Literal(n)) = (name, right) {
             let [value] = fields(arena, layout.pool[n], "LITERAL")?;
-            let [entries, _, _] = fields(arena, value, "ARRAY")?;
+            let array = match case_fields(arena, value)? {
+                ("SHARED_ARRAY", &[_, array]) => array,
+                _ => value,
+            };
+            let [entries, _, _] = fields(arena, array, "ARRAY")?;
             if extended_value == 0 {
                 for &entry in get::list(arena, &entries)? {
                     let [key, _] = fields(arena, entry, "ENTRY")?;

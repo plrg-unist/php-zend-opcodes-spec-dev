@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use p4spectec::lang::{
     common::notation::atom::Atom,
     data::{
@@ -16,6 +18,7 @@ pub fn parse_zop(arena: &mut Arena, input: &str) -> Result<Value> {
         arena,
         input,
         line: 1,
+        shared_arrays: HashMap::new(),
     };
     let unit = parser.unit()?;
     if !parser.input.is_empty() {
@@ -28,6 +31,7 @@ pub(crate) struct Parser<'a> {
     arena: &'a mut Arena,
     input: &'a str,
     line: usize,
+    pub(crate) shared_arrays: HashMap<u32, Option<Value>>,
 }
 
 fn spec_type(name: &str) -> Typ {

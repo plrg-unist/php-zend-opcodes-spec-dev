@@ -292,8 +292,9 @@ static bool check_attribute_literals(const zend_op_array *body, bool *has_attrib
     return valid && tables == owners;
 }
 
-static void print_body(smart_str *out, const zend_op_array *body, unsigned int depth)
+static void print_body(zo_writer *writer, const zend_op_array *body, unsigned int depth)
 {
+    smart_str *out = writer->out;
     if (depth > 256) zo_unsupported("body nesting exceeds 256 levels");
     if (body->type != ZEND_USER_FUNCTION || !(body->fn_flags & ZEND_ACC_DONE_PASS_TWO)) {
         zo_unsupported("expected a finalized user op array");
@@ -327,15 +328,13 @@ static void print_body(smart_str *out, const zend_op_array *body, unsigned int d
         smart_str_appends(out, "]\n");
     }
     print_arguments(out, body);
-    zo_put_attributes(out, body->attributes);
+    zo_put_attributes(writer, body->attributes);
     if (body->static_variables) {
         if (body->static_variables->nNumUsed != zend_hash_num_elements(body->static_variables)) {
             zo_unsupported("static variable table contains gaps");
         }
-        zval statics;
-        ZVAL_ARR(&statics, body->static_variables);
         smart_str_appends(out, "  statics ");
-        zo_put_value(out, &statics);
+        zo_put_table(writer, body->static_variables);
         smart_str_appendc(out, '\n');
     }
     smart_str_append_printf(out, "  size %u literals %u children %u\n",
@@ -344,25 +343,25 @@ static void print_body(smart_str *out, const zend_op_array *body, unsigned int d
         smart_str_append_printf(out, "  lit[%u] = ", i);
         if (Z_TYPE(body->literals[i]) == IS_PTR) {
             smart_str_appends(out, "attributes {\n");
-            zo_put_attributes(out, Z_PTR(body->literals[i]));
+            zo_put_attributes(writer, Z_PTR(body->literals[i]));
             smart_str_appendc(out, '}');
         } else {
-            zo_print_literal(out, body, i);
+            zo_print_literal(writer, body, i);
         }
         smart_str_appendc(out, '\n');
     }
     print_ranges(out, body);
     for (uint32_t i = 0; i < body->num_dynamic_func_defs; i++) {
-        print_body(out, body->dynamic_func_defs[i], depth + 1);
+        print_body(writer, body->dynamic_func_defs[i], depth + 1);
     }
     smart_str_appends(out, "  code\n");
     zo_print_instructions(out, body);
     smart_str_appends(out, "}\n");
 }
 
-void zo_print_body(smart_str *out, const zend_op_array *body)
+void zo_print_body(zo_writer *writer, const zend_op_array *body)
 {
-    print_body(out, body, 0);
+    print_body(writer, body, 0);
 }
 
 static void allocate_code(zo_reader *r, zend_op_array *body)
@@ -465,7 +464,9 @@ static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
     if (zo_take(r, "statics")) {
         zval statics;
         zo_get_value(r, &statics);
-        if (Z_TYPE(statics) != IS_ARRAY) zo_fail(r, "expected static variable table");
+        if (Z_TYPE(statics) != IS_ARRAY || GC_REFCOUNT(Z_ARR(statics)) != 1) {
+            zo_fail(r, "expected a plain static variable table");
+        }
         zend_string *key;
         ZEND_HASH_FOREACH_STR_KEY(Z_ARRVAL(statics), key) {
             if (!key) zo_fail(r, "invalid static variable name");

@@ -2,8 +2,9 @@
 #include "Zend/zend_attributes.h"
 #include "Zend/zend_multiply.h"
 
-void zo_put_attributes(smart_str *out, const HashTable *attrs)
+void zo_put_attributes(zo_writer *writer, const HashTable *attrs)
 {
+    smart_str *out = writer->out;
     if (!attrs) {
         return;
     }
@@ -27,7 +28,7 @@ void zo_put_attributes(smart_str *out, const HashTable *attrs)
                 smart_str_appends(out, "none");
             }
             smart_str_appendc(out, ' ');
-            zo_put_value(out, &attr->args[i].value);
+            zo_put_value(writer, &attr->args[i].value);
             smart_str_appendc(out, '\n');
         }
     } ZEND_HASH_FOREACH_END();

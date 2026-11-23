@@ -61,8 +61,16 @@ static zend_op_array *compile_unit(zend_file_handle *file, int type)
         if (zend_stream_fixup(file, &contents, &length) == FAILURE) {
             zend_error_noreturn(E_COMPILE_ERROR, "Cannot read opcode listing %s", ZSTR_VAL(file->filename));
         }
-        zo_reader r = {.p = contents, .end = contents + length, .path = file->filename, .line = 1};
-        main = zo_load_unit(&r);
+        HashTable *bindings = zend_new_array(0);
+        zo_reader r = {.p = contents, .end = contents + length, .path = file->filename,
+            .line = 1, .array_bindings = bindings};
+        zend_try {
+            main = zo_load_unit(&r);
+        } zend_catch {
+            zend_array_release(bindings);
+            zend_bailout();
+        } zend_end_try();
+        zend_array_release(bindings);
     } else {
         main = previous_compile_file(file, type);
     }

@@ -5,6 +5,7 @@ The Rust library converts a `.zop` listing to a P4-SpecTec compilation-unit valu
 ## Specification and crate
 
 - The top-level `unit` contains the filename, optional compiler halt offset, ordered lazy superglobals, main body, named functions and classes. Instructions use typed opcode and operand variants. Preserve order in bodies, literal pools and declarations. PHP strings are lists of octets. `FLOAT` holds the binary64 bits, including signed zero and NaN payloads. [Unit contents](opcode-input.md)
+- A shared literal array definition and each later use produce the same `SHARED_ARRAY` term, carrying its unit-wide label and ordinary array payload. Reuse the payload when traversing shared literals so nested sharing stays compact. [Literal codec](../src/values.rs) · [Concrete syntax](opcode-syntax.md)
 - The root Cargo package provides the library and `zend-opcodes` binary. It pins Rust `1.97.1` and depends on the sibling `../p4-spectec/p4spectec/core`. The binary loads the production `spec/` directory from the checkout used to build it. Changes to `.watsup` rules apply on the next invocation. [Manifest](../Cargo.toml) · [Toolchain](../rust-toolchain.toml) · [Execution host](../src/main.rs)
 - `parse_zop(&mut Arena, &str)` returns a P4-SpecTec `Value` in the caller's arena. Pass that arena and value to `print_zop(&Arena, &Value)` to obtain a `String`. Both functions return a `Result`. Callers handle file I/O. [Library exports](../src/lib.rs) · [Parser](../src/parse.rs) · [Printer](../src/print.rs)
 

@@ -63,6 +63,21 @@ property "p" 1 type(16) - = int(12)
 end
 "#;
 
+const SHARED_ARRAYS: &str = r#"zend-opcodes
+file "s"
+main
+body - {
+  lines 1 1
+  frame 0 cache 0
+  size 1 literals 2 children 0
+  lit[0] = array#42(0 => array#7(0 => int(9)), 1 => array-ref(7))
+  lit[1] = array-ref(42)
+  code
+    0: RETURN lit[1] | line=1
+}
+end
+"#;
+
 #[test]
 fn conversions_match_spec_terms() {
     let mut arena = Arena::new();
@@ -71,6 +86,7 @@ fn conversions_match_spec_terms() {
         ("bytes_and_literal", BYTES_AND_LITERAL),
         ("branch_and_array", BRANCH_AND_ARRAY),
         ("property_and_attribute", PROPERTY_AND_ATTRIBUTE),
+        ("shared_arrays", SHARED_ARRAYS),
     ] {
         let expected = runner
             .eval_func(&mut arena, name, &[], &[])
@@ -99,6 +115,94 @@ fn conversions_match_spec_terms() {
         );
         assert_eq!(print_zop(&arena, &reparsed).unwrap(), printed, "{name}");
     }
+}
+
+#[test]
+fn shared_arrays_require_a_completed_unique_definition() {
+    let mut arena = Arena::new();
+    for listing in [
+        SHARED_ARRAYS.replace("array-ref(7)", "array-ref(42)"),
+        SHARED_ARRAYS.replace("array-ref(7)", "array-ref(0)"),
+        SHARED_ARRAYS.replace("array#7", "array#42"),
+        SHARED_ARRAYS.replace("array-ref(42)", "array#7()"),
+    ] {
+        assert!(parse_zop(&mut arena, &listing).is_err(), "{listing}");
+    }
+    let mut runner = test_spec::runner(&mut arena);
+    for name in ["conflicting_arrays", "bad_array_payload"] {
+        let unit = runner.eval_func(&mut arena, name, &[], &[]).result.unwrap();
+        assert!(validate_unit(&arena, &unit).is_err());
+        assert!(print_zop(&arena, &unit).is_err());
+    }
+}
+
+#[test]
+fn shared_arrays_cross_body_and_class_metadata() {
+    let listing = PROPERTY_AND_ATTRIBUTE
+        .replace("lit[0] = int(1)", "lit[0] = array#17(0 => int(1))")
+        .replace("int(-7)", "array-ref(17)")
+        .replace("int(12)", "array-ref(17)");
+    let mut arena = Arena::new();
+    let unit = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &unit).unwrap();
+    assert_eq!(print_zop(&arena, &unit).unwrap(), listing);
+
+    let statics = SHARED_ARRAYS.replace("  size", "  statics array(0 => array#8())\n  size");
+    let unit = parse_zop(&mut arena, &statics).unwrap();
+    validate_unit(&arena, &unit).unwrap();
+    let invalid = statics.replace("statics array(", "statics array#9(");
+    let unit = parse_zop(&mut arena, &invalid).unwrap();
+    assert!(validate_unit(&arena, &unit).is_err());
+}
+
+#[test]
+fn in_array_checks_the_keys_of_a_shared_literal() {
+    let listing = SHARED_ARRAYS
+        .replace("frame 0", "frame 1")
+        .replace("size 1", "size 2")
+        .replace(
+            "0: RETURN lit[1]",
+            "0: T0 = IN_ARRAY lit[0], lit[1] | ext=1\n    1: RETURN T0",
+        );
+    let mut arena = Arena::new();
+    let unit = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &unit).unwrap();
+    let loose = listing.replace("ext=1", "ext=0");
+    let unit = parse_zop(&mut arena, &loose).unwrap();
+    assert!(validate_unit(&arena, &unit).is_err());
+}
+
+#[test]
+fn constant_expression_literals_check_shared_array_contents() {
+    let listing = SHARED_ARRAYS.replace(
+        "lit[1] = array-ref(42)",
+        "lit[1] = ast(value(0 1 array-ref(42)))",
+    );
+    let mut arena = Arena::new();
+    let valid = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &valid).unwrap();
+    let deferred = listing.replace("int(9)", r#"ast(constant(0 1 "NAME"))"#);
+    let invalid = parse_zop(&mut arena, &deferred).unwrap();
+    assert!(validate_unit(&arena, &invalid).is_err());
+}
+
+#[test]
+fn shared_array_graphs_roundtrip_without_expanding_references() {
+    let mut literals = vec!["  lit[0] = array#0()".to_owned()];
+    for id in 1..64 {
+        let prev = id - 1;
+        literals.push(format!(
+            "  lit[{id}] = array#{id}(0 => array-ref({prev}), 1 => array-ref({prev}))"
+        ));
+    }
+    let listing = format!(
+        "zend-opcodes\nfile \"g\"\nmain\nbody - {{\n  lines 1 1\n  frame 0 cache 0\n  size 1 literals 64 children 0\n{}\n  code\n    0: RETURN lit[63] | line=1\n}}\nend\n",
+        literals.join("\n")
+    );
+    let mut arena = Arena::new();
+    let unit = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &unit).unwrap();
+    assert_eq!(print_zop(&arena, &unit).unwrap(), listing);
 }
 
 #[test]
@@ -391,6 +495,7 @@ fn execution_checks_jump_tables() {
     for (name, table) in [
         ("SWITCH_LONG", r#"array("0" => int(0))"#),
         ("SWITCH_STRING", "array(0 => int(0))"),
+        ("MATCH", "array#0(0 => int(2))"),
         ("MATCH", "array(1 => int(2), 1 => int(3))"),
         ("MATCH", r#"array("A" => int(2), "\x41" => int(3))"#),
         ("MATCH", "array(1 => true)"),

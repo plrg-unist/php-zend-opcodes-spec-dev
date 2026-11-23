@@ -38,6 +38,28 @@ impl Parser<'_> {
         if self.take("array(") {
             return self.read_array();
         }
+        if self.take("array#") {
+            let id = self.u32()?;
+            self.expect("(")?;
+            if self.shared_arrays.insert(id, None).is_some() {
+                return Err(self.error(format!("duplicate shared array {id}")));
+            }
+            let array = self.read_array()?;
+            let number = self.nat(id.into())?;
+            let shared = self.case("zval", "SHARED_ARRAY", [number, array])?;
+            self.shared_arrays.insert(id, Some(shared));
+            return Ok(shared);
+        }
+        if self.take("array-ref(") {
+            let id = self.u32()?;
+            self.expect(")")?;
+            return self
+                .shared_arrays
+                .get(&id)
+                .copied()
+                .flatten()
+                .ok_or_else(|| self.error(format!("no completed shared array {id}")));
+        }
         if self.take("ast") {
             self.expect("(")?;
             let node = self.expr()?;
@@ -168,27 +190,26 @@ impl Printer<'_> {
                 }
             }
             ("ARRAY", [entries, next, cursor]) => {
-                self.out.push_str("array(");
-                for (index, &entry) in self.list(*entries)?.iter().enumerate() {
-                    if index != 0 {
-                        self.out.push_str(", ");
+                self.out.push_str("array");
+                self.write_array(*entries, *next, *cursor)?;
+            }
+            ("SHARED_ARRAY", &[id, array]) => {
+                let id = self.u32(id)?;
+                let [entries, next, cursor] = self.fields(array, "ARRAY")?;
+                if let Some(known) = self.shared_arrays.get(&id) {
+                    if !known.is_some_and(|value| {
+                        self.arena.value.canon_id(value.node)
+                            == self.arena.value.canon_id(array.node)
+                    }) {
+                        return Err(Error::new(format!("conflicting shared array {id}")));
                     }
-                    let [key, value] = self.fields(entry, "ENTRY")?;
-                    match self.case(key)? {
-                        ("KEY", [name]) => self.bytes(*name)?,
-                        ("INDEX", [n]) => write!(self.out, "{}", self.int(*n)?)?,
-                        _ => return Err(Error::new("expected integer or string array key")),
-                    }
-                    self.out.push_str(" => ");
-                    self.zval(value)?;
+                    write!(self.out, "array-ref({id})")?;
+                } else {
+                    self.shared_arrays.insert(id, None);
+                    write!(self.out, "array#{id}")?;
+                    self.write_array(entries, next, cursor)?;
+                    self.shared_arrays.insert(id, Some(array));
                 }
-                if let Some(value) = self.opt(*next)? {
-                    write!(self.out, "; next={}", self.int(value)?)?;
-                }
-                if let Some(value) = self.opt(*cursor)? {
-                    write!(self.out, "; cursor={}", self.u32(value)?)?;
-                }
-                self.out.push(')');
             }
             ("DEFERRED", [node]) => {
                 self.out.push_str("ast(");
@@ -197,6 +218,31 @@ impl Printer<'_> {
             }
             _ => return Err(Error::new("expected a PHP literal")),
         }
+        Ok(())
+    }
+
+    fn write_array(&mut self, entries: Value, next: Value, cursor: Value) -> Result<()> {
+        self.out.push('(');
+        for (index, &entry) in self.list(entries)?.iter().enumerate() {
+            if index != 0 {
+                self.out.push_str(", ");
+            }
+            let [key, value] = self.fields(entry, "ENTRY")?;
+            match self.case(key)? {
+                ("KEY", [name]) => self.bytes(*name)?,
+                ("INDEX", [n]) => write!(self.out, "{}", self.int(*n)?)?,
+                _ => return Err(Error::new("expected integer or string array key")),
+            }
+            self.out.push_str(" => ");
+            self.zval(value)?;
+        }
+        if let Some(value) = self.opt(next)? {
+            write!(self.out, "; next={}", self.int(value)?)?;
+        }
+        if let Some(value) = self.opt(cursor)? {
+            write!(self.out, "; cursor={}", self.u32(value)?)?;
+        }
+        self.out.push(')');
         Ok(())
     }
 

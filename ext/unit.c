@@ -83,9 +83,10 @@ static void print_autoglobals(smart_str *out, uint8_t before)
     } ZEND_HASH_FOREACH_END();
 }
 
-static void print_property(smart_str *out, const zend_class_entry *ce, zend_string *key,
+static void print_property(zo_writer *writer, const zend_class_entry *ce, zend_string *key,
     const zend_property_info *prop)
 {
+    smart_str *out = writer->out;
     zval value;
     if (prop->flags & ~PROPERTY_FLAGS) {
         zo_unsupported("property flags on %s::$%s", ZSTR_VAL(ce->name), ZSTR_VAL(key));
@@ -104,22 +105,23 @@ static void print_property(smart_str *out, const zend_class_entry *ce, zend_stri
     smart_str_appendc(out, ' ');
     put_optional_string(out, prop->doc_comment);
     smart_str_appends(out, " = ");
-    zo_put_value(out, &value);
+    zo_put_value(writer, &value);
     smart_str_appendc(out, '\n');
-    zo_put_attributes(out, prop->attributes);
+    zo_put_attributes(writer, prop->attributes);
     if (prop->hooks) {
         for (uint32_t i = 0; i < ZEND_PROPERTY_HOOK_COUNT; i++) {
             zend_function *hook = prop->hooks[i];
             if (hook && hook->common.scope == ce) {
                 smart_str_appends(out, i == ZEND_PROPERTY_HOOK_GET ? "get\n" : "set\n");
-                zo_print_body(out, &hook->op_array);
+                zo_print_body(writer, &hook->op_array);
             }
         }
     }
 }
 
-static void print_class(smart_str *out, zend_string *key, const zend_class_entry *ce)
+static void print_class(zo_writer *writer, zend_string *key, const zend_class_entry *ce)
 {
+    smart_str *out = writer->out;
     if (ce->ce_flags2 || (ce->num_traits && ce->ce_flags & ZEND_ACC_LINKED)) {
         zo_unsupported("linked trait composition or class flags on %s", ZSTR_VAL(ce->name));
     }
@@ -135,7 +137,7 @@ static void print_class(smart_str *out, zend_string *key, const zend_class_entry
     smart_str_appendc(out, ' ');
     put_optional_string(out, ce->doc_comment);
     smart_str_appends(out, " {\n");
-    zo_put_attributes(out, ce->attributes);
+    zo_put_attributes(writer, ce->attributes);
     if (ce->ce_flags & ZEND_ACC_ENUM) {
         zo_put_enum(out, ce);
     }
@@ -179,14 +181,14 @@ static void print_class(smart_str *out, zend_string *key, const zend_class_entry
     zend_property_info *prop;
     ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(&ce->properties_info, key, prop) {
         if (prop->ce == ce && !(ce->ce_flags & ZEND_ACC_ENUM)) {
-            print_property(out, ce, key, prop);
+            print_property(writer, ce, key, prop);
         }
     } ZEND_HASH_FOREACH_END();
     zend_class_constant *constant;
     ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(&ce->constants_table, key, constant) {
         if (constant->ce == ce) {
             if (ce->ce_flags & ZEND_ACC_ENUM && ZEND_CLASS_CONST_FLAGS(constant) & ZEND_CLASS_CONST_IS_CASE) {
-                zo_put_enum_case(out, key, constant);
+                zo_put_enum_case(writer, key, constant);
                 continue;
             }
             uint32_t flags = ZEND_CLASS_CONST_FLAGS(constant) & ~CONST_OWNED;
@@ -200,9 +202,9 @@ static void print_class(smart_str *out, zend_string *key, const zend_class_entry
             smart_str_appendc(out, ' ');
             put_optional_string(out, constant->doc_comment);
             smart_str_appends(out, " = ");
-            zo_put_value(out, &constant->value);
+            zo_put_value(writer, &constant->value);
             smart_str_appendc(out, '\n');
-            zo_put_attributes(out, constant->attributes);
+            zo_put_attributes(writer, constant->attributes);
         }
     } ZEND_HASH_FOREACH_END();
     zend_function *fn;
@@ -219,15 +221,16 @@ static void print_class(smart_str *out, zend_string *key, const zend_class_entry
             smart_str_appends(out, "method ");
             zo_put_string(out, key);
             smart_str_appendc(out, '\n');
-            zo_print_body(out, &fn->op_array);
+            zo_print_body(writer, &fn->op_array);
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(out, "}\n");
 }
 
-void zo_print_unit(smart_str *out, const zend_op_array *main, uint32_t functions_start,
+static void print_unit(zo_writer *writer, const zend_op_array *main, uint32_t functions_start,
     uint32_t classes_start, uint8_t autoglobals_before)
 {
+    smart_str *out = writer->out;
     smart_str_appends(out, "zend-opcodes\nfile ");
     zo_put_string(out, main->filename);
     smart_str_appendc(out, '\n');
@@ -241,7 +244,7 @@ void zo_print_unit(smart_str *out, const zend_op_array *main, uint32_t functions
     }
     print_autoglobals(out, autoglobals_before);
     smart_str_appends(out, "main\n");
-    zo_print_body(out, main);
+    zo_print_body(writer, main);
     Bucket *bucket;
     ZEND_HASH_MAP_FOREACH_BUCKET_FROM(CG(function_table), bucket, functions_start) {
         zend_function *fn = Z_PTR(bucket->val);
@@ -249,16 +252,33 @@ void zo_print_unit(smart_str *out, const zend_op_array *main, uint32_t functions
             smart_str_appends(out, "function ");
             zo_put_string(out, bucket->key);
             smart_str_appendc(out, '\n');
-            zo_print_body(out, &fn->op_array);
+            zo_print_body(writer, &fn->op_array);
         }
     } ZEND_HASH_FOREACH_END();
     ZEND_HASH_MAP_FOREACH_BUCKET_FROM(CG(class_table), bucket, classes_start) {
         zend_class_entry *ce = Z_PTR(bucket->val);
         if (ce->type == ZEND_USER_CLASS && zend_string_equals(ce->info.user.filename, main->filename)) {
-            print_class(out, bucket->key, ce);
+            print_class(writer, bucket->key, ce);
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(out, "end\n");
+}
+
+void zo_print_unit(smart_str *out, const zend_op_array *main, uint32_t functions_start,
+    uint32_t classes_start, uint8_t autoglobals_before)
+{
+    zo_writer writer = {out, zend_new_array(0), zend_new_array(0)};
+    zend_try {
+        print_unit(&writer, main, functions_start, classes_start, autoglobals_before);
+        zo_insert_array_labels(&writer);
+    } zend_catch {
+        zend_array_release(writer.array_offsets);
+        zend_array_release(writer.array_labels);
+        smart_str_free(out);
+        zend_bailout();
+    } zend_end_try();
+    zend_array_release(writer.array_offsets);
+    zend_array_release(writer.array_labels);
 }
 
 static zend_string *read_name(zo_reader *r)

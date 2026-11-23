@@ -9,6 +9,12 @@
 #endif
 
 typedef struct {
+    smart_str *out;
+    HashTable *array_offsets;
+    HashTable *array_labels;
+} zo_writer;
+
+typedef struct {
     const char *p;
     const char *end;
     zend_string *path;
@@ -19,6 +25,7 @@ typedef struct {
     zend_class_entry *scope;
     unsigned int closure_depth;
     struct zo_pending_body *pending;
+    HashTable *array_bindings;
 } zo_reader;
 
 ZEND_NORETURN void zo_fail(zo_reader *r, const char *format, ...) ZEND_ATTRIBUTE_FORMAT(printf, 2, 3);
@@ -31,27 +38,29 @@ zend_long zo_long(zo_reader *r);
 zend_string *zo_string(zo_reader *r);
 void zo_put_string(smart_str *out, const zend_string *s);
 void zo_get_value(zo_reader *r, zval *value);
-void zo_put_value(smart_str *out, const zval *value);
-void zo_put_ast(smart_str *out, const zval *value);
+void zo_put_value(zo_writer *writer, const zval *value);
+void zo_put_table(zo_writer *writer, const HashTable *table);
+void zo_insert_array_labels(zo_writer *writer);
+void zo_put_ast(zo_writer *writer, const zval *value);
 void zo_get_ast(zo_reader *r, zval *value);
-void zo_put_expression(smart_str *out, zend_ast *ast);
+void zo_put_expression(zo_writer *writer, zend_ast *ast);
 zend_ast_ref *zo_get_expression(zo_reader *r, bool allow_dynamic);
-void zo_put_attributes(smart_str *out, const HashTable *attrs);
+void zo_put_attributes(zo_writer *writer, const HashTable *attrs);
 HashTable *zo_get_attributes(zo_reader *r, uint32_t max_offset);
 void zo_put_enum(smart_str *out, const zend_class_entry *ce);
 void zo_get_enum(zo_reader *r, zend_class_entry *ce);
-void zo_put_enum_case(smart_str *out, zend_string *name, const zend_class_constant *constant);
+void zo_put_enum_case(zo_writer *writer, zend_string *name, const zend_class_constant *constant);
 void zo_get_enum_case(zo_reader *r, zend_class_entry *ce, uint32_t expected_id);
 void zo_check_enum(zo_reader *r, const zend_class_entry *ce);
 
-void zo_print_literal(smart_str *out, const zend_op_array *body, uint32_t index);
+void zo_print_literal(zo_writer *writer, const zend_op_array *body, uint32_t index);
 void zo_print_instructions(smart_str *out, const zend_op_array *body);
 void zo_read_instructions(zo_reader *r, zend_op_array *body);
 void zo_freeze_bound_literal(zo_reader *r, zval *value);
 void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable);
 void zo_validate_unit_calls(zo_reader *r);
 
-void zo_print_body(smart_str *out, const zend_op_array *body);
+void zo_print_body(zo_writer *writer, const zend_op_array *body);
 void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend_class_entry *scope);
 void zo_put_type(smart_str *out, zend_type type);
 zend_type zo_get_type(zo_reader *r);

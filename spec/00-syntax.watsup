@@ -57,12 +57,14 @@ syntax body
 
 ;; FLOAT holds the 64 bits of a binary64 value. ARRAY preserves entry order,
 ;; the optional next integer key and the optional internal cursor position.
+;; All uses of one shared literal carry the same unit-wide id and ARRAY payload.
 syntax arraykey = INDEX int | KEY bytes
 syntax arrayentry = ENTRY arraykey zval
 syntax zval =
   | UNDEF | NULL | FALSE | TRUE
   | INT int | FLOAT nat | STRING bytes
   | ARRAY arrayentry* int? nat?
+  | SHARED_ARRAY nat zval
   | DEFERRED expr
 
 ;; Each Zend type carries its primitive and qualifier mask.

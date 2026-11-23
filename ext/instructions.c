@@ -238,7 +238,7 @@ static uint32_t absolute_target(const zend_op_array *body, uint32_t index, zend_
     return (uint32_t)target;
 }
 
-void zo_print_literal(smart_str *out, const zend_op_array *body, uint32_t index)
+void zo_print_literal(zo_writer *writer, const zend_op_array *body, uint32_t index)
 {
     const zval *literal = &body->literals[index];
     if (Z_TYPE_P(literal) == IS_ARRAY) {
@@ -252,12 +252,12 @@ void zo_print_literal(smart_str *out, const zend_op_array *body, uint32_t index)
                 if (Z_TYPE_P(value) != IS_LONG) zo_unsupported("non-integer switch target");
                 ZVAL_LONG(value, absolute_target(body, i, Z_LVAL_P(value)));
             } ZEND_HASH_FOREACH_END();
-            zo_put_value(out, &table);
+            zo_put_table(writer, Z_ARR(table));
             zval_ptr_dtor(&table);
             return;
         }
     }
-    zo_put_value(out, literal);
+    zo_put_value(writer, literal);
 }
 
 void zo_print_instructions(smart_str *out, const zend_op_array *body)
@@ -587,6 +587,7 @@ static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line, 
         zval *table = RT_CONSTANT(op, op->op2);
         uint32_t literal = (uint32_t)(table - body->literals);
         if (Z_TYPE_P(table) != IS_ARRAY || used[literal]) zo_fail(r, "invalid or shared jump table at instruction %u", i);
+        if (GC_REFCOUNT(Z_ARR_P(table)) != 1) zo_fail(r, "expected a plain jump table at instruction %u", i);
         used[literal] = true;
         zval *target;
         zend_string *key;
