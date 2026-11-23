@@ -1,0 +1,81 @@
+dec $concat_result(frame, operand, operand, slotValue, slotValue) : transition
+def $concat_result(frame, operand_r, operand_dst, slotValue_l, slotValue_h)
+  = CONTINUE $write($write(frame, operand_dst, slotValue), operand_r, slotValue)
+  -- if $has_scalar_bytes(slotValue_l) /\ $has_scalar_bytes(slotValue_h)
+  -- if slotValue = STRING ($scalar_bytes(slotValue_l) ++ $scalar_bytes(slotValue_h))
+def $concat_result(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+rule StringStep/concat:
+  frame; opcode; operand_r; operand_l; operand_h; _ ~> transition
+  -- if opcode = CONCAT \/ opcode = FAST_CONCAT
+  -- if (frame_l, slotValue_l) = $read_operand(frame, operand_l)
+  ;; FAST_CONCAT converts its left operand before reading the right.
+  -- if opcode = CONCAT \/ $has_scalar_bytes(slotValue_l)
+  -- if (frame_h, slotValue_h) = $read_operand(frame_l, operand_h)
+  -- if transition = $concat_result(frame_h, operand_r, UNUSED, slotValue_l, slotValue_h)
+
+rule StringStep/append:
+  frame; ASSIGN_OP; operand_r; operand_l; operand_h; (EXT_VALUE 8) ~> transition
+  -- if (frame_h, slotValue_h) = $read_operand(frame, operand_h)
+  -- if (frame_l, slotValue_l) = $read_operand(frame_h, operand_l)
+  -- if transition = $concat_result(frame_l, operand_r, operand_l, slotValue_l, slotValue_h)
+
+relation StringOperand: frame; operand ~> frame; bytes
+  hint(input %0 %1)
+rule StringOperand/read:
+  frame; operand ~> frame'; bytes
+  -- if (frame', slotValue) = $read_operand(frame, operand)
+  -- if $has_scalar_bytes(slotValue)
+  -- if bytes = $scalar_bytes(slotValue)
+
+rule StringStep/cast:
+  frame; CAST; operand_r; operand; _; (EXT_VALUE 6) ~> CONTINUE $write(frame', operand_r, STRING bytes)
+  -- StringOperand: frame; operand ~> frame'; bytes
+
+;; A rope retains the bytes converted at each instruction, indexed by its
+;; base temporary and fragment number. END joins them in fragment-number order.
+dec $forget_rope(nat, fragment*) : fragment*
+def $forget_rope(_, eps) = eps
+def $forget_rope(n, (FRAGMENT n _ _) :: fragment*) = $forget_rope(n, fragment*)
+def $forget_rope(n, fragment_head :: fragment*) = fragment_head :: $forget_rope(n, fragment*)
+  -- if FRAGMENT n_base _ _ = fragment_head
+  -- if n =/= n_base
+
+relation TakeRopePiece: fragment*; nat; nat ~> bytes; fragment*
+  hint(input %0 %1 %2)
+rule TakeRopePiece/here:
+  ((FRAGMENT n_base n_index bytes) :: fragment*); n_base; n_index ~> bytes; fragment*
+rule TakeRopePiece/rest:
+  (fragment_head :: fragment*); n_base; n_index ~> bytes; (fragment_head :: fragment_rest*)
+  -- if FRAGMENT n_other n_part _ = fragment_head
+  -- if n_other =/= n_base \/ n_part =/= n_index
+  -- TakeRopePiece: fragment*; n_base; n_index ~> bytes; fragment_rest*
+
+relation RopePrefix: fragment*; nat; nat ~> bytes
+  hint(input %0 %1 %2)
+rule RopePrefix/empty: fragment*; n_base; 0 ~> eps
+rule RopePrefix/part:
+  fragment*; n_base; n_count ~> (bytes_prefix ++ bytes_last)
+  -- if $(n_count > 0)
+  -- if n_index = $(n_count - 1)
+  -- TakeRopePiece: fragment*; n_base; n_index ~> bytes_last; fragment_rest*
+  -- RopePrefix: fragment_rest*; n_base; n_index ~> bytes_prefix
+
+rule StringStep/rope-init:
+  frame; ROPE_INIT; (TMP n_base); _; operand; _
+    ~> CONTINUE frame'[.ROPEPARTS = (FRAGMENT n_base 0 bytes) :: $forget_rope(n_base, frame'.ROPEPARTS)]
+  -- StringOperand: frame; operand ~> frame'; bytes
+
+rule StringStep/rope-add:
+  frame; ROPE_ADD; _; (TMP n_base); operand; extension?
+    ~> CONTINUE frame'[.ROPEPARTS = (FRAGMENT n_base n_index bytes) :: frame'.ROPEPARTS]
+  -- StringOperand: frame; operand ~> frame'; bytes
+  -- if n_index = $ext_value(extension?)
+
+rule StringStep/rope-end:
+  frame; ROPE_END; operand_r; (TMP n_base); operand; extension?
+    ~> CONTINUE $write(frame_clean, operand_r, STRING (bytes_prefix ++ bytes_last))
+  -- StringOperand: frame; operand ~> frame'; bytes_last
+  -- RopePrefix: frame'.ROPEPARTS; n_base; $ext_value(extension?) ~> bytes_prefix
+  -- if frame_clean = frame'[.ROPEPARTS = $forget_rope(n_base, frame'.ROPEPARTS)]

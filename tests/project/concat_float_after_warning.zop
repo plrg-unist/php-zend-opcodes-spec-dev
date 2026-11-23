@@ -1,0 +1,17 @@
+zend-opcodes
+file "concat.php"
+main
+body - {
+  lines 1 3
+  frame 1 cache 0
+  locals 2 ["u", "x"]
+  size 4 literals 2 children 0
+  lit[0] = float(1.25)
+  lit[1] = null
+  code
+    0: ASSIGN CV1, lit[0] | line=1
+    1: T2 = CONCAT CV0, CV1 | line=2
+    2: ECHO T2 | line=2
+    3: RETURN lit[1] | line=3
+}
+end

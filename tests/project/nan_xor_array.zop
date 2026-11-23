@@ -1,0 +1,18 @@
+zend-opcodes
+file "xor.php"
+main
+body - {
+  lines 1 2
+  frame 1 cache 0
+  locals 1 ["nan"]
+  size 4 literals 3 children 0
+  lit[0] = float(nan:0xfff8000000000042)
+  lit[1] = array()
+  lit[2] = null
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: T1 = BOOL_XOR CV0, lit[1] | line=2
+    2: ECHO T1 | line=2
+    3: RETURN lit[2] | line=2
+}
+end

@@ -1,0 +1,97 @@
+var n : nat
+var i : int
+var b : bool
+
+;; CLI-initialized array slots retain their presence without reading their contents.
+syntax slotValue = zval | CLI_ARRAY
+
+;; Single-bit masks in the TYPE_CHECK instruction's extended value.
+dec $scalar_type_bit(slotValue) : nat
+def $scalar_type_bit(NULL) = 2
+def $scalar_type_bit(FALSE) = 4
+def $scalar_type_bit(TRUE) = 8
+def $scalar_type_bit(INT _) = 16
+def $scalar_type_bit(FLOAT _) = 32
+def $scalar_type_bit(STRING _) = 64
+def $scalar_type_bit(_) = 0
+  -- otherwise
+
+dec $simple_value(slotValue) : bool
+def $simple_value(slotValue) = $scalar_type_bit(slotValue) =/= 0
+
+dec $type_check(slotValue, nat) : bool
+def $type_check(UNDEF, n_mask) = $(n_mask \ 2 = 1)
+def $type_check(slotValue, n_mask) = $((n_mask / n_bit) \ 2 = 1)
+  -- if n_bit = $scalar_type_bit(slotValue)
+  -- if n_bit =/= 0
+
+dec $gettype(slotValue) : bytes
+def $gettype(NULL) = [ 78, 85, 76, 76 ]                            ;; NULL
+def $gettype(slotValue) = [ 98, 111, 111, 108, 101, 97, 110 ]           ;; boolean
+  -- if slotValue = TRUE \/ slotValue = FALSE
+def $gettype(INT _) = [ 105, 110, 116, 101, 103, 101, 114 ]        ;; integer
+def $gettype(FLOAT _) = [ 100, 111, 117, 98, 108, 101 ]            ;; double
+def $gettype(STRING _) = [ 115, 116, 114, 105, 110, 103 ]          ;; string
+
+dec $zend_bool(bool) : zval
+def $zend_bool(true) = TRUE
+def $zend_bool(false) = FALSE
+
+;; Removing the sign bit gives the binary64 magnitude encoding.
+dec $float_magnitude(nat) : nat
+def $float_magnitude(n) = $(n \ 0x8000_0000_0000_0000)
+
+dec $is_nan(slotValue) : bool
+def $is_nan(FLOAT n) = $($float_magnitude(n) > 0x7FF0_0000_0000_0000)
+def $is_nan(_) = false
+  -- otherwise
+
+dec $truth(slotValue) : bool
+def $truth(NULL) = false
+def $truth(FALSE) = false
+def $truth(TRUE) = true
+def $truth(INT i) = i =/= 0
+def $truth(FLOAT n) = $float_magnitude(n) =/= 0
+def $truth(STRING bytes) = (bytes =/= eps) /\ (bytes =/= [ 48 ])
+
+;; Decimal PHP integers are emitted as ASCII octets.
+dec $digits(nat) : bytes
+def $digits(n) = [ $(48 + n) ]
+  -- if $(n < 10)
+def $digits(n) = $digits($(n / 10)) ++ [ $(48 + (n \ 10)) ]
+  -- if $(n >= 10)
+
+dec $decimal(int) : bytes
+def $decimal(i) = $digits(n)
+  -- if $(i >= 0)
+  -- if n = i
+def $decimal(i) = 45 :: $digits(n)
+  -- if $(i < 0)
+  -- if n = $(-i)
+
+dec $scalar_bytes(slotValue) : bytes
+def $scalar_bytes(STRING bytes) = bytes
+def $scalar_bytes(INT i) = $decimal(i)
+def $scalar_bytes(TRUE) = [ 49 ]
+def $scalar_bytes(FALSE) = eps
+def $scalar_bytes(NULL) = eps
+
+dec $has_scalar_bytes(slotValue) : bool
+def $has_scalar_bytes(slotValue) = (n_bit =/= 0) /\ (n_bit =/= 32)
+  -- if n_bit = $scalar_type_bit(slotValue)
+
+syntax lengthResult = LENGTH nat | NULL_LENGTH | LENGTH_ERROR bytes | LENGTH_UNSUPPORTED
+
+dec $strlen(slotValue, bool) : lengthResult
+def $strlen(STRING bytes, true) = LENGTH $(|bytes|)
+def $strlen(NULL, false) = NULL_LENGTH
+def $strlen(slotValue, false) = LENGTH $(|bytes|)
+  -- if slotValue =/= NULL
+  -- if bytes = $scalar_bytes(slotValue)
+def $strlen(NULL, true) = LENGTH_ERROR ([ 110, 117, 108, 108 ])       ;; null
+def $strlen(TRUE, true) = LENGTH_ERROR ([ 116, 114, 117, 101 ])       ;; true
+def $strlen(FALSE, true) = LENGTH_ERROR ([ 102, 97, 108, 115, 101 ])  ;; false
+def $strlen(INT _, true) = LENGTH_ERROR ([ 105, 110, 116 ])           ;; int
+def $strlen(FLOAT _, true) = LENGTH_ERROR ([ 102, 108, 111, 97, 116 ])  ;; float
+def $strlen(_, _) = LENGTH_UNSUPPORTED
+  -- otherwise

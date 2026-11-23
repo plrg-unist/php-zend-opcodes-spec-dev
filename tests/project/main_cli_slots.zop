@@ -1,0 +1,22 @@
+zend-opcodes
+file "main.php"
+main
+body - {
+  lines 1 3
+  frame 0 cache 0
+  locals 8 ["argv", "_SERVER", "_GET", "_POST", "_COOKIE", "_FILES", "_ENV", "_REQUEST"]
+  size 10 literals 1 children 0
+  lit[0] = "ok"
+  code
+    0: CHECK_VAR CV0 | line=1
+    1: CHECK_VAR CV1 | line=1
+    2: CHECK_VAR CV2 | line=1
+    3: CHECK_VAR CV3 | line=1
+    4: CHECK_VAR CV4 | line=1
+    5: CHECK_VAR CV5 | line=1
+    6: CHECK_VAR CV6 | line=2
+    7: CHECK_VAR CV7 | line=2
+    8: ECHO lit[0] | line=3
+    9: RETURN lit[0] | line=3
+}
+end
