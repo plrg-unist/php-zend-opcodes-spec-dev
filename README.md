@@ -1,6 +1,6 @@
 # PHP Zend Opcode Specification
 
-The PHP extension prints compiled PHP as a `.zop` listing and loads listings into Zend. The Rust library converts between listings and the compilation-unit AST. The `zend-opcodes` executable runs the supported main-body instructions using P4-SpecTec. [Intentional discrepancies and foreign calls](design-docs/README.md) · [Syntax](spec/00-syntax.watsup) · [Execution rules](spec/02-vm/00-core.watsup)
+The PHP extension prints compiled PHP as a `.zop` listing and loads listings into Zend. The Rust library converts between listings and the compilation-unit AST. The `zend-opcodes` executable runs the supported main-body instructions using P4-SpecTec. [Specification design](design-docs/README.md) · [Syntax](spec/00-syntax.watsup) · [Execution rules](spec/02-vm/00-core.watsup)
 
 ## Build and test
 
@@ -28,6 +28,6 @@ php -n -d extension="$PWD/ext/modules/zend_opcodes.so" example.zop
 
 Build the spec executable with `cargo build`. Running `target/debug/zend-opcodes tests/project/handwritten.zop </dev/null` prints `running=41`. The executable reads stdin through EOF. Add `--json` before the path for a structured outcome. [Hand-written example](tests/project/handwritten.zop)
 
-`target/debug/zend-opcodes --php-binary /example/php tests/project/installation_php_binary.zop` prints `/example/php`. Each installation constant has a lowercase flag with underscores replaced by hyphens. Runtime lookups read the supplied value. Literals in the listing keep their compiled bytes. [Default values and aliases](installation-defaults.json)
+Run `target/debug/zend-opcodes --help` to see the installation flags, defaults, and aliases. For example, `target/debug/zend-opcodes --php-binary /example/php tests/project/installation_php_binary.zop` prints `/example/php`. Runtime lookups read the supplied value. Literals in the listing keep their compiled bytes. [Default values and aliases](installation-defaults.json)
 
 Use listings from trusted sources with the matching PHP build when loading them into Zend.

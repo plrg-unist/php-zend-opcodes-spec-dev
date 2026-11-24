@@ -205,7 +205,12 @@ fn write_streams(stdout: &[u8], stderr: &[u8]) -> io::Result<()> {
 
 fn main() -> Result<ExitCode> {
     let mut json = false;
-    let args = arguments::parse(env::args_os().skip(1), &mut json);
+    let args = arguments::parse(env::args_os().skip(1), &mut json).map_err(|error| {
+        if !json || !error.use_stderr() {
+            error.exit();
+        }
+        error.to_string()
+    });
     let invoke = || {
         let args = args?;
         run(&args.file, &args.installation)

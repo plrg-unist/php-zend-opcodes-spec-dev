@@ -28,12 +28,14 @@ P4-SpecTec reads each directory in filename order and descends into its subdirec
 
 ## Human-facing design records
 
-Keep the [design index](../design-docs/README.md) limited to two subjects unless the user changes its scope.
+Maintain four subjects in the human-facing design index. [Design index](../design-docs/README.md)
 
-- **Intentional discrepancies.** An empty register needs only a one-line status in the index. Link a dedicated register when the first user-approved abstraction changes observable behavior in the implementation. For each entry, give the program and input, the differing stdout bytes, stderr bytes or exit status on both sides, the approved rationale, and a link to the regression case. Obtain the user's approval before implementing any such difference. [Approval policy](semantics-scope.md#choosing-what-to-model) · [Differential test expectations](differential-testing.md#spec-executable-and-differential-suite)
+- **Execution scope.** Update this page when the agreed boundaries for programs or host interactions change. Keep it independent of the set of opcodes implemented in a given milestone. [Execution scope](../design-docs/scope.md)
+- **Execution inputs and outputs.** Update this page when the inputs, their source of defaults, the observable outputs, or the reported outcome kinds change. Link to the canonical defaults file. [Execution inputs and outputs](../design-docs/execution-io.md)
+- **Intentional discrepancies.** Link each user-approved discrepancy from the index. Give the program and input, the differing stdout bytes, stderr bytes or exit status on both sides, the approved rationale, and a link to the regression case. Obtain the user's approval before implementing any such difference. [Approval policy](semantics-scope.md#choosing-what-to-model) · [Differential test expectations](differential-testing.md#spec-executable-and-differential-suite)
 - **Foreign calls.** For every `extern` or `builtin` declaration in `spec/`, identify its provider and what it supplies. Update the inventory when a declaration or its behavior changes, and verify it against the elaborator output using the command on the page. [Foreign call inventory](../design-docs/foreign-calls.md)
 
-Keep useful explanations of how the spec preserves Zend behavior in the relevant agent notes, with links to rules or tests that answer follow-up questions. Milestone plans, unsupported features, bugs and coverage gaps also belong in agent documentation.
+Keep useful explanations of how the spec preserves Zend behavior in the relevant agent notes, with links to rules or tests that answer follow-up questions. Milestone plans, gaps in current support, bugs and coverage gaps also belong in agent documentation.
 
 ## Maintaining these files
 
