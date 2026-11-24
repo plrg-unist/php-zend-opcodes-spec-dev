@@ -28,4 +28,6 @@ php -n -d extension="$PWD/ext/modules/zend_opcodes.so" example.zop
 
 Build the spec executable with `cargo build`. Running `target/debug/zend-opcodes tests/project/handwritten.zop </dev/null` prints `running=41`. The executable reads stdin through EOF. Add `--json` before the path for a structured outcome. [Hand-written example](tests/project/handwritten.zop)
 
+`target/debug/zend-opcodes --php-binary /example/php tests/project/installation_php_binary.zop` prints `/example/php`. Each installation constant has a lowercase flag with underscores replaced by hyphens. Runtime lookups read the supplied value. Literals in the listing keep their compiled bytes. [Default values and aliases](installation-defaults.json)
+
 Use listings from trusted sources with the matching PHP build when loading them into Zend.

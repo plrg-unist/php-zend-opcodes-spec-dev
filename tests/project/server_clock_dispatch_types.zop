@@ -1,0 +1,57 @@
+zend-opcodes
+file "server_clock_dispatch_types.php"
+main
+body - {
+  lines 1 7
+  frame 2 cache 0
+  locals 3 ["seconds", "fraction", "ambient"]
+  size 27 literals 19 children 0
+  lit[0] = "_SERVER"
+  lit[1] = "REQUEST_TIME"
+  lit[2] = "REQUEST_TIME_FLOAT"
+  lit[3] = "_ENV"
+  lit[4] = "ZEND_DISPATCH_TEST"
+  lit[5] = array(1 => int(25))
+  lit[6] = array("x" => int(25))
+  lit[7] = array(1 => int(25), "x" => int(25))
+  lit[8] = array(1 => int(18), "x" => int(25))
+  lit[9] = array(1 => int(25))
+  lit[10] = array(1 => int(25), "x" => int(23))
+  lit[11] = int(1)
+  lit[12] = "long/"
+  lit[13] = "string/"
+  lit[14] = "float/"
+  lit[15] = "integer/"
+  lit[16] = "optional"
+  lit[17] = "\x0a"
+  lit[18] = "wrong"
+  code
+    0: V3 = FETCH_W lit[0] | line=2 ext=2
+    1: V4 = FETCH_DIM_W V3, lit[1] | line=2 ext=1
+    2: ASSIGN_REF CV0, V4 | line=2
+    3: V3 = FETCH_W lit[0] | line=3 ext=2
+    4: V4 = FETCH_DIM_W V3, lit[2] | line=3 ext=1
+    5: ASSIGN_REF CV1, V4 | line=3
+    6: V3 = FETCH_W lit[3] | line=4 ext=2
+    7: V4 = FETCH_DIM_W V3, lit[4] | line=4 ext=1
+    8: ASSIGN_REF CV2, V4 | line=4
+    9: SWITCH_LONG CV1, lit[5] | line=5 ext=@25
+    10: ECHO lit[12] | line=5
+    11: SWITCH_STRING CV0, lit[6] | line=5 ext=@25
+    12: ECHO lit[13] | line=5
+    13: MATCH CV1, lit[7] | line=6 ext=@15
+    14: ECHO lit[18] | line=6
+    15: ECHO lit[14] | line=6
+    16: MATCH CV0, lit[8] | line=6 ext=@18
+    17: ECHO lit[18] | line=6
+    18: ECHO lit[15] | line=6
+    19: MATCH CV2, lit[9] | line=7 ext=@21
+    20: ECHO lit[18] | line=7
+    21: ECHO lit[16] | line=7
+    22: MATCH CV2, lit[10] | line=7 ext=@23
+    23: ECHO lit[17] | line=7
+    24: RETURN lit[11] | line=7
+    25: ECHO lit[18] | line=7
+    26: RETURN lit[11] | line=7
+}
+end

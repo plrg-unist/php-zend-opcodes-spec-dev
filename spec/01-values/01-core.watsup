@@ -8,7 +8,7 @@ syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARR
 syntax slotValue
 syntax runtimeEntry = ITEM arraykey slotValue
 syntax cliOrigin = SERVER | ENVIRONMENT
-syntax hostSource = ENV_ENTRY arraykey | CLOCK_ENTRY arraykey | INSTALL_ENTRY text
+syntax hostSource = ENV_ENTRY arraykey | CLOCK_ENTRY arraykey
 syntax serverHistory = { ORIGIN cliOrigin, TAIL runtimeEntry*, SATURATED bool }
 syntax arrayLayout = VACANT nat | PACKED nat | MIXED nat nat*
 syntax arrayIndex = STORAGE int arrayLayout

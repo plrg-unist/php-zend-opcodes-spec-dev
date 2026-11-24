@@ -25,7 +25,9 @@ class Case:
     kind: str
     stdout: bytes
     stderr: bytes
-    divergence: Divergence = field(default_factory=dict)
+    divergence: Divergence
+    spec_flags: tuple[str, ...]
+    installation: dict[str, bytes]
 
 
 @dataclass
@@ -81,9 +83,43 @@ def read_divergence(value: object) -> Divergence:
     return fields
 
 
+def unique_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    fields = {}
+    for name, value in pairs:
+        if name in fields:
+            raise ValueError(f"duplicate JSON field {name!r}")
+        fields[name] = value
+    return fields
+
+
+def installation_inputs(
+    value: object, defaults: dict[str, bytes], aliases: dict[str, str],
+) -> tuple[tuple[str, ...], dict[str, bytes]]:
+    if not isinstance(value, dict):
+        raise ValueError("installation must be an object")
+    flags: list[str] = []
+    overrides: dict[str, bytes] = {}
+    for name, raw in value.items():
+        canonical = aliases.get(name, name)
+        if canonical not in defaults:
+            raise ValueError(f"unknown installation constant {name!r}")
+        data = raw.encode("utf-8") if isinstance(raw, str) else octets(raw)
+        if b"\0" in data:
+            raise ValueError(f"installation constant {name} contains a NUL byte")
+        if canonical in overrides and overrides[canonical] != data:
+            raise ValueError(f"conflicting values for installation constant {canonical}")
+        overrides[canonical] = data
+        flags.extend(("--" + name.lower().replace("_", "-"), os.fsdecode(data)))
+    return tuple(flags), defaults | overrides
+
+
 def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
     groups: dict[Path, list[Case]] = {}
-    rows = json.loads((TESTS / "semantics.json").read_text())
+    catalog = json.loads(
+        (ROOT / "installation-defaults.json").read_text(encoding="utf-8"), object_pairs_hook=unique_fields,
+    )
+    defaults = {name: value.encode("utf-8") for name, value in catalog["defaults"].items()}
+    rows = json.loads((TESTS / "semantics.json").read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
     if not isinstance(rows, list):
         raise ValueError("expected a semantics manifest array")
     for row in rows:
@@ -97,7 +133,7 @@ def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
             raise ValueError(f"invalid semantics case {row!r}")
         if stdin is not None and (not stdin.resolve().is_relative_to(TESTS) or not stdin.is_file()):
             raise ValueError(f"unknown stdin file {stdin}")
-        if set(row) - {"fixture", "stdin", "expect", "stdout", "stderr", "divergence"}:
+        if set(row) - {"fixture", "stdin", "expect", "stdout", "stderr", "divergence", "installation"}:
             raise ValueError(f"unknown semantics case fields in {row!r}")
         if kind != "malformed" and expected_error(fixture) is not None:
             raise ValueError(f"native rejection fixture requires a malformed expectation: {fixture}")
@@ -105,9 +141,10 @@ def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
             raise ValueError("stream expectations in the manifest belong to unsupported cases")
         if kind != "php" and "divergence" in row:
             raise ValueError("divergence requires a php expectation")
+        flags, installation = installation_inputs(row.get("installation", {}), defaults, catalog["aliases"])
         groups.setdefault(fixture, []).append(Case(
             stdin, kind, octets(row.get("stdout", [])), octets(row.get("stderr", [])),
-            read_divergence(row["divergence"]) if "divergence" in row else {},
+            read_divergence(row["divergence"]) if "divergence" in row else {}, flags, installation,
         ))
     return groups
 
@@ -144,13 +181,15 @@ def build_binary() -> Path:
     raise ValueError("cargo did not report the zend-opcodes executable")
 
 
-def json_outcome(binary: Path, listing: Path, stdin: bytes, coverage: Path | None = None) -> dict[str, Any]:
+def json_outcome(
+    binary: Path, listing: Path, stdin: bytes, coverage: Path | None = None, flags: tuple[str, ...] = (),
+) -> dict[str, Any]:
     env = os.environ.copy()
     if coverage is not None:
         coverage.unlink(missing_ok=True)
         env["ZEND_SPEC_COVERAGE"] = str(coverage)
     result = subprocess.run(
-        [binary, "--json", listing], cwd=listing.parent, input=stdin, capture_output=True, env=env, timeout=30,
+        [binary, "--json", *flags, listing], cwd=listing.parent, input=stdin, capture_output=True, env=env, timeout=30,
     )
     if result.returncode or result.stderr:
         raise ValueError(f"JSON mode status {result.returncode}, stderr {result.stderr[:500]!r}")
@@ -190,12 +229,14 @@ def check_observation(label: str, expected: Observation, actual: Observation) ->
 
 def check_case(binary: Path, php: Path, profile: str, listing: Path, case: Case, report: Path) -> None:
     stdin = case.stdin.read_bytes() if case.stdin else b""
-    outcome = json_outcome(binary, listing, stdin, report)
+    outcome = json_outcome(binary, listing, stdin, report, case.spec_flags)
     if outcome.get("kind") != case.kind:
         raise ValueError(f"expected {case.kind}, got {outcome!r}")
-    normal = subprocess.run([binary, listing], cwd=listing.parent, input=stdin, capture_output=True, timeout=30)
+    normal = subprocess.run(
+        [binary, *case.spec_flags, listing], cwd=listing.parent, input=stdin, capture_output=True, timeout=30,
+    )
     if case.kind == "php":
-        reference = run_php(php, profile, listing, load=True, stdin=stdin)
+        reference = run_php(php, profile, listing, load=True, stdin=stdin, installation=case.installation)
         for name, zend, spec_normal in (
             ("stdout", reference.stdout, normal.stdout),
             ("stderr", reference.stderr, normal.stderr),
@@ -231,8 +272,8 @@ def check_profile(binary: Path, php: Path, fixture: Path, profile: str, variants
                 source.write_bytes(data)
                 data = run_php(php, profile, source, compile_only=True).listing
             listing.write_bytes(data)
-            for case in variants:
-                label = f"{name} [{profile}, {case.stdin.name if case.stdin else 'empty stdin'}]"
+            for number, case in enumerate(variants, 1):
+                label = f"{name} [{profile}, case {number}, {case.stdin.name if case.stdin else 'empty stdin'}]"
                 check_case(binary, php, profile, listing, case, report)
                 if case.kind != "malformed":
                     coverage.merge(*coverage_hits(report))

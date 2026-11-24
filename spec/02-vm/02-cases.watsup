@@ -55,12 +55,19 @@ dec $case_comparison(opcode) : opcode
 def $case_comparison(CASE) = IS_EQUAL
 def $case_comparison(CASE_STRICT) = IS_IDENTICAL
 
-;; A string falls through SWITCH_LONG. An empty string switch or an integer-only
-;; match takes the default without reading any string bytes.
+;; A switch with the wrong subject type falls through to the comparison chain.
+dec $dispatch_miss(opcode, arraykey?, nat, nat) : nat
+def $dispatch_miss(opcode, eps, n_next, _) = n_next -- if opcode =/= MATCH
+def $dispatch_miss(_, _, _, n_default) = n_default -- otherwise
+
+;; An unknown subject can proceed when every possible hit and miss goes to the same instruction.
 dec $host_dispatch(frame, opcode, zval, nat, slotValue*) : transition
-def $host_dispatch(frame, SWITCH_LONG, _, _, [STRING _]) = CONTINUE frame
-def $host_dispatch(frame, SWITCH_STRING, ARRAY eps _ _ _, n_default, [STRING _]) = CONTINUE frame[.PC = n_default]
-def $host_dispatch(frame, MATCH, ARRAY (ENTRY (INDEX i) zval)* _ _ _, n_default, [STRING _]) = CONTINUE frame[.PC = n_default]
+def $host_dispatch(frame, opcode, ARRAY (ENTRY arraykey (INT n_target))* _ _ _, n_default, slotValue*) =
+  CONTINUE frame[.PC = n]
+  -- if n :: n_rest* = ($dispatch_miss(opcode, $dispatch_key(opcode, slotValue), frame.PC, n_default))*
+  -- if ~(false <- (n = n_rest)*)
+  -- if n_type* = ($scalar_type_bit(slotValue))*
+  -- if ~(true <- (($scalar_type_bit($key_value(arraykey)) <- n_type*) /\ n_target =/= n)*)
 def $host_dispatch(frame, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
 
 def $dispatch_step(frame, opcode, operand_r, operand_l, operand_h, _, smartbranch?) =

@@ -36,10 +36,6 @@ def $end_iteration(frame, operand) = frame[.ITERATORS = foreachIterator*[0 : n_a
   -- if n_length = $(|foreachIterator*| - n_tail)
 def $end_iteration(frame, _) = frame -- otherwise
 
-dec $foreach_key(arraykey) : slotValue
-def $foreach_key(INDEX i) = INT i
-def $foreach_key(KEY bytes) = STRING bytes
-
 dec $iteration_table(slotValue) : arrayId
 def $iteration_table(ARRAY_VALUE arrayId _ _ _) = arrayId
 def $iteration_table(slotValue) = $server_id(slotValue) -- if $server_array(slotValue)
@@ -90,7 +86,7 @@ def $snapshot_entry(frame, _, _, _, _, n_exit, eps) = CONTINUE frame[.PC = n_exi
 def $snapshot_entry(frame, operand_r, operand_dst, n_row, n_reg, _, (n, ITEM arraykey slotValue)) =
   CONTINUE $foreach_output(frame'', operand_dst, $deref(frame'', slotValue))
   -- if frame' = frame[.ITERATORS[n_row] = SNAPSHOT n_reg n]
-  -- if frame'' = $write(frame', operand_r, $foreach_key(arraykey))
+  -- if frame'' = $write(frame', operand_r, $key_value(arraykey))
 
 dec $iterator_position(arrayId, iteratorPosition*) : nat?
 dec $select_iteration(frame, operand, nat, slotValue) : (frame, slotValue, nat)
@@ -129,7 +125,7 @@ def $live_entry(frame, operand_r, operand_a, operand_dst, n_row, _, slotValue_ar
   CONTINUE $write(frame_out, operand_dst, slotValue_ref)
   -- if LIVE n_reg (ITER_AT arrayId _) iteratorPosition* = frame.ITERATORS[n_row]
   -- if frame' = frame[.ITERATORS[n_row] = LIVE n_reg (ITER_AT arrayId n) iteratorPosition*]
-  -- if frame'' = $write(frame', operand_r, $foreach_key(arraykey))
+  -- if frame'' = $write(frame', operand_r, $key_value(arraykey))
   -- if (frame_out, slotValue_ref) = $foreach_element_ref(frame'', operand_a, slotValue_array, arraykey, slotValue)
 
 dec $fetch_foreach(frame, opcode, operand, operand, operand, nat, slotValue) : transition

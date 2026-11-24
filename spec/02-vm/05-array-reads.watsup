@@ -95,17 +95,12 @@ def $scalar_query(frame, ISSET_ISEMPTY_DIM_OBJ, operand_r, n, smartbranch?, _) =
 
 relation ArrayQuery: frame; opcode; operand; operand; operand; nat; smartbranch?; slotValue; slotValue ~> transition
   hint(input %0 %1 %2 %3 %4 %5 %6 %7 %8)
-dec $query_string_offset(frame, opcode, operand, operand, operand, nat, smartbranch?, bytes?, slotValue) : transition
+dec $query_string_offset(frame, opcode, operand, operand, operand, nat, smartbranch?, bytes, slotValue) : transition
 rule ArrayQuery/string:
   frame; opcode; operand_r; operand_a; operand_k; n; smartbranch?; (STRING bytes); slotValue_k ~>
     $query_string_offset(frame, opcode, operand_r, operand_a, operand_k, n, smartbranch?, bytes, slotValue_k)
   -- if opcode =/= ARRAY_KEY_EXISTS
   -- if opcode = ISSET_ISEMPTY_DIM_OBJ \/ $known_value(slotValue_k) \/ slotValue_k = UNDEF
-rule ArrayQuery/host-string:
-  frame; opcode; operand_r; operand_a; operand_k; n; smartbranch?; (HOST_OFFSET hostSource); slotValue_k ~>
-    $query_string_offset(frame, opcode, operand_r, operand_a, operand_k, n, smartbranch?, eps, slotValue_k)
-  -- if opcode =/= ARRAY_KEY_EXISTS
-  -- if [STRING eps] = $host_type_values(HOST_OFFSET hostSource)
 rule ArrayQuery/array:
   frame; opcode; operand_r; operand_a; operand_k; n; smartbranch?; slotValue_a; slotValue_k ~>
     $converted_lookup(frame, opcode, operand_r, n, smartbranch?, slotValue_a, $vm_array_key(frame, opcode, operand_k, slotValue_key))

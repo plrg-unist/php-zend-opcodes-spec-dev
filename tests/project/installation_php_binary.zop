@@ -1,0 +1,16 @@
+zend-opcodes
+file "installation_php_binary.php"
+main
+body - {
+  lines 1 1
+  frame 1 cache 8
+  size 3 literals 3 children 0
+  lit[0] = "PHP_BINARY"
+  lit[1] = "PHP_BINARY"
+  lit[2] = int(1)
+  code
+    0: T0 = FETCH_CONSTANT 0, lit[0] | line=1
+    1: ECHO T0 | line=1
+    2: RETURN lit[2] | line=1
+}
+end

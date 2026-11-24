@@ -20,7 +20,6 @@ def $host_type_values(HOST_OFFSET (CLOCK_ENTRY (KEY bytes))) = [INT 0]
 def $host_type_values(HOST_OFFSET (CLOCK_ENTRY (KEY bytes))) = [FLOAT 0]
   -- if |bytes| = 18
 def $host_type_values(HOST_OFFSET (ENV_ENTRY _)) = [NULL, STRING eps]
-def $host_type_values(HOST_OFFSET (INSTALL_ENTRY _)) = [STRING eps]
 def $host_type_values(slotValue) = [slotValue] -- if ~$host_offset(slotValue)
 
 dec $nonnull_host(slotValue) : bool

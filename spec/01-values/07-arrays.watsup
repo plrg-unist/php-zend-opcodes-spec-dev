@@ -95,6 +95,10 @@ dec $array_key_tag(slotValue) : arraykey
 def $array_key_tag(INT i) = INDEX i
 def $array_key_tag(STRING bytes) = KEY bytes
 
+dec $key_value(arraykey) : slotValue
+def $key_value(INDEX i) = INT i
+def $key_value(KEY bytes) = STRING bytes
+
 dec $array_position(runtimeEntry*, arraykey) : nat
 def $array_position((ITEM arraykey_row _)*, arraykey) = $prefix_end(b*, 0, |b*|)
   -- if b* = (arraykey =/= arraykey_row)*

@@ -22,7 +22,6 @@ def $actual_tail((ITEM arraykey FALSE) :: runtimeEntry*, arraykey_present*) = $a
 dec $inherited_field(hostSource, arraykey*) : serverField
 def $inherited_field(CLOCK_ENTRY arraykey, _) = HOST_FIELD $scalar_type_bit(slotValue) (CLOCK_ENTRY arraykey)
   -- if [slotValue] = $host_type_values(HOST_OFFSET (CLOCK_ENTRY arraykey))
-def $inherited_field(INSTALL_ENTRY text, _) = HOST_FIELD 64 (INSTALL_ENTRY text)
 def $inherited_field(ENV_ENTRY arraykey, arraykey_present*) = HOST_FIELD 64 (ENV_ENTRY arraykey)
   -- if arraykey <- arraykey_present*
 def $inherited_field(_, _) = FIELD NULL -- otherwise
@@ -56,8 +55,8 @@ dec $field_order(comparisonMode, serverPair) : valueOrder
 def $field_order(_, FIELDS (FIELD eps) _) = ORDER 0
 def $field_order(_, FIELDS serverField (FIELD eps)) = ORDER 1 -- if serverField =/= FIELD eps
 def $field_order(comparisonMode, FIELDS (FIELD slotValue_l) (FIELD slotValue_r)) = $value_order(comparisonMode, slotValue_l, slotValue_r)
-def $field_order(comparisonMode, FIELDS (FIELD slotValue) (HOST_FIELD n _)) = $typed_host_order(comparisonMode, n, slotValue, 1)
-def $field_order(comparisonMode, FIELDS (HOST_FIELD n _) (FIELD slotValue)) = $typed_host_order(comparisonMode, n, slotValue, -1)
+def $field_order(comparisonMode, FIELDS (FIELD slotValue) (HOST_FIELD n _)) = $typed_host_order(comparisonMode, [n], slotValue, 1)
+def $field_order(comparisonMode, FIELDS (HOST_FIELD n _) (FIELD slotValue)) = $typed_host_order(comparisonMode, [n], slotValue, -1)
 def $field_order(_, FIELDS (HOST_FIELD n hostSource) (HOST_FIELD n hostSource)) = ORDER 0
 def $field_order(comparisonMode, FIELDS (HOST_FIELD n_l _) (HOST_FIELD n_r _)) = ORDER 1
   -- if comparisonMode.STRICT /\ n_l =/= n_r

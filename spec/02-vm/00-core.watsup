@@ -9,7 +9,7 @@ def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
   CODE instruction*, POOL poolentry*, FROZEN nat*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
   CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, SYMBOLS slotValue, MISSING nat,
-  CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
+  INSTALLATION installation, CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
 syntax transition = CONTINUE frame | FINISH outcome
 
@@ -318,8 +318,6 @@ dec $cast(frame, operand, operand, nat, slotValue) : transition
 def $cast(frame, operand_r, _, n, slotValue) = $apply_numeric(frame, operand_r, UNUSED, eps, $numeric_cast(n, slotValue))
   -- if n = 4 \/ n = 5
   -- if $known_value(slotValue) /\ $truth_known(slotValue)
-def $cast(frame, operand_r, _, 6, HOST_OFFSET (INSTALL_ENTRY text)) =
-  CONTINUE $write(frame, operand_r, HOST_OFFSET (INSTALL_ENTRY text))
 def $cast(frame, operand_r, _, 6, slotValue) =
   CONTINUE $write($string_frame(frame, slotValue), operand_r, STRING $scalar_bytes(slotValue))
   -- if $known_value(slotValue)
@@ -360,8 +358,6 @@ def $container_type(HOST_OFFSET hostSource) = slotValue
   -- if [slotValue] = $host_type_values(HOST_OFFSET hostSource)
 def $container_type(slotValue) = slotValue -- otherwise
 
-dec $opaque_string(slotValue) : bool
-def $opaque_string(slotValue) = $host_offset(slotValue) /\ $container_type(slotValue) = STRING eps
 dec $named_step(frame, opcode, operand, operand, nat, smartbranch?) : transition
 dec $fetch_globals(frame, operand) : transition
 dec $constant_step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
@@ -396,7 +392,7 @@ def $step(frame, FETCH_LIST_R, operand_r, operand_a, operand_k, _, _) = transiti
 def $step(frame, opcode, operand_r, operand_a, operand_k, extension?, _) =
   $dimension_location_step(frame, opcode, operand_r, operand_a, operand_k, $ext_value(extension?))
   -- if opcode <- [FETCH_DIM_W, FETCH_DIM_RW, FETCH_DIM_UNSET]
-  -- if $location_input(frame, operand_a) \/ $opaque_string($read(frame, operand_a))
+  -- if $location_input(frame, operand_a)
   -- if $location_input(frame, operand_k) \/ (opcode = FETCH_DIM_UNSET /\ $scalar_type_bit($read(frame, operand_a)) = 64)
   -- if $defined_dimension_context(frame, operand_a, operand_k, $ext_value(extension?))
 def $step(frame, opcode, operand_r, operand_a, operand_k, extension?, _) =
@@ -480,15 +476,8 @@ def $host_type_suffices(frame, ARRAY_KEY_EXISTS, _, operand_a) = true
 def $host_type_suffices(frame, FETCH_LIST_R, operand_a, _) = true
   -- if slotValue = $container_type($read(frame, operand_a))
   -- if $simple_value(slotValue) \/ slotValue = UNDEF
-def $host_type_suffices(frame, opcode, operand_a, _) = true
-  -- if opcode <- [FETCH_DIM_R, FETCH_DIM_IS, ISSET_ISEMPTY_DIM_OBJ]
-  -- if $opaque_string($read(frame, operand_a))
-def $host_type_suffices(frame, opcode, operand_a, operand_k) = true
-  -- if opcode <- [FETCH_DIM_W, FETCH_DIM_RW, FETCH_DIM_UNSET, ASSIGN_DIM, ASSIGN_DIM_OP]
-  -- if $opaque_string($read(frame, operand_a))
-  -- if $location_input(frame, operand_k)
 def $host_type_suffices(frame, UNSET_DIM, operand_a, _) = true
-  -- if STRING _ = $container_type($read(frame, operand_a))
+  -- if STRING _ = $read(frame, operand_a)
 def $host_type_suffices(_, _, _, _) = false -- otherwise
 
 def $observes_host(frame, opcode, operand_a, operand_b) = ~$host_type_suffices(frame, opcode, operand_a, operand_b)
@@ -522,13 +511,13 @@ def $dormant_class(_) = false
   -- otherwise
 
 dec $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*) : nat*
-dec $execute(unit, bytes, bytes) : outcome
-def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script)
+dec $execute(unit, bytes, bytes, installation) : outcome
+def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script, installation)
   = $run($start_symbols({ CODE instruction*, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS (($owned(slotValue))* ++ [$owned(NULL)]), ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
            CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*,
            SYMBOLS ARRAY_VALUE SYMBOL_TABLE eps (STORAGE (-9223372036854775808) (MIXED 64 eps)) eps, MISSING $(|slotValue*|),
-           CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
+           INSTALLATION installation, CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
   -- if ~(false <- ($dormant_class(classDecl))*)
   -- if slotValue* = $empty_slots($(|bytes_cv*| + n))
-def $execute(_, _, _) = UNSUPPORTED eps eps
+def $execute(_, _, _, _) = UNSUPPORTED eps eps
   -- otherwise

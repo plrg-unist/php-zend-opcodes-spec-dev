@@ -110,28 +110,32 @@ def $strict_pointer(ELEMENT_LOCATION _ _) = true
 def $strict_pointer(SYMBOL_LOCATION _) = true
 def $strict_pointer(_) = false -- otherwise
 
-dec $typed_host_order(comparisonMode, nat, slotValue, int) : valueOrder
-def $typed_host_order(comparisonMode, 64, FLOAT n, _) = ORDER 1
-  -- if ~comparisonMode.STRICT /\ $is_nan(FLOAT n)
-def $typed_host_order(comparisonMode, n, slotValue, i) = ORDER i
-  -- if $is_array_value(slotValue) \/ (comparisonMode.STRICT /\ $scalar_type_bit(slotValue) =/= n)
+dec $typed_host_order(comparisonMode, nat*, slotValue, int) : valueOrder
+def $typed_host_order(comparisonMode, n_type*, FLOAT n, _) = ORDER 1
+  -- if $is_nan(FLOAT n) /\ ~(2 <- n_type*) /\ (~comparisonMode.STRICT \/ (32 <- n_type*))
+def $typed_host_order(comparisonMode, n_type*, slotValue, i) = ORDER i
+  -- if (comparisonMode.STRICT /\ ~($scalar_type_bit(slotValue) <- n_type*)) \/
+        (~comparisonMode.STRICT /\ $is_array_value(slotValue) /\ ~(2 <- n_type*))
 def $typed_host_order(_, _, _, _) = UNKNOWN_ORDER -- otherwise
 
 dec $deref_order(comparisonMode, slotValue, slotValue) : valueOrder
 def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER 1
   -- if comparisonMode.STRICT /\ ($strict_pointer(slotValue_l) \/ $strict_pointer(slotValue_r))
-def $deref_order(_, HOST_OFFSET (INSTALL_ENTRY text), HOST_OFFSET (INSTALL_ENTRY text)) = ORDER 0
+;; An inherited environment value or finite request timestamp equals itself.
+def $deref_order(_, HOST_OFFSET hostSource, HOST_OFFSET hostSource) = ORDER 0
 def $deref_order(comparisonMode, HOST_OFFSET hostSource_l, HOST_OFFSET hostSource_r) = ORDER 1
   -- if comparisonMode.STRICT
   -- if slotValue_l* = $host_type_values(HOST_OFFSET hostSource_l)
   -- if slotValue_r* = $host_type_values(HOST_OFFSET hostSource_r)
   -- if ~(true <- (slotValue_l <- slotValue_r*)*)
-def $deref_order(comparisonMode, HOST_OFFSET (INSTALL_ENTRY text), slotValue) =
-  $typed_host_order(comparisonMode, 64, slotValue, -1)
-  -- if ~$host_offset(slotValue)
-def $deref_order(comparisonMode, slotValue, HOST_OFFSET (INSTALL_ENTRY text)) =
-  $typed_host_order(comparisonMode, 64, slotValue, 1)
-  -- if ~$host_offset(slotValue)
+def $deref_order(comparisonMode, HOST_OFFSET hostSource, slotValue) =
+  $typed_host_order(comparisonMode, ($scalar_type_bit(slotValue_type))*, slotValue, -1)
+  -- if $known_value(slotValue)
+  -- if slotValue_type* = $host_type_values(HOST_OFFSET hostSource)
+def $deref_order(comparisonMode, slotValue, HOST_OFFSET hostSource) =
+  $typed_host_order(comparisonMode, ($scalar_type_bit(slotValue_type))*, slotValue, 1)
+  -- if $known_value(slotValue)
+  -- if slotValue_type* = $host_type_values(HOST_OFFSET hostSource)
 def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER $bool_order(~$identical_scalar(slotValue_l, slotValue_r), false)
   -- if $simple_value(slotValue_l) /\ $simple_value(slotValue_r) /\ comparisonMode.STRICT
 def $deref_order(comparisonMode, slotValue_l, slotValue_r) = ORDER $simple_order(slotValue_l, slotValue_r)

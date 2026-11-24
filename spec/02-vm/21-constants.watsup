@@ -11,12 +11,12 @@ def $halt_key(bytes_file) = [0] ++ $halt_name() ++ [0] ++ bytes_file
 def $initial_constants(_, eps) = eps
 def $initial_constants(bytes_file, n) = [ITEM (KEY $halt_key(bytes_file)) (INT n)]
 
-dec $registered_or_builtin(slotValue?, bytes) : constantInfo?
-def $registered_or_builtin(slotValue, _) = CONST_INFO slotValue eps
-def $registered_or_builtin(eps, bytes) = $builtin_constant(bytes)
+dec $registered_or_builtin(installation, slotValue?, bytes) : constantInfo?
+def $registered_or_builtin(_, slotValue, _) = CONST_INFO slotValue eps
+def $registered_or_builtin(installation, eps, bytes) = $builtin_constant(installation, bytes)
 
 dec $table_constant(frame, bytes) : constantInfo?
-def $table_constant(frame, bytes) = $registered_or_builtin($array_find(frame.CONSTANTS, KEY bytes), bytes)
+def $table_constant(frame, bytes) = $registered_or_builtin(frame.INSTALLATION, $array_find(frame.CONSTANTS, KEY bytes), bytes)
 
 dec $constant_spelling(frame, nat) : bytes
 def $constant_spelling(frame, n) = bytes
@@ -59,7 +59,7 @@ dec $unqualified_constant(frame, bytes, constantInfo?) : constantInfo?
 def $unqualified_constant(_, _, constantInfo) = constantInfo
 def $unqualified_constant(frame, bytes, eps) = $table_constant(frame, $halt_key(frame.FILE))
   -- if bytes = $halt_name()
-def $unqualified_constant(_, n_char*, eps) = $builtin_constant(bytes)
+def $unqualified_constant(frame, n_char*, eps) = $builtin_constant(frame.INSTALLATION, bytes)
   -- if bytes = $constant_special(($const_lower(n_char))*)
 def $unqualified_constant(_, _, _) = eps -- otherwise
 

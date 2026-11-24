@@ -1,23 +1,29 @@
 ;; The raw, case-sensitive constants table of the pinned CLI. Each entry carries
-;; its runtime value and any deprecation emitted on access. Installation strings
-;; keep their origin, including the equivalent PHP and PEAR extension directories.
+;; its runtime value and any deprecation emitted on access. The two extension
+;; directory constants take their bytes from the same installation field.
+syntax installation = {
+  DEFAULT_INCLUDE_PATH bytes, PEAR_INSTALL_DIR bytes, PHP_BINARY bytes, PHP_BINDIR bytes,
+  PHP_BUILD_DATE bytes, PHP_CONFIG_FILE_PATH bytes, PHP_CONFIG_FILE_SCAN_DIR bytes,
+  PHP_DATADIR bytes, PHP_EXTENSION_DIR bytes, PHP_LIBDIR bytes, PHP_LOCALSTATEDIR bytes,
+  PHP_MANDIR bytes, PHP_PREFIX bytes, PHP_SBINDIR bytes, PHP_SYSCONFDIR bytes
+}
 syntax constantInfo = CONST_INFO slotValue bytes?
 syntax constantDeprecation = REMOVED_ERROR_LEVEL | RFC7231_TIMEZONE | SUN_TIME_FORMAT | MT_VARIANT
                            | LOCALE_SORT | ASSERT_OPTION | FILE_MODE_FLAG
 syntax builtinConstant = BUILTIN text slotValue constantDeprecation?
 var t : text
 
-dec $builtin_constant(bytes) : constantInfo?
-dec $builtin_rows(nat) : builtinConstant*
+dec $builtin_constant(installation, bytes) : constantInfo?
+dec $builtin_rows(nat, installation) : builtinConstant*
 dec $builtin_lookup(bytes, text, builtinConstant*) : constantInfo?
 dec $builtin_warning(bytes, constantDeprecation?) : bytes?
 dec $builtin_warning_suffix(constantDeprecation) : bytes
 dec $builtin_key(bytes) : text
 dec $builtin_char(nat) : text
 
-def $builtin_constant(n :: bytes) = $builtin_lookup(n :: bytes, $builtin_key(n :: bytes), $builtin_rows(n))
+def $builtin_constant(installation, n :: bytes) = $builtin_lookup(n :: bytes, $builtin_key(n :: bytes), $builtin_rows(n, installation))
   -- if $(|bytes| < 35)
-def $builtin_constant(_) = eps -- otherwise
+def $builtin_constant(_, _) = eps -- otherwise
 
 def $builtin_lookup(bytes, t, (BUILTIN t slotValue constantDeprecation?) :: _) =
   CONST_INFO slotValue $builtin_warning(bytes, constantDeprecation?)
@@ -95,7 +101,7 @@ def $builtin_char(_) = "?" -- otherwise
 
 ;; Names are grouped by first byte to limit the search to one part of the table.
 
-def $builtin_rows(65) = [
+def $builtin_rows(65, _) = [
   BUILTIN "ABDAY_1" (INT 131072) eps,
   BUILTIN "ABDAY_2" (INT 131073) eps,
   BUILTIN "ABDAY_3" (INT 131074) eps,
@@ -126,7 +132,7 @@ def $builtin_rows(65) = [
   BUILTIN "ASSERT_EXCEPTION" (INT 5) ASSERT_OPTION,
   BUILTIN "ASSERT_WARNING" (INT 4) ASSERT_OPTION ]
 
-def $builtin_rows(67) = [
+def $builtin_rows(67, _) = [
   BUILTIN "CASE_LOWER" (INT 0) eps,
   BUILTIN "CASE_UPPER" (INT 1) eps,
   BUILTIN "CHAR_MAX" (INT 127) eps,
@@ -154,7 +160,7 @@ def $builtin_rows(67) = [
   BUILTIN "CRYPT_STD_DES" (INT 1) eps,
   BUILTIN "CURRENCY_SYMBOL" (INT 262145) eps ]
 
-def $builtin_rows(68) = [
+def $builtin_rows(68, installation) = [
   BUILTIN "DATE_ATOM" (STRING ([ 89, 45, 109, 45, 100, 92, 84, 72, 58, 105, 58, 115, 80 ])) eps,
   BUILTIN "DATE_COOKIE" (STRING ([ 108, 44, 32, 100, 45, 77, 45, 89, 32, 72, 58, 105, 58, 115, 32, 84 ])) eps,
   BUILTIN "DATE_ISO8601" (STRING ([ 89, 45, 109, 45, 100, 92, 84, 72, 58, 105, 58, 115, 79 ])) eps,
@@ -179,7 +185,7 @@ def $builtin_rows(68) = [
   BUILTIN "DEBUG_BACKTRACE_IGNORE_ARGS" (INT 2) eps,
   BUILTIN "DEBUG_BACKTRACE_PROVIDE_OBJECT" (INT 1) eps,
   BUILTIN "DECIMAL_POINT" (INT 65536) eps,
-  BUILTIN "DEFAULT_INCLUDE_PATH" (HOST_OFFSET (INSTALL_ENTRY "DEFAULT_INCLUDE_PATH")) eps,
+  BUILTIN "DEFAULT_INCLUDE_PATH" (STRING installation.DEFAULT_INCLUDE_PATH) eps,
   BUILTIN "DIRECTORY_SEPARATOR" (STRING ([ 47 ])) eps,
   BUILTIN "DNS_A" (INT 1) eps,
   BUILTIN "DNS_A6" (INT 16777216) eps,
@@ -199,7 +205,7 @@ def $builtin_rows(68) = [
   BUILTIN "D_FMT" (INT 131113) eps,
   BUILTIN "D_T_FMT" (INT 131112) eps ]
 
-def $builtin_rows(69) = [
+def $builtin_rows(69, _) = [
   BUILTIN "ENT_COMPAT" (INT 2) eps,
   BUILTIN "ENT_DISALLOWED" (INT 128) eps,
   BUILTIN "ENT_HTML401" (INT 0) eps,
@@ -240,7 +246,7 @@ def $builtin_rows(69) = [
   BUILTIN "E_USER_WARNING" (INT 512) eps,
   BUILTIN "E_WARNING" (INT 2) eps ]
 
-def $builtin_rows(70) = [
+def $builtin_rows(70, _) = [
   BUILTIN "FALSE" FALSE eps,
   BUILTIN "FILE_APPEND" (INT 8) eps,
   BUILTIN "FILE_BINARY" (INT 0) FILE_MODE_FLAG,
@@ -255,7 +261,7 @@ def $builtin_rows(70) = [
   BUILTIN "FNM_PERIOD" (INT 4) eps,
   BUILTIN "FRAC_DIGITS" (INT 262152) eps ]
 
-def $builtin_rows(71) = [
+def $builtin_rows(71, _) = [
   BUILTIN "GLOB_AVAILABLE_FLAGS" (INT 1073746108) eps,
   BUILTIN "GLOB_BRACE" (INT 128) eps,
   BUILTIN "GLOB_ERR" (INT 4) eps,
@@ -266,12 +272,12 @@ def $builtin_rows(71) = [
   BUILTIN "GLOB_ONLYDIR" (INT 1073741824) eps,
   BUILTIN "GROUPING" (INT 65538) eps ]
 
-def $builtin_rows(72) = [
+def $builtin_rows(72, _) = [
   BUILTIN "HASH_HMAC" (INT 1) eps,
   BUILTIN "HTML_ENTITIES" (INT 1) eps,
   BUILTIN "HTML_SPECIALCHARS" (INT 0) eps ]
 
-def $builtin_rows(73) = [
+def $builtin_rows(73, _) = [
   BUILTIN "IMAGETYPE_AVIF" (INT 19) eps,
   BUILTIN "IMAGETYPE_BMP" (INT 6) eps,
   BUILTIN "IMAGETYPE_COUNT" (INT 21) eps,
@@ -313,7 +319,7 @@ def $builtin_rows(73) = [
   BUILTIN "INT_CURR_SYMBOL" (INT 262144) eps,
   BUILTIN "INT_FRAC_DIGITS" (INT 262151) eps ]
 
-def $builtin_rows(74) = [
+def $builtin_rows(74, _) = [
   BUILTIN "JSON_BIGINT_AS_STRING" (INT 2) eps,
   BUILTIN "JSON_ERROR_CTRL_CHAR" (INT 3) eps,
   BUILTIN "JSON_ERROR_DEPTH" (INT 1) eps,
@@ -344,7 +350,7 @@ def $builtin_rows(74) = [
   BUILTIN "JSON_UNESCAPED_SLASHES" (INT 64) eps,
   BUILTIN "JSON_UNESCAPED_UNICODE" (INT 256) eps ]
 
-def $builtin_rows(76) = [
+def $builtin_rows(76, _) = [
   BUILTIN "LC_ALL" (INT 6) eps,
   BUILTIN "LC_COLLATE" (INT 3) eps,
   BUILTIN "LC_CTYPE" (INT 0) eps,
@@ -390,7 +396,7 @@ def $builtin_rows(76) = [
   BUILTIN "LOG_UUCP" (INT 64) eps,
   BUILTIN "LOG_WARNING" (INT 4) eps ]
 
-def $builtin_rows(77) = [
+def $builtin_rows(77, _) = [
   BUILTIN "MON_1" (INT 131098) eps,
   BUILTIN "MON_10" (INT 131107) eps,
   BUILTIN "MON_11" (INT 131108) eps,
@@ -426,7 +432,7 @@ def $builtin_rows(77) = [
   BUILTIN "M_SQRT3" (FLOAT 0x3FFB_B67A_E858_4CAA) eps,
   BUILTIN "M_SQRTPI" (FLOAT 0x3FFC_5BF8_91B4_EF6B) eps ]
 
-def $builtin_rows(78) = [
+def $builtin_rows(78, _) = [
   BUILTIN "NAN" (FLOAT 0x7FF8_0000_0000_0000) eps,
   BUILTIN "NEGATIVE_SIGN" (INT 262150) eps,
   BUILTIN "NOEXPR" (INT 327681) eps,
@@ -436,7 +442,7 @@ def $builtin_rows(78) = [
   BUILTIN "N_SEP_BY_SPACE" (INT 262156) eps,
   BUILTIN "N_SIGN_POSN" (INT 262158) eps ]
 
-def $builtin_rows(80) = [
+def $builtin_rows(80, installation) = [
   BUILTIN "PASSWORD_BCRYPT" (STRING ([ 50, 121 ])) eps,
   BUILTIN "PASSWORD_BCRYPT_DEFAULT_COST" (INT 12) eps,
   BUILTIN "PASSWORD_DEFAULT" (STRING ([ 50, 121 ])) eps,
@@ -450,18 +456,18 @@ def $builtin_rows(80) = [
   BUILTIN "PCRE_VERSION" (STRING ([ 49, 48, 46, 52, 52, 32, 50, 48, 50, 52, 45, 48, 54, 45, 48, 55 ])) eps,
   BUILTIN "PCRE_VERSION_MAJOR" (INT 10) eps,
   BUILTIN "PCRE_VERSION_MINOR" (INT 44) eps,
-  BUILTIN "PEAR_EXTENSION_DIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_EXTENSION_DIR")) eps,
-  BUILTIN "PEAR_INSTALL_DIR" (HOST_OFFSET (INSTALL_ENTRY "PEAR_INSTALL_DIR")) eps,
-  BUILTIN "PHP_BINARY" (HOST_OFFSET (INSTALL_ENTRY "PHP_BINARY")) eps,
-  BUILTIN "PHP_BINDIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_BINDIR")) eps,
-  BUILTIN "PHP_BUILD_DATE" (HOST_OFFSET (INSTALL_ENTRY "PHP_BUILD_DATE")) eps,
+  BUILTIN "PEAR_EXTENSION_DIR" (STRING installation.PHP_EXTENSION_DIR) eps,
+  BUILTIN "PEAR_INSTALL_DIR" (STRING installation.PEAR_INSTALL_DIR) eps,
+  BUILTIN "PHP_BINARY" (STRING installation.PHP_BINARY) eps,
+  BUILTIN "PHP_BINDIR" (STRING installation.PHP_BINDIR) eps,
+  BUILTIN "PHP_BUILD_DATE" (STRING installation.PHP_BUILD_DATE) eps,
   BUILTIN "PHP_CLI_PROCESS_TITLE" TRUE eps,
-  BUILTIN "PHP_CONFIG_FILE_PATH" (HOST_OFFSET (INSTALL_ENTRY "PHP_CONFIG_FILE_PATH")) eps,
-  BUILTIN "PHP_CONFIG_FILE_SCAN_DIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_CONFIG_FILE_SCAN_DIR")) eps,
-  BUILTIN "PHP_DATADIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_DATADIR")) eps,
+  BUILTIN "PHP_CONFIG_FILE_PATH" (STRING installation.PHP_CONFIG_FILE_PATH) eps,
+  BUILTIN "PHP_CONFIG_FILE_SCAN_DIR" (STRING installation.PHP_CONFIG_FILE_SCAN_DIR) eps,
+  BUILTIN "PHP_DATADIR" (STRING installation.PHP_DATADIR) eps,
   BUILTIN "PHP_DEBUG" FALSE eps,
   BUILTIN "PHP_EOL" (STRING ([ 10 ])) eps,
-  BUILTIN "PHP_EXTENSION_DIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_EXTENSION_DIR")) eps,
+  BUILTIN "PHP_EXTENSION_DIR" (STRING installation.PHP_EXTENSION_DIR) eps,
   BUILTIN "PHP_EXTRA_VERSION" (STRING eps) eps,
   BUILTIN "PHP_FD_SETSIZE" (INT 1024) eps,
   BUILTIN "PHP_FLOAT_DIG" (INT 15) eps,
@@ -471,10 +477,10 @@ def $builtin_rows(80) = [
   BUILTIN "PHP_INT_MAX" (INT 9223372036854775807) eps,
   BUILTIN "PHP_INT_MIN" (INT (-9223372036854775808)) eps,
   BUILTIN "PHP_INT_SIZE" (INT 8) eps,
-  BUILTIN "PHP_LIBDIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_LIBDIR")) eps,
-  BUILTIN "PHP_LOCALSTATEDIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_LOCALSTATEDIR")) eps,
+  BUILTIN "PHP_LIBDIR" (STRING installation.PHP_LIBDIR) eps,
+  BUILTIN "PHP_LOCALSTATEDIR" (STRING installation.PHP_LOCALSTATEDIR) eps,
   BUILTIN "PHP_MAJOR_VERSION" (INT 8) eps,
-  BUILTIN "PHP_MANDIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_MANDIR")) eps,
+  BUILTIN "PHP_MANDIR" (STRING installation.PHP_MANDIR) eps,
   BUILTIN "PHP_MAXPATHLEN" (INT 4096) eps,
   BUILTIN "PHP_MINOR_VERSION" (INT 6) eps,
   BUILTIN "PHP_OS" (STRING ([ 76, 105, 110, 117, 120 ])) eps,
@@ -493,7 +499,7 @@ def $builtin_rows(80) = [
   BUILTIN "PHP_OUTPUT_HANDLER_STARTED" (INT 4096) eps,
   BUILTIN "PHP_OUTPUT_HANDLER_STDFLAGS" (INT 112) eps,
   BUILTIN "PHP_OUTPUT_HANDLER_WRITE" (INT 0) eps,
-  BUILTIN "PHP_PREFIX" (HOST_OFFSET (INSTALL_ENTRY "PHP_PREFIX")) eps,
+  BUILTIN "PHP_PREFIX" (STRING installation.PHP_PREFIX) eps,
   BUILTIN "PHP_QUERY_RFC1738" (INT 1) eps,
   BUILTIN "PHP_QUERY_RFC3986" (INT 2) eps,
   BUILTIN "PHP_RELEASE_VERSION" (INT 0) eps,
@@ -502,9 +508,9 @@ def $builtin_rows(80) = [
   BUILTIN "PHP_ROUND_HALF_ODD" (INT 4) eps,
   BUILTIN "PHP_ROUND_HALF_UP" (INT 1) eps,
   BUILTIN "PHP_SAPI" (STRING ([ 99, 108, 105 ])) eps,
-  BUILTIN "PHP_SBINDIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_SBINDIR")) eps,
+  BUILTIN "PHP_SBINDIR" (STRING installation.PHP_SBINDIR) eps,
   BUILTIN "PHP_SHLIB_SUFFIX" (STRING ([ 115, 111 ])) eps,
-  BUILTIN "PHP_SYSCONFDIR" (HOST_OFFSET (INSTALL_ENTRY "PHP_SYSCONFDIR")) eps,
+  BUILTIN "PHP_SYSCONFDIR" (STRING installation.PHP_SYSCONFDIR) eps,
   BUILTIN "PHP_URL_FRAGMENT" (INT 7) eps,
   BUILTIN "PHP_URL_HOST" (INT 1) eps,
   BUILTIN "PHP_URL_PASS" (INT 4) eps,
@@ -543,10 +549,10 @@ def $builtin_rows(80) = [
   BUILTIN "P_SEP_BY_SPACE" (INT 262154) eps,
   BUILTIN "P_SIGN_POSN" (INT 262157) eps ]
 
-def $builtin_rows(82) = [
+def $builtin_rows(82, _) = [
   BUILTIN "RADIXCHAR" (INT 65536) eps ]
 
-def $builtin_rows(83) = [
+def $builtin_rows(83, _) = [
   BUILTIN "SCANDIR_SORT_ASCENDING" (INT 0) eps,
   BUILTIN "SCANDIR_SORT_DESCENDING" (INT 1) eps,
   BUILTIN "SCANDIR_SORT_NONE" (INT 2) eps,
@@ -659,14 +665,14 @@ def $builtin_rows(83) = [
   BUILTIN "SUNFUNCS_RET_STRING" (INT 1) SUN_TIME_FORMAT,
   BUILTIN "SUNFUNCS_RET_TIMESTAMP" (INT 0) SUN_TIME_FORMAT ]
 
-def $builtin_rows(84) = [
+def $builtin_rows(84, _) = [
   BUILTIN "THOUSANDS_SEP" (INT 65537) eps,
   BUILTIN "THOUSEP" (INT 65537) eps,
   BUILTIN "TRUE" TRUE eps,
   BUILTIN "T_FMT" (INT 131114) eps,
   BUILTIN "T_FMT_AMPM" (INT 131115) eps ]
 
-def $builtin_rows(85) = [
+def $builtin_rows(85, _) = [
   BUILTIN "UPLOAD_ERR_CANT_WRITE" (INT 7) eps,
   BUILTIN "UPLOAD_ERR_EXTENSION" (INT 8) eps,
   BUILTIN "UPLOAD_ERR_FORM_SIZE" (INT 2) eps,
@@ -676,13 +682,13 @@ def $builtin_rows(85) = [
   BUILTIN "UPLOAD_ERR_OK" (INT 0) eps,
   BUILTIN "UPLOAD_ERR_PARTIAL" (INT 3) eps ]
 
-def $builtin_rows(89) = [
+def $builtin_rows(89, _) = [
   BUILTIN "YESEXPR" (INT 327680) eps,
   BUILTIN "YESSTR" (INT 327682) eps ]
 
-def $builtin_rows(90) = [
+def $builtin_rows(90, _) = [
   BUILTIN "ZEND_DEBUG_BUILD" FALSE eps,
   BUILTIN "ZEND_THREAD_SAFE" FALSE eps,
   BUILTIN "ZEND_VM_KIND" (STRING ([ 90, 69, 78, 68, 95, 86, 77, 95, 75, 73, 78, 68, 95, 72, 89, 66, 82, 73, 68 ])) eps ]
 
-def $builtin_rows(_) = eps -- otherwise
+def $builtin_rows(_, _) = eps -- otherwise

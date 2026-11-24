@@ -259,9 +259,8 @@ def $fetch_container(frame, FETCH_DIM_UNSET, operand_r, operand_a, operand_k, _,
   CONTINUE $write(frame', operand_r, NULL)
   -- if slotValue <- [UNDEF, NULL, FALSE]
   -- if (frame', _) = $read_operand($fetch_false_frame(frame, operand_a, slotValue), operand_k)
-def $fetch_container(frame, opcode, _, _, operand_k, n, slotValue) =
+def $fetch_container(frame, opcode, _, _, operand_k, n, STRING _) =
   $string_dimension_fetch(frame, opcode, operand_k, n)
-  -- if $scalar_type_bit($container_type(slotValue)) = 64
 def $fetch_container(frame, FETCH_DIM_UNSET, _, _, _, _, slotValue) = $raise(frame,
     [69,114,114,111,114,58,32,67,97,110,110,111,116,32,117,110,115,101,116,32,111,102,102,115,101,116,
      32,105,110,32,97,32,110,111,110,45,97,114,114,97,121,32,118,97,114,105,97,98,108,101])
