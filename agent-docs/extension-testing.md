@@ -2,6 +2,8 @@
 
 These checks cover native opcode printing and loading on the pinned engine. The Cargo integration test uses the same corpus and PHP helper. [Local corpus](test-corpus.md) · [AST tests](opcode-ast.md#tests) · [Future spec comparisons and VM observation](differential-testing.md)
 
+The codec suite uses the engine's own installation constants. The semantics runner can supply alternatives for a primary CLI listing load through the private `zend_opcodes.installation_file` setting. Its temporary file contains one NUL-terminated `NAME=value` record for each canonical input. Only the first `=` separates the key and value. The extension applies the two extension-directory names together and restores the original values at request shutdown. [Native loader](../ext/zend_opcodes.c) · [Fixture driver](../scripts/zend_fixtures.py)
+
 ## Test script
 
 The executable Python script recursively discovers every `.php`, `.phpt` and `.zop` file under `tests/` in sorted order. Each fixture runs in a fresh temporary directory for each profile. Keep expectations with the fixtures so the runner can use the same checks regardless of filename. [Test script](../scripts/test_extension.py)
