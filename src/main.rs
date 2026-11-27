@@ -1,6 +1,7 @@
 mod arguments;
 mod binary64;
 mod constants;
+mod inputs;
 
 use std::{
     env,
@@ -100,11 +101,12 @@ fn execute(
     bodies: &[Value],
     input: &[u8],
     path: &Path,
-    constants: &constants::Constants,
+    inputs: &inputs::RuntimeInputs,
 ) -> Result<Outcome> {
     let stdin = byte_list(arena, input)?;
     let script = byte_list(arena, path.as_os_str().as_encoded_bytes())?;
-    let constants = constants.spec_value(arena)?;
+    let constants = inputs.constants.spec_value(arena)?;
+    let opline_size = make::nat(arena, inputs.opline_size_bytes.clone(), Default::default())?;
 
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("spec");
     let spec = p4spectec::structure(&[dir], true).map_err(|report| diagnostic(&report))?;
@@ -133,7 +135,12 @@ fn execute(
         }
     }
     let result = runner
-        .eval_func(arena, "execute", &[], &[unit, stdin, script, constants])
+        .eval_func(
+            arena,
+            "execute",
+            &[],
+            &[unit, stdin, script, constants, opline_size],
+        )
         .result
         .map_err(|err| diagnostic(&err.into_report()))?;
     let result = outcome(arena, result)?;
@@ -147,7 +154,7 @@ fn execute(
     Ok(result)
 }
 
-fn run(path: &Path, constants: &constants::Constants) -> Result<Outcome> {
+fn run(path: &Path, inputs: &inputs::RuntimeInputs) -> Result<Outcome> {
     let listing = match fs::read_to_string(path) {
         Ok(listing) => listing,
         Err(err) if err.kind() == io::ErrorKind::InvalidData => {
@@ -171,7 +178,7 @@ fn run(path: &Path, constants: &constants::Constants) -> Result<Outcome> {
     };
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
-    execute(&mut arena, unit, &bodies, &input, path, constants)
+    execute(&mut arena, unit, &bodies, &input, path, inputs)
 }
 
 fn write_streams(stdout: &[u8], stderr: &[u8]) -> io::Result<()> {
@@ -193,7 +200,7 @@ fn main() -> Result<ExitCode> {
     });
     let invoke = || {
         let args = args?;
-        run(&args.file, &args.constants)
+        run(&args.file, &args.inputs)
     };
     let result = if json {
         panic::set_hook(Box::new(|_| {}));

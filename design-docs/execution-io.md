@@ -1,11 +1,12 @@
 # Execution inputs and outputs
 
-A run takes four inputs.
+A run takes five inputs.
 
 - One compiled unit, supplied as a `.zop` listing.
 - The path used to invoke the listing, visible to PHP as `$argv[0]`. Diagnostics use the source filename stored in the unit.
 - The raw bytes on stdin, followed by EOF.
-- The predefined runtime constants for this request. The repository JSON file supplies the 549 non-core bindings for the reference CLI. The semantics supplies the global names `TRUE`, `FALSE`, and `NULL`. [Reference table](../runtime-constants.json)
+- The predefined runtime constants for this request. The repository JSON file supplies the 549 non-core bindings for the reference CLI. The semantics supplies the global names `TRUE`, `FALSE`, and `NULL`.
+- The size in bytes of a complete Zend instruction record (`sizeof(zend_op)`) on the target build. The reference build uses 32. [Reference inputs](../runtime-inputs.json)
 
 By default the executable forwards PHP's stdout, stderr, and exit status. With `--json` it writes one result to stdout and exits with status 0. The `stdout` and `stderr` fields hold arrays of byte values.
 
@@ -16,11 +17,17 @@ By default the executable forwards PHP's stdout, stderr, and exit status. With `
 | `malformed` | A diagnostic `message` explains why the executable rejected the listing before execution. |
 | `tool_error` | A diagnostic `message` explains a failure in the executable, such as being unable to open the listing. |
 
+## Runtime inputs
+
+The runner reads `runtime-inputs.json` from the repository by default. An explicit `--inputs FILE` supplies a complete replacement with two required fields, as in `{"opline_size_bytes":32,"constants":{"GLOB_MARK":8}}`. Each repeatable `--input KEY=JSON` applies after the file is loaded. Conflicting explicit overrides for the same input are errors. [Reference inputs](../runtime-inputs.json)
+
+`opline_size_bytes` accepts any positive JSON integer. Branches use instruction numbers. When a program reads a switch or match jump table as an ordinary array, each entry gives the signed distance in bytes from the dispatch instruction to the target. With `--input opline_size_bytes=56`, an entry targeting the next instruction reads as `56`. If a synthetic size produces a distance outside PHP's signed 64-bit integer range, the read interprets the low 64 bits as a signed PHP integer. [Jump-table fixture](../tests/project/array_dispatch_offsets.zop)
+
 ## Runtime constants
 
-The runner reads the checked-in reference table when `--constants FILE` is omitted. An explicit file supplies the entire non-core table. A missing key starts undefined, and a key mapped to JSON `null` starts defined with the PHP value `null`. A listing uses its own stored value for a literal folded during compilation. [Runtime and folded reads](../tests/project/runtime_constant_inputs.php)
+The `constants` object supplies the entire non-core table. A missing key starts undefined, and a key mapped to JSON `null` starts defined with the PHP value `null`. A listing uses its own stored value for a literal folded during compilation. [Runtime and folded reads](../tests/project/runtime_constant_inputs.php)
 
-The file is a JSON object keyed by constant name. Each repeatable `--constant NAME=JSON` adds or overrides a value after the file is loaded. For example, `--constant GLOB_MARK=2` supplies an integer and `--constant 'PHP_BINARY="2"'` supplies a byte string. Use a file for names containing an equals sign or NUL. Names use UTF-8. Lookup follows Zend's ASCII case folding for the namespace prefix. Any spelling of the three core global names is reserved.
+Use `--input constants.NAME=JSON` to add or override a PHP constant. For example, `--input constants.GLOB_MARK=2` supplies an integer and `--input 'constants.PHP_BINARY="2"'` supplies a byte string. The entire name after `constants.` can include periods. Use a file for names containing an equals sign or NUL. Names use UTF-8. Lookup follows Zend's ASCII case folding for the namespace prefix. Any spelling of the three core global names is reserved.
 
 | JSON value | PHP value |
 | --- | --- |
@@ -30,10 +37,10 @@ The file is a JSON object keyed by constant name. Each repeatable `--constant NA
 | `{"float_bits":"8000000000000000"}` | Exact binary64 encoding as 16 hexadecimal digits, here negative zero |
 | `{"stream":42}` | Stream resource with this positive PHP handle. [Stream handles as input](#stream-handles-as-input) |
 
-A file can attach a deprecation to a value, for example `{"value":2048,"deprecated":{"since":"8.4","message":"the error level was removed"}}`. Both text fields are optional. An entry such as `{"alias":"PHP_EXTENSION_DIR"}` shares a directly named value in that file. An override through either name updates the shared value and preserves its deprecation. Conflicting explicit overrides are input errors. [Reference examples](../runtime-constants.json)
+A file can attach a deprecation to a value, for example `{"value":2048,"deprecated":{"since":"8.4","message":"the error level was removed"}}`. Both text fields are optional. An entry such as `{"alias":"PHP_EXTENSION_DIR"}` shares a directly named value in that file. An override through either name updates the shared value and preserves its deprecation. [Reference examples](../runtime-inputs.json)
 
 ### Stream handles as input
 
 The standalone spec accepts a positive handle as a resource identity. Only stdin, stdout and stderr need I/O endpoints within scope. Our native test loader resolves the JSON handle against Zend’s live stream resources because a PHP stream value refers to an underlying resource. [Execution scope](scope.md) · [Native loader](../ext/constants.c#L93)
 
-For example, supply `PHP_BINARY={"stream":42}` to the listing for `echo PHP_BINARY;`. The spec prints `Resource id #42` without a newline and exits 0. When handle 42 is unused, the native loader reports `No live PHP stream with resource ID 42` on stdout and exits 255 before the listing runs. Both runs have empty stderr under the reference settings. [Listing](../tests/project/installation_php_binary.zop) · [CLI regression](../tests/cli.rs)
+For example, supply `--input 'constants.PHP_BINARY={"stream":42}'` to the listing for `echo PHP_BINARY;`. The spec prints `Resource id #42` without a newline and exits 0. When handle 42 is unused, the native loader reports `No live PHP stream with resource ID 42` on stdout and exits 255 before the listing runs. Both runs have empty stderr under the reference settings. [Listing](../tests/project/installation_php_binary.zop) · [CLI regression](../tests/cli.rs)

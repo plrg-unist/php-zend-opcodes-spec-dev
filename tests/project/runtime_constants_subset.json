@@ -1,9 +1,0 @@
-{
-  "GLOB_MARK": 3,
-  "RuntimeInputs\\LongNameExceedingTheLengthOfAnyReferenceCatalogConstant": 9223372036854775807,
-  "INPUT_BYTES": {"bytes": [0, 255]},
-  "INPUT_BYTES_ALIAS": {"alias": "INPUT_BYTES"},
-  "INPUT_NAN": {"float_bits": "7ff8000000000000"},
-  "INPUT_STREAM": {"stream": 2},
-  "E_STRICT": {"value": 7, "deprecated": {"since": "8.5", "message": "use the test replacement"}}
-}

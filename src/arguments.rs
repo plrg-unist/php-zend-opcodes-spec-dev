@@ -2,11 +2,11 @@ use std::{ffi::OsString, path::PathBuf};
 
 use clap::{Arg, ArgAction, Command, error::ErrorKind, value_parser};
 
-use crate::constants::{ConstantValue, Constants, REFERENCE};
+use crate::inputs::{REFERENCE, RuntimeInputs};
 
 pub(super) struct Arguments {
     pub file: PathBuf,
-    pub constants: Constants,
+    pub inputs: RuntimeInputs,
 }
 
 fn command() -> Command {
@@ -28,22 +28,22 @@ fn command() -> Command {
                 .help("Write the result as JSON and exit with status 0"),
         )
         .arg(
-            Arg::new("constants")
-                .long("constants")
+            Arg::new("inputs")
+                .long("inputs")
                 .value_name("FILE")
                 .value_parser(value_parser!(PathBuf))
                 .allow_hyphen_values(true)
-                .help(
-                    "Complete runtime constant table (default: repository runtime-constants.json)",
-                ),
+                .help("Complete runtime inputs (default: repository runtime-inputs.json)"),
         )
         .arg(
-            Arg::new("constant")
-                .long("constant")
-                .value_name("NAME=JSON")
+            Arg::new("input")
+                .long("input")
+                .value_name("KEY=JSON")
                 .action(ArgAction::Append)
                 .allow_hyphen_values(true)
-                .help("Add or override a runtime constant after loading the table (repeatable)"),
+                .help(
+                    "Set opline_size_bytes or constants.NAME after loading the inputs (repeatable)",
+                ),
         )
 }
 
@@ -57,7 +57,7 @@ fn prepare_args(mut args: impl Iterator<Item = OsString>, json: &mut bool) -> Ve
             paths.extend(args);
             break;
         }
-        if arg == "--constants" || arg == "--constant" {
+        if arg == "--inputs" || arg == "--input" {
             options.push(arg);
             let Some(value) = args.next() else {
                 return options;
@@ -85,30 +85,14 @@ pub(super) fn parse(
     let mut matches = cmd.try_get_matches_from_mut(prepare_args(args, json))?;
     let file = matches.remove_one("file").expect("required listing path");
     let path = matches
-        .remove_one::<PathBuf>("constants")
+        .remove_one::<PathBuf>("inputs")
         .unwrap_or_else(|| PathBuf::from(REFERENCE));
-    let mut constants = Constants::read(&path)
+    let mut inputs = RuntimeInputs::read(&path)
         .map_err(|err| cmd.error(ErrorKind::ValueValidation, err.to_string()))?;
 
-    let mut overrides = Vec::new();
-    for option in matches
-        .remove_many::<String>("constant")
-        .into_iter()
-        .flatten()
-    {
-        let (name, text) = option
-            .split_once('=')
-            .ok_or_else(|| cmd.error(ErrorKind::ValueValidation, "--constant expects NAME=JSON"))?;
-        let value = ConstantValue::from_json(text).map_err(|err| {
-            cmd.error(
-                ErrorKind::ValueValidation,
-                format!("constant {name:?}: {err}"),
-            )
-        })?;
-        overrides.push((name.to_owned(), value));
-    }
-    constants
-        .apply(overrides)
-        .map_err(|err| cmd.error(ErrorKind::ArgumentConflict, err.to_string()))?;
-    Ok(Arguments { file, constants })
+    let overrides = matches.get_many::<String>("input").into_iter().flatten();
+    inputs
+        .apply(overrides.map(String::as_str))
+        .map_err(|err| cmd.error(ErrorKind::ValueValidation, err.to_string()))?;
+    Ok(Arguments { file, inputs })
 }

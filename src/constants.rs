@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, btree_map::Entry},
-    fmt, fs,
-    path::Path,
+    fmt,
 };
 
 use p4spectec::{
@@ -17,8 +16,6 @@ use serde_json::value::RawValue;
 use zend_opcodes::{Arena, Value};
 
 use crate::{Result, byte_list};
-
-pub(super) const REFERENCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/runtime-constants.json");
 
 #[derive(PartialEq, Eq)]
 pub(super) enum ConstantValue {
@@ -226,13 +223,8 @@ struct Binding {
 pub(super) struct Constants(BTreeMap<String, Binding>);
 
 impl Constants {
-    pub(super) fn read(path: &Path) -> Result<Self> {
-        let data = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Self::from_slice(&data).map_err(|e| format!("{}: {e}", path.display()).into())
-    }
-
-    fn from_slice(data: &[u8]) -> Result<Self> {
-        let Fields(fields) = serde_json::from_slice(data)?;
+    pub(super) fn parse(raw: &RawValue) -> Result<Self> {
+        let Fields(fields) = serde_json::from_str(raw.get())?;
         let mut entries = BTreeMap::new();
         for (name, raw) in fields {
             let key = input_key(&name)?;

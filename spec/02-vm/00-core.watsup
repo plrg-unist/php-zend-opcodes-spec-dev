@@ -7,7 +7,7 @@ syntax frameSlot = { VALUE slotValue, OWNS bool }
 dec $owned(slotValue) : frameSlot
 def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
-  CODE instruction*, POOL poolentry*, FROZEN nat*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
+  CODE instruction*, OPLINESIZE nat, POOL poolentry*, FROZEN nat*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
   CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, SYMBOLS slotValue, MISSING nat,
   PREDEFINED predefinedConstants, CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
@@ -41,7 +41,7 @@ def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITE
 def $runtime_value(zval, _, _) = zval
   -- otherwise
 
-dec $literal_value(zval, nat, instruction*, bool) : slotValue
+dec $literal_value(zval, nat, instruction*, bool, nat) : slotValue
 dec $deref(frame, slotValue) : slotValue
 dec $bind(frame, operand, slotValue) : frame
 dec $as_reference(frame, operand) : (frame, slotValue)
@@ -65,7 +65,7 @@ def $address_value(_, slotValue) = slotValue -- otherwise
 dec $slot_value(frame, nat) : slotValue
 def $slot_value(frame, n) = $current(frame.BORROWED, $address_value(frame, frame.SLOTS[n].VALUE))
 dec $raw_read(frame, operand) : slotValue
-def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE, n <- frame.FROZEN)
+def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE, n <- frame.FROZEN, frame.OPLINESIZE)
   -- if LITERAL zval = frame.POOL[n]
 def $raw_read(frame, CV n) = $slot_value(frame, n)
 def $raw_read(frame, TMP n) = $slot_value(frame, n)
@@ -511,13 +511,13 @@ def $dormant_class(_) = false
   -- otherwise
 
 dec $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*) : nat*
-dec $execute(unit, bytes, bytes, predefinedConstants) : outcome
-def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script, predefinedConstants)
-  = $run($start_symbols({ CODE instruction*, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS (($owned(slotValue))* ++ [$owned(NULL)]), ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
+dec $execute(unit, bytes, bytes, predefinedConstants, nat) : outcome
+def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script, predefinedConstants, n_opline_size)
+  = $run($start_symbols({ CODE instruction*, OPLINESIZE n_opline_size, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS (($owned(slotValue))* ++ [$owned(NULL)]), ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
            CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*,
            SYMBOLS ARRAY_VALUE SYMBOL_TABLE eps (STORAGE (-9223372036854775808) (MIXED 64 eps)) eps, MISSING $(|slotValue*|),
            PREDEFINED predefinedConstants, CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
   -- if ~(false <- ($dormant_class(classDecl))*)
   -- if slotValue* = $empty_slots($(|bytes_cv*| + n))
-def $execute(_, _, _, _) = UNSUPPORTED eps eps
+def $execute(_, _, _, _, _) = UNSUPPORTED eps eps
   -- otherwise

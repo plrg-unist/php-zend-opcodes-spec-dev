@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any
 
 sys.dont_write_bytecode = True
+if hasattr(sys, "set_int_max_str_digits"):
+    # The manifest and input files allow arbitrary-precision instruction sizes.
+    sys.set_int_max_str_digits(0)
 from zend_fixtures import PROFILES, ROOT, TESTS, compare, corpus, expected_error, read_fixture, run_php
 
 
@@ -23,8 +26,9 @@ Divergence = dict[str, tuple[Observation, Observation]]
 
 
 @dataclass
-class ConstantTable:
-    entries: dict[str, Any]
+class BaseInputs:
+    opline_size_bytes: int
+    constants: dict[str, Any]
     names: dict[str, str]
     aliases: dict[str, str]
 
@@ -35,8 +39,9 @@ class Case:
     kind: str
     expected: dict[str, Observation]
     divergence: Divergence
+    compare_zend: bool
     spec_flags: tuple[str, ...] | None
-    constants: dict[str, Any]
+    inputs: dict[str, Any]
 
 
 @dataclass
@@ -128,8 +133,18 @@ def constant_value_key(value: Any) -> tuple[object, object]:
     raise ValueError(f"invalid runtime constant value {value!r}")
 
 
-def read_constants(path: Path) -> ConstantTable:
-    entries = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
+def opline_size(value: object) -> int:
+    if type(value) is not int or value <= 0:
+        raise ValueError("opline_size_bytes must be a positive JSON integer")
+    return value
+
+
+def read_inputs(path: Path) -> BaseInputs:
+    data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
+    if not isinstance(data, dict) or data.keys() != {"constants", "opline_size_bytes"}:
+        raise ValueError(f"{path}: runtime inputs require constants and opline_size_bytes")
+    size = opline_size(data["opline_size_bytes"])
+    entries = data["constants"]
     if not isinstance(entries, dict):
         raise ValueError(f"expected a runtime constants object in {path}")
     names = {}
@@ -163,23 +178,30 @@ def read_constants(path: Path) -> ConstantTable:
             raise ValueError(f"{path}: constant {name!r}: {error}") from error
     if any(target in aliases for target in aliases.values()):
         raise ValueError(f"{path}: a constant alias must refer directly to a value")
-    return ConstantTable(entries, names, aliases)
+    return BaseInputs(size, entries, names, aliases)
 
 
-def constant_inputs(
-    base: ConstantTable, overrides: object, path: Path | None,
+def case_inputs(
+    base: BaseInputs, overrides: object, path: Path | None,
 ) -> tuple[tuple[str, ...] | None, dict[str, Any]]:
-    if not isinstance(overrides, dict):
+    if not isinstance(overrides, dict) or overrides.keys() - {"constants", "opline_size_bytes"}:
+        raise ValueError("inputs must be an object with known runtime input fields")
+    constants = overrides.get("constants", {})
+    if not isinstance(constants, dict):
         raise ValueError("constants must be an object")
-    flags = ["--constants", str(path)] if path else []
+    flags = ["--inputs", str(path)] if path else []
+    size = base.opline_size_bytes
+    if "opline_size_bytes" in overrides:
+        size = opline_size(overrides["opline_size_bytes"])
+        flags.extend(("--input", f"opline_size_bytes={size}"))
     names = base.names.copy()
-    values = base.entries.copy()
+    values = base.constants.copy()
     changes = {}
     # An OS argument cannot contain NUL. The first '=' terminates the CLI name.
-    file_required = any("\0" in name or "=" in name for name in overrides)
-    for name, value in overrides.items():
+    file_required = any("\0" in name or "=" in name for name in constants)
+    for name, value in constants.items():
         if not file_required:
-            flags.extend(("--constant", name + "=" + json.dumps(value, allow_nan=False)))
+            flags.extend(("--input", "constants." + name + "=" + json.dumps(value, allow_nan=False)))
         spelling = names.setdefault(constant_key(name), name)
         target = base.aliases.get(spelling, spelling)
         key = constant_value_key(value)
@@ -193,12 +215,12 @@ def constant_inputs(
             values[target] = value
     for alias, target in base.aliases.items():
         values[alias] = values[target]
-    return None if file_required else tuple(flags), values
+    return None if file_required else tuple(flags), {"opline_size_bytes": size, "constants": values}
 
 
 def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
     groups: dict[Path, list[Case]] = {}
-    tables: dict[Path | None, ConstantTable] = {None: read_constants(ROOT / "runtime-constants.json")}
+    bases: dict[Path | None, BaseInputs] = {None: read_inputs(ROOT / "runtime-inputs.json")}
     rows = json.loads((TESTS / "semantics.json").read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
     if not isinstance(rows, list):
         raise ValueError("expected a semantics manifest array")
@@ -214,7 +236,7 @@ def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
         if stdin is not None and (not stdin.resolve().is_relative_to(TESTS) or not stdin.is_file()):
             raise ValueError(f"unknown stdin file {stdin}")
         if set(row) - {"fixture", "stdin", "expect", "stdout", "stderr", "exit_status", "divergence",
-                       "constants", "constants_file"}:
+                       "inputs", "inputs_file", "compare_zend"}:
             raise ValueError(f"unknown semantics case fields in {row!r}")
         if kind != "malformed" and expected_error(fixture) is not None:
             raise ValueError(f"native rejection fixture requires a malformed expectation: {fixture}")
@@ -224,22 +246,27 @@ def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
         }
         if (kind == "malformed" and expected) or (kind != "php" and "exit_status" in expected):
             raise ValueError(f"invalid observations for a {kind} case")
-        if kind != "php" and "divergence" in row:
-            raise ValueError("divergence requires a php expectation")
+        compare_zend = row.get("compare_zend", kind == "php")
+        if type(compare_zend) is not bool or (compare_zend and kind != "php"):
+            raise ValueError("compare_zend must be boolean and can be true only for php outcomes")
+        if "divergence" in row and not compare_zend:
+            raise ValueError("divergence requires a native Zend comparison")
+        if kind == "php" and not compare_zend and expected.keys() != {"stdout", "stderr", "exit_status"}:
+            raise ValueError("a spec-only php case requires stdout, stderr and exit_status")
         divergence = read_divergence(row["divergence"]) if "divergence" in row else {}
         if expected.keys() & divergence.keys():
             raise ValueError("an observation cannot have both a shared and a divergent expectation")
         path = None
-        if "constants_file" in row:
-            if not isinstance(row["constants_file"], str) or Path(row["constants_file"]).is_absolute():
-                raise ValueError("constants_file must be a path relative to tests/")
-            path = (TESTS / row["constants_file"]).resolve()
+        if "inputs_file" in row:
+            if not isinstance(row["inputs_file"], str) or Path(row["inputs_file"]).is_absolute():
+                raise ValueError("inputs_file must be a path relative to tests/")
+            path = (TESTS / row["inputs_file"]).resolve()
             if not path.is_relative_to(TESTS) or not path.is_file():
-                raise ValueError(f"unknown constants file {path}")
-            if path not in tables:
-                tables[path] = read_constants(path)
-        flags, constants = constant_inputs(tables[path], row.get("constants", {}), path)
-        groups.setdefault(fixture, []).append(Case(stdin, kind, expected, divergence, flags, constants))
+                raise ValueError(f"unknown inputs file {path}")
+            if path not in bases:
+                bases[path] = read_inputs(path)
+        flags, inputs = case_inputs(bases[path], row.get("inputs", {}), path)
+        groups.setdefault(fixture, []).append(Case(stdin, kind, expected, divergence, compare_zend, flags, inputs))
     return groups
 
 
@@ -332,9 +359,9 @@ def check_case(binary: Path, php: Path, profile: str, listing: Path, case: Case,
                 raise
             flags = None
     if flags is None:
-        path = listing.parent / "spec-constants.json"
-        path.write_text(json.dumps(case.constants, allow_nan=False), encoding="utf-8")
-        flags = ("--constants", str(path))
+        path = listing.parent / "spec-inputs.json"
+        path.write_text(json.dumps(case.inputs, allow_nan=False), encoding="utf-8")
+        flags = ("--inputs", str(path))
         outcome = json_outcome(binary, listing, stdin, report, flags)
     if outcome.get("kind") != case.kind:
         raise ValueError(f"expected {case.kind}, got {outcome!r}")
@@ -342,17 +369,20 @@ def check_case(binary: Path, php: Path, profile: str, listing: Path, case: Case,
         [binary, *flags, listing], cwd=listing.parent, input=stdin, capture_output=True, timeout=30,
     )
     if case.kind == "php":
-        reference = run_php(php, profile, listing, load=True, stdin=stdin, constants=case.constants)
-        for name, zend, spec_normal in (
-            ("stdout", reference.stdout, normal.stdout),
-            ("stderr", reference.stderr, normal.stderr),
-            ("exit_status", reference.status, normal.returncode),
+        spec_expected = case.expected.copy()
+        if case.compare_zend:
+            reference = run_php(php, profile, listing, load=True, stdin=stdin, constants=case.inputs["constants"])
+            for name, zend in (
+                ("stdout", reference.stdout), ("stderr", reference.stderr), ("exit_status", reference.status),
+            ):
+                shared = case.expected.get(name, zend)
+                expected_zend, spec_expected[name] = case.divergence.get(name, (shared, shared))
+                check_observation(f"Zend {name}", expected_zend, zend)
+        for name, actual in (
+            ("stdout", normal.stdout), ("stderr", normal.stderr), ("exit_status", normal.returncode),
         ):
-            expected = case.expected.get(name, zend)
-            expected_zend, expected_spec = case.divergence.get(name, (expected, expected))
-            check_observation(f"Zend {name}", expected_zend, zend)
-            check_observation(f"JSON {name}", expected_spec, observation(name, outcome[name]))
-            check_observation(f"normal {name}", expected_spec, spec_normal)
+            check_observation(f"JSON {name}", spec_expected[name], observation(name, outcome[name]))
+            check_observation(f"normal {name}", spec_expected[name], actual)
     else:
         stdout = case.expected.get("stdout", b"")
         stderr = case.expected.get("stderr", b"")
