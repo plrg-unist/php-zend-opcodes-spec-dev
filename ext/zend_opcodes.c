@@ -6,7 +6,6 @@
 #include "SAPI.h"
 #include "ext/standard/php_string.h"
 #include "main/fopen_wrappers.h"
-#include "main/php_ini.h"
 #include "main/php_open_temporary_file.h"
 
 static zend_op_array *(*previous_compile_file)(zend_file_handle *, int);
@@ -15,97 +14,6 @@ PHP_INI_BEGIN()
     PHP_INI_ENTRY("zend_opcodes.output", "", PHP_INI_SYSTEM, NULL)
     PHP_INI_ENTRY("zend_opcodes.load", "0", PHP_INI_SYSTEM, NULL)
 PHP_INI_END()
-
-static const char *const installation_names[] = {
-    "DEFAULT_INCLUDE_PATH", "PEAR_INSTALL_DIR", "PHP_BINARY", "PHP_BINDIR", "PHP_BUILD_DATE",
-    "PHP_CONFIG_FILE_PATH", "PHP_CONFIG_FILE_SCAN_DIR", "PHP_DATADIR", "PHP_EXTENSION_DIR",
-    "PHP_LIBDIR", "PHP_LOCALSTATEDIR", "PHP_MANDIR", "PHP_PREFIX", "PHP_SBINDIR", "PHP_SYSCONFDIR"
-};
-#define INSTALLATION_COUNT (sizeof(installation_names) / sizeof(installation_names[0]))
-
-/* Keep each persistent string alive while the request supplies its replacement. */
-ZEND_TLS struct {
-    zval *constant;
-    zend_string *original;
-} saved_installation[INSTALLATION_COUNT + 1]; /* PEAR_EXTENSION_DIR shares PHP_EXTENSION_DIR. */
-ZEND_TLS size_t saved_installation_count;
-
-static void replace_installation_string(const char *name, zend_string *value)
-{
-    zval *constant = zend_get_constant_str(name, strlen(name));
-    if (!constant || Z_TYPE_P(constant) != IS_STRING) {
-        zend_error_noreturn(E_COMPILE_ERROR, "Missing installation string constant %s", name);
-    }
-    saved_installation[saved_installation_count].constant = constant;
-    saved_installation[saved_installation_count++].original = Z_STR_P(constant);
-    ZVAL_STR(constant, zend_string_copy(value));
-}
-
-static bool decode_installation(char *input, size_t length, zend_string **values)
-{
-    if (!length || input[length - 1] != '\0') {
-        return false;
-    }
-    size_t count = 0;
-    for (char *name = input; name < input + length;) {
-        char *separator = strchr(name, '=');
-        if (!separator) {
-            return false;
-        }
-        *separator = '\0';
-        char *value = separator + 1;
-        size_t i = 0;
-        while (i < INSTALLATION_COUNT && strcmp(installation_names[i], name)) {
-            i++;
-        }
-        if (i == INSTALLATION_COUNT || values[i]) {
-            return false;
-        }
-        size_t value_length = strlen(value);
-        values[i] = zend_string_init_interned(value, value_length, false);
-        count++;
-        name = value + value_length + 1;
-    }
-    return count == INSTALLATION_COUNT;
-}
-
-static void apply_installation(void)
-{
-    const zval *path = cfg_get_entry(ZEND_STRL("zend_opcodes.installation_file"));
-    if (!path || saved_installation_count) {
-        return;
-    }
-    if (Z_TYPE_P(path) != IS_STRING || zend_str_has_nul_byte(Z_STR_P(path)) ||
-        php_check_open_basedir(Z_STRVAL_P(path))) {
-        zend_error_noreturn(E_COMPILE_ERROR, "Invalid zend_opcodes.installation_file path");
-    }
-    FILE *fp = VCWD_FOPEN(Z_STRVAL_P(path), "rb");
-    if (!fp) {
-        zend_error_noreturn(E_COMPILE_ERROR, "Cannot open zend_opcodes.installation_file");
-    }
-    zend_file_handle file;
-    zend_stream_init_fp(&file, fp, NULL);
-    char *contents;
-    size_t length;
-    zend_string *values[INSTALLATION_COUNT] = {0};
-    bool valid = zend_stream_fixup(&file, &contents, &length) == SUCCESS && !ferror(fp) &&
-        decode_installation(contents, length, values);
-    zend_destroy_file_handle(&file);
-    for (size_t i = 0; i < INSTALLATION_COUNT; i++) {
-        if (valid) {
-            replace_installation_string(installation_names[i], values[i]);
-            if (!strcmp(installation_names[i], "PHP_EXTENSION_DIR")) {
-                replace_installation_string("PEAR_EXTENSION_DIR", values[i]);
-            }
-        }
-        if (values[i]) {
-            zend_string_release(values[i]);
-        }
-    }
-    if (!valid) {
-        zend_error_noreturn(E_COMPILE_ERROR, "Invalid zend_opcodes.installation_file contents");
-    }
-}
 
 static void write_listing(const char *destination, zend_string *input, zend_string *listing)
 {
@@ -148,7 +56,6 @@ static zend_op_array *compile_unit(zend_file_handle *file, int type)
     uint8_t autoglobals_before = zo_armed_autoglobals();
     zend_op_array *main;
     if (load) {
-        apply_installation();
         char *contents;
         size_t length;
         if (zend_stream_fixup(file, &contents, &length) == FAILURE) {
@@ -202,12 +109,7 @@ PHP_RINIT_FUNCTION(zend_opcodes)
 
 PHP_RSHUTDOWN_FUNCTION(zend_opcodes)
 {
-    while (saved_installation_count) {
-        size_t i = --saved_installation_count;
-        zval *constant = saved_installation[i].constant;
-        zend_string_release(Z_STR_P(constant));
-        ZVAL_STR(constant, saved_installation[i].original);
-    }
+    zo_restore_constants();
     if (zend_compile_file == compile_unit) {
         zend_compile_file = previous_compile_file;
     }

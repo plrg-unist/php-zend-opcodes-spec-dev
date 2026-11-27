@@ -66,6 +66,8 @@ void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend
 void zo_put_type(smart_str *out, zend_type type);
 zend_type zo_get_type(zo_reader *r);
 
+void zo_apply_constants(zend_string *halt_key, zend_long halt_offset);
+void zo_restore_constants(void);
 uint8_t zo_armed_autoglobals(void);
 void zo_print_unit(smart_str *out, const zend_op_array *main, uint32_t functions_start,
     uint32_t classes_start, uint8_t autoglobals_before);

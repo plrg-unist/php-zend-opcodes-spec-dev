@@ -9,6 +9,7 @@ Introduce project-defined versioning only at the user's request. Supply version 
 - [Concrete syntax for opcode fixtures](opcode-syntax.md) describes the notation used by the printer and loader.
 - [Zend opcode AST and Rust library](opcode-ast.md) covers the spec types, library API and Cargo tests.
 - [Execution semantics scope](semantics-scope.md) records the single-unit boundary, execution outcomes, and how to decide which Zend effects and builtin behaviors to model.
+- [Execution abstraction review](semantics-abstraction-review.md) records the observed outcomes and proposed treatment of build inputs, tool limits and engine optimizations.
 - [Semantics milestones](semantics-roadmap.md) gives cumulative targets, library coverage and acceptance tests. [Opcode assignments](semantics-opcodes.md) maps the pinned mnemonics to those milestones.
 - [PHP source corpus](test-corpus.md) lists the local fixtures and how to select and copy more from php-src.
 - [Testing the opcode printer and loader](extension-testing.md) describes the test runner and its checks.

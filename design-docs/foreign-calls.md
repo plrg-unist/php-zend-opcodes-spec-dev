@@ -14,7 +14,7 @@ The `.watsup` rules call five pure `extern` functions implemented in Rust. They 
 
 ## Functions supplied by P4-SpecTec
 
-The spec also calls seven standard `builtin` functions. `$band`, `$bor`, `$bxor`, and `$bneg` compute bitwise AND, OR, XOR, and complement. `$shl` and `$shr` shift integers. `$min_nat` finds the shorter length when comparing two byte strings. [Bitwise rules](../spec/01-values/04-bitwise.watsup) · [Comparison rules](../spec/01-values/05-comparison.watsup)
+The spec also calls eight standard `builtin` functions. `$band`, `$bor`, `$bxor`, and `$bneg` compute bitwise AND, OR, XOR, and complement. `$shl` and `$shr` shift integers. `$min_nat` finds the shorter length when comparing two byte strings. `$find_map` looks up a registered byte-string name in the supplied constant table. [Bitwise rules](../spec/01-values/04-bitwise.watsup) · [Comparison rules](../spec/01-values/05-comparison.watsup) · [Constant lookup](../spec/01-values/16-builtin-constants.watsup)
 
 ## Checking the inventory
 

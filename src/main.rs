@@ -1,5 +1,6 @@
 mod arguments;
 mod binary64;
+mod constants;
 
 use std::{
     env,
@@ -11,15 +12,14 @@ use std::{
     process::ExitCode,
 };
 
-use p4spectec::phrase;
 use p4spectec::{
     coverage::{Cover, Hits, InstrHandler, log},
     diagnostic::{Renderer, Report},
     lang::{
-        common::{notation::atom::Atom, prim::num},
+        common::prim::num,
         data::{
             typ,
-            value::flat::{ValueField, get, make},
+            value::flat::{get, make},
         },
     },
     runner::{Config, build_sl},
@@ -94,37 +94,17 @@ fn byte_list(arena: &mut Arena, bytes: &[u8]) -> Result<Value> {
     )?)
 }
 
-fn installation_record(arena: &mut Arena, installation: &arguments::Installation) -> Result<Value> {
-    let mut fields = Vec::with_capacity(installation.len());
-    for (name, bytes) in installation {
-        fields.push(ValueField {
-            atom: phrase!(node: Atom::Keyword(name.clone()), span: Default::default()),
-            value: byte_list(arena, bytes)?,
-        });
-    }
-    let ty = typ::make::var(
-        phrase!(node: "installation".into(), span: Default::default()),
-        Vec::new(),
-    );
-    Ok(make::structure(
-        arena,
-        ty.node.into(),
-        fields,
-        Default::default(),
-    )?)
-}
-
 fn execute(
     arena: &mut Arena,
     unit: Value,
     bodies: &[Value],
     input: &[u8],
     path: &Path,
-    installation: &arguments::Installation,
+    constants: &constants::Constants,
 ) -> Result<Outcome> {
     let stdin = byte_list(arena, input)?;
     let script = byte_list(arena, path.as_os_str().as_encoded_bytes())?;
-    let installation = installation_record(arena, installation)?;
+    let constants = constants.spec_value(arena)?;
 
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("spec");
     let spec = p4spectec::structure(&[dir], true).map_err(|report| diagnostic(&report))?;
@@ -153,7 +133,7 @@ fn execute(
         }
     }
     let result = runner
-        .eval_func(arena, "execute", &[], &[unit, stdin, script, installation])
+        .eval_func(arena, "execute", &[], &[unit, stdin, script, constants])
         .result
         .map_err(|err| diagnostic(&err.into_report()))?;
     let result = outcome(arena, result)?;
@@ -167,7 +147,7 @@ fn execute(
     Ok(result)
 }
 
-fn run(path: &Path, installation: &arguments::Installation) -> Result<Outcome> {
+fn run(path: &Path, constants: &constants::Constants) -> Result<Outcome> {
     let listing = match fs::read_to_string(path) {
         Ok(listing) => listing,
         Err(err) if err.kind() == io::ErrorKind::InvalidData => {
@@ -191,7 +171,7 @@ fn run(path: &Path, installation: &arguments::Installation) -> Result<Outcome> {
     };
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
-    execute(&mut arena, unit, &bodies, &input, path, installation)
+    execute(&mut arena, unit, &bodies, &input, path, constants)
 }
 
 fn write_streams(stdout: &[u8], stderr: &[u8]) -> io::Result<()> {
@@ -213,7 +193,7 @@ fn main() -> Result<ExitCode> {
     });
     let invoke = || {
         let args = args?;
-        run(&args.file, &args.installation)
+        run(&args.file, &args.constants)
     };
     let result = if json {
         panic::set_hook(Box::new(|_| {}));

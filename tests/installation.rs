@@ -53,9 +53,47 @@ fn json_reports_invalid_arguments() -> io::Result<()> {
 }
 
 #[test]
-fn help_lists_the_installation_options() -> io::Result<()> {
+fn invalid_runtime_constants_fail_before_program_execution() -> io::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let table = dir.path().join("constants.json");
+    let listing = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project/handwritten.zop");
+    for (contents, overrides) in [
+        (r#"{"TrUe":false}"#, &[][..]),
+        (r#"{"A":1,"A":2}"#, &[]),
+        (r#"{"A":{"alias":"B"}}"#, &[]),
+        (r#"{"A":{"value":2,"deprecated":{"since":null}}}"#, &[]),
+        (r#"{}"#, &["--constant", "NuLl=0"]),
+        (r#"{}"#, &["--constant", "A=9223372036854775808"]),
+        (r#"{}"#, &["--constant", r#"A={"float_bits":"xyz"}"#]),
+        (
+            r#"{"A":1,"B":{"alias":"A"}}"#,
+            &["--constant", "A=1", "--constant", "B=true"],
+        ),
+    ] {
+        std::fs::write(&table, contents)?;
+        let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
+            .args(["--json", "--constants"])
+            .arg(&table)
+            .args(overrides)
+            .arg(&listing)
+            .output()?;
+        assert!(
+            output.status.success() && output.stderr.is_empty(),
+            "{output:?}"
+        );
+        let outcome: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(
+            outcome["kind"], "tool_error",
+            "{contents} {overrides:?}: {outcome}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn help_lists_the_constant_inputs() -> io::Result<()> {
     let catalog: serde_json::Value =
-        serde_json::from_str(include_str!("../installation-defaults.json"))?;
+        serde_json::from_str(include_str!("../runtime-constants.json"))?;
     for args in [&["-h"][..], &["--help"], &["--json", "--help"]] {
         let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
             .args(args)
@@ -64,16 +102,17 @@ fn help_lists_the_installation_options() -> io::Result<()> {
         assert!(output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
         assert!(help.contains("<FILE.zop>") && help.contains("--json"));
-        for name in catalog["defaults"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .chain(catalog["aliases"].as_object().unwrap().keys())
-        {
-            let flag = format!("--{}", name.to_ascii_lowercase().replace('_', "-"));
-            assert!(help.contains(&flag), "help is missing {flag}");
+        for flag in [
+            "--constants",
+            "--constant",
+            "--php-binary",
+            "--default-include-path",
+            "--php-extension-dir",
+            "--pear-extension-dir",
+        ] {
+            assert!(help.contains(flag), "help is missing {flag}");
         }
-        assert!(help.contains(catalog["defaults"]["PHP_BINARY"].as_str().unwrap()));
+        assert!(help.contains(catalog["PHP_BINARY"].as_str().unwrap()));
     }
     Ok(())
 }

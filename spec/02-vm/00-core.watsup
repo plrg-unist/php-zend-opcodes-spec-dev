@@ -9,7 +9,7 @@ def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
   CODE instruction*, POOL poolentry*, FROZEN nat*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
   CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, SYMBOLS slotValue, MISSING nat,
-  INSTALLATION installation, CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
+  PREDEFINED predefinedConstants, CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
 }
 syntax transition = CONTINUE frame | FINISH outcome
 
@@ -511,12 +511,12 @@ def $dormant_class(_) = false
   -- otherwise
 
 dec $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*) : nat*
-dec $execute(unit, bytes, bytes, installation) : outcome
-def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script, installation)
+dec $execute(unit, bytes, bytes, predefinedConstants) : outcome
+def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script, predefinedConstants)
   = $run($start_symbols({ CODE instruction*, POOL poolentry*, FROZEN $prepared_literals(instruction*, poolentry*, tryregion*, namedBody*), PC 0, SLOTS (($owned(slotValue))* ++ [$owned(NULL)]), ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
            CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*,
            SYMBOLS ARRAY_VALUE SYMBOL_TABLE eps (STORAGE (-9223372036854775808) (MIXED 64 eps)) eps, MISSING $(|slotValue*|),
-           INSTALLATION installation, CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
+           PREDEFINED predefinedConstants, CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
   -- if ~(false <- ($dormant_class(classDecl))*)
   -- if slotValue* = $empty_slots($(|bytes_cv*| + n))
 def $execute(_, _, _, _) = UNSUPPORTED eps eps

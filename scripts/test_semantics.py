@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import errno
 import json
+import math
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -20,14 +23,20 @@ Divergence = dict[str, tuple[Observation, Observation]]
 
 
 @dataclass
+class ConstantTable:
+    entries: dict[str, Any]
+    names: dict[str, str]
+    aliases: dict[str, str]
+
+
+@dataclass
 class Case:
     stdin: Path | None
     kind: str
-    stdout: bytes
-    stderr: bytes
+    expected: dict[str, Observation]
     divergence: Divergence
-    spec_flags: tuple[str, ...]
-    installation: dict[str, bytes]
+    spec_flags: tuple[str, ...] | None
+    constants: dict[str, Any]
 
 
 @dataclass
@@ -92,33 +101,104 @@ def unique_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return fields
 
 
-def installation_inputs(
-    value: object, defaults: dict[str, bytes], aliases: dict[str, str],
-) -> tuple[tuple[str, ...], dict[str, bytes]]:
-    if not isinstance(value, dict):
-        raise ValueError("installation must be an object")
-    flags: list[str] = []
-    overrides: dict[str, bytes] = {}
-    for name, raw in value.items():
-        canonical = aliases.get(name, name)
-        if canonical not in defaults:
-            raise ValueError(f"unknown installation constant {name!r}")
-        data = raw.encode("utf-8") if isinstance(raw, str) else octets(raw)
-        if b"\0" in data:
-            raise ValueError(f"installation constant {name} contains a NUL byte")
-        if canonical in overrides and overrides[canonical] != data:
-            raise ValueError(f"conflicting values for installation constant {canonical}")
-        overrides[canonical] = data
-        flags.extend(("--" + name.lower().replace("_", "-"), os.fsdecode(data)))
-    return tuple(flags), defaults | overrides
+def constant_key(name: str) -> str:
+    # Zend folds ASCII letters in the namespace prefix preceding the first NUL.
+    raw = name.encode()
+    if raw.lower() in (b"true", b"false", b"null"):
+        raise ValueError(f"constant {name!r} is a core PHP literal")
+    end = raw.partition(b"\0")[0].rfind(b"\\") + 1
+    return (raw[:end].lower() + raw[end:]).decode()
+
+
+def constant_value_key(value: Any) -> tuple[object, object]:
+    if value is None or type(value) is bool or (type(value) is int and -(1 << 63) <= value < 1 << 63):
+        return type(value), value
+    if type(value) is float and math.isfinite(value):
+        return float, struct.pack(">d", value).hex()
+    if isinstance(value, str):
+        return bytes, value.encode()
+    if isinstance(value, dict) and len(value) == 1:
+        kind, item = next(iter(value.items()))
+        if kind == "bytes":
+            return bytes, octets(item)
+        if kind == "float_bits" and isinstance(item, str) and re.fullmatch("[0-9a-fA-F]{16}", item):
+            return float, item.lower()
+        if kind == "stream" and type(item) is int and 0 < item < 1 << 63:
+            return kind, item
+    raise ValueError(f"invalid runtime constant value {value!r}")
+
+
+def read_constants(path: Path) -> ConstantTable:
+    entries = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
+    if not isinstance(entries, dict):
+        raise ValueError(f"expected a runtime constants object in {path}")
+    names = {}
+    for name in entries:
+        key = constant_key(name)
+        if key in names:
+            raise ValueError(f"{path}: duplicate registered constant {name!r}")
+        names[key] = name
+    aliases = {}
+    for name, entry in entries.items():
+        if isinstance(entry, dict) and "alias" in entry:
+            if entry.keys() != {"alias"} or not isinstance(entry["alias"], str):
+                raise ValueError(f"{path}: invalid alias definition for {name!r}")
+            target = names.get(constant_key(entry["alias"]))
+            if target is None:
+                raise ValueError(f"{path}: missing alias target for {name!r}")
+            aliases[name] = target
+            continue
+        if isinstance(entry, dict) and "value" in entry:
+            metadata = entry.get("deprecated")
+            if (entry.keys() != {"value", "deprecated"} or not isinstance(metadata, dict)
+                    or metadata.keys() - {"since", "message"}
+                    or not all(isinstance(text, str) for text in metadata.values())):
+                raise ValueError(f"{path}: invalid deprecation for {name!r}")
+            for text in metadata.values():
+                text.encode("utf-8")
+            entry = entry["value"]
+        try:
+            constant_value_key(entry)
+        except ValueError as error:
+            raise ValueError(f"{path}: constant {name!r}: {error}") from error
+    if any(target in aliases for target in aliases.values()):
+        raise ValueError(f"{path}: a constant alias must refer directly to a value")
+    return ConstantTable(entries, names, aliases)
+
+
+def constant_inputs(
+    base: ConstantTable, overrides: object, path: Path | None,
+) -> tuple[tuple[str, ...] | None, dict[str, Any]]:
+    if not isinstance(overrides, dict):
+        raise ValueError("constants must be an object")
+    flags = ["--constants", str(path)] if path else []
+    names = base.names.copy()
+    values = base.entries.copy()
+    changes = {}
+    # An OS argument cannot contain NUL. The first '=' terminates the CLI name.
+    file_required = any("\0" in name or "=" in name for name in overrides)
+    for name, value in overrides.items():
+        if not file_required:
+            flags.extend(("--constant", name + "=" + json.dumps(value, allow_nan=False)))
+        spelling = names.setdefault(constant_key(name), name)
+        target = base.aliases.get(spelling, spelling)
+        key = constant_value_key(value)
+        if target in changes and changes[target] != key:
+            raise ValueError(f"conflicting values for constant {name!r}")
+        changes[target] = key
+        entry = values.get(target)
+        if isinstance(entry, dict) and "deprecated" in entry:
+            values[target] = {**entry, "value": value}
+        else:
+            values[target] = value
+    for alias, target in base.aliases.items():
+        values[alias] = values[target]
+    return None if file_required else tuple(flags), values
 
 
 def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
     groups: dict[Path, list[Case]] = {}
-    catalog = json.loads(
-        (ROOT / "installation-defaults.json").read_text(encoding="utf-8"), object_pairs_hook=unique_fields,
-    )
-    defaults = {name: value.encode("utf-8") for name, value in catalog["defaults"].items()}
+    tables: dict[Path | None, ConstantTable] = {None: read_constants(ROOT / "runtime-constants.json")}
     rows = json.loads((TESTS / "semantics.json").read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
     if not isinstance(rows, list):
         raise ValueError("expected a semantics manifest array")
@@ -133,19 +213,33 @@ def read_cases(fixtures: list[Path]) -> dict[Path, list[Case]]:
             raise ValueError(f"invalid semantics case {row!r}")
         if stdin is not None and (not stdin.resolve().is_relative_to(TESTS) or not stdin.is_file()):
             raise ValueError(f"unknown stdin file {stdin}")
-        if set(row) - {"fixture", "stdin", "expect", "stdout", "stderr", "divergence", "installation"}:
+        if set(row) - {"fixture", "stdin", "expect", "stdout", "stderr", "exit_status", "divergence",
+                       "constants", "constants_file"}:
             raise ValueError(f"unknown semantics case fields in {row!r}")
         if kind != "malformed" and expected_error(fixture) is not None:
             raise ValueError(f"native rejection fixture requires a malformed expectation: {fixture}")
-        if kind != "unsupported" and ({"stdout", "stderr"} & row.keys()):
-            raise ValueError("stream expectations in the manifest belong to unsupported cases")
+        expected = {
+            name: value.encode() if name != "exit_status" and isinstance(value, str) else observation(name, value)
+            for name, value in row.items() if name in ("stdout", "stderr", "exit_status")
+        }
+        if (kind == "malformed" and expected) or (kind != "php" and "exit_status" in expected):
+            raise ValueError(f"invalid observations for a {kind} case")
         if kind != "php" and "divergence" in row:
             raise ValueError("divergence requires a php expectation")
-        flags, installation = installation_inputs(row.get("installation", {}), defaults, catalog["aliases"])
-        groups.setdefault(fixture, []).append(Case(
-            stdin, kind, octets(row.get("stdout", [])), octets(row.get("stderr", [])),
-            read_divergence(row["divergence"]) if "divergence" in row else {}, flags, installation,
-        ))
+        divergence = read_divergence(row["divergence"]) if "divergence" in row else {}
+        if expected.keys() & divergence.keys():
+            raise ValueError("an observation cannot have both a shared and a divergent expectation")
+        path = None
+        if "constants_file" in row:
+            if not isinstance(row["constants_file"], str) or Path(row["constants_file"]).is_absolute():
+                raise ValueError("constants_file must be a path relative to tests/")
+            path = (TESTS / row["constants_file"]).resolve()
+            if not path.is_relative_to(TESTS) or not path.is_file():
+                raise ValueError(f"unknown constants file {path}")
+            if path not in tables:
+                tables[path] = read_constants(path)
+        flags, constants = constant_inputs(tables[path], row.get("constants", {}), path)
+        groups.setdefault(fixture, []).append(Case(stdin, kind, expected, divergence, flags, constants))
     return groups
 
 
@@ -229,31 +323,46 @@ def check_observation(label: str, expected: Observation, actual: Observation) ->
 
 def check_case(binary: Path, php: Path, profile: str, listing: Path, case: Case, report: Path) -> None:
     stdin = case.stdin.read_bytes() if case.stdin else b""
-    outcome = json_outcome(binary, listing, stdin, report, case.spec_flags)
+    flags = case.spec_flags
+    if flags is not None:
+        try:
+            outcome = json_outcome(binary, listing, stdin, report, flags)
+        except OSError as error:
+            if not flags or error.errno != errno.E2BIG:
+                raise
+            flags = None
+    if flags is None:
+        path = listing.parent / "spec-constants.json"
+        path.write_text(json.dumps(case.constants, allow_nan=False), encoding="utf-8")
+        flags = ("--constants", str(path))
+        outcome = json_outcome(binary, listing, stdin, report, flags)
     if outcome.get("kind") != case.kind:
         raise ValueError(f"expected {case.kind}, got {outcome!r}")
     normal = subprocess.run(
-        [binary, *case.spec_flags, listing], cwd=listing.parent, input=stdin, capture_output=True, timeout=30,
+        [binary, *flags, listing], cwd=listing.parent, input=stdin, capture_output=True, timeout=30,
     )
     if case.kind == "php":
-        reference = run_php(php, profile, listing, load=True, stdin=stdin, installation=case.installation)
+        reference = run_php(php, profile, listing, load=True, stdin=stdin, constants=case.constants)
         for name, zend, spec_normal in (
             ("stdout", reference.stdout, normal.stdout),
             ("stderr", reference.stderr, normal.stderr),
             ("exit_status", reference.status, normal.returncode),
         ):
-            expected_zend, expected_spec = case.divergence.get(name, (zend, zend))
+            expected = case.expected.get(name, zend)
+            expected_zend, expected_spec = case.divergence.get(name, (expected, expected))
             check_observation(f"Zend {name}", expected_zend, zend)
             check_observation(f"JSON {name}", expected_spec, observation(name, outcome[name]))
             check_observation(f"normal {name}", expected_spec, spec_normal)
     else:
+        stdout = case.expected.get("stdout", b"")
+        stderr = case.expected.get("stderr", b"")
         if case.kind == "unsupported":
-            compare("JSON stdout prefix", case.stdout, octets(outcome["stdout"]))
-            compare("JSON stderr prefix", case.stderr, octets(outcome["stderr"]))
+            compare("JSON stdout prefix", stdout, octets(outcome["stdout"]))
+            compare("JSON stderr prefix", stderr, octets(outcome["stderr"]))
         elif report.exists() or not outcome.get("message") or outcome.get("stdout", []) or outcome.get("stderr", []):
             raise ValueError(f"expected a pre-execution malformed result, got {outcome!r}")
-        compare("stdout before panic", case.stdout, normal.stdout)
-        if normal.returncode != 101 or not normal.stderr.startswith(case.stderr) or normal.stderr == case.stderr:
+        compare("stdout before panic", stdout, normal.stdout)
+        if normal.returncode != 101 or not normal.stderr.startswith(stderr) or normal.stderr == stderr:
             raise ValueError(f"expected panic after the emitted prefix, got {normal!r}")
 
 

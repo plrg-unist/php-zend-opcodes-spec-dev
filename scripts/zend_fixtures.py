@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import re
 import shutil
@@ -69,7 +70,7 @@ class Execution:
 def run_php(
     php: Path, profile: str, entry: Path, *,
     load: bool = False, rejection: bytes | None = None, compile_only: bool = False, stdin: bytes | None = None,
-    installation: dict[str, bytes] | None = None,
+    constants: dict[str, object] | None = None,
 ) -> Execution:
     output = entry.parent / "native.listing"
     output.unlink(missing_ok=True)
@@ -78,11 +79,12 @@ def run_php(
         command.extend(["-d", setting])
     if load:
         command.extend(["-d", "zend_opcodes.load=1"])
-    if installation is not None:
-        metadata = entry.parent / "installation.dat"
-        entries = (name.encode("ascii") + b"=" + data + b"\0" for name, data in installation.items())
-        metadata.write_bytes(b"".join(entries))
-        command.extend(["-d", f"zend_opcodes.installation_file={metadata.name}"])
+    if constants is not None:
+        if not load:
+            raise ValueError("runtime constants require a finalized listing")
+        metadata = entry.parent / "runtime-constants.json"
+        metadata.write_text(json.dumps(constants, allow_nan=False), encoding="utf-8")
+        command.extend(["-d", f"zend_opcodes.constants_file={metadata.name}"])
     if rejection is not None:
         command.extend(["-d", "display_errors=stderr"])
     if compile_only or rejection is not None:

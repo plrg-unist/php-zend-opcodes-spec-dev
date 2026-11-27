@@ -663,6 +663,8 @@ zend_op_array *zo_load_unit(zo_reader *r)
         }
         zo_eol(r);
     }
+    zend_string *halt_key = halt_offset >= 0 ? halt_name(filename) : NULL;
+    zo_apply_constants(halt_key, halt_offset);
     unsigned char order[sizeof(autoglobals) / sizeof(*autoglobals)];
     uint8_t used = 0;
     size_t count = 0;
@@ -714,16 +716,15 @@ zend_op_array *zo_load_unit(zo_reader *r)
     install_classes(r, &classes);
     zend_hash_destroy(&classes);
     zend_hash_destroy(&functions);
-    if (halt_offset >= 0) {
-        key = halt_name(filename);
-        zend_constant *existing = zend_hash_find_ptr(EG(zend_constants), key);
-        if (existing && Z_LVAL(existing->value) != halt_offset) {
+    if (halt_key) {
+        zend_constant *existing = zend_hash_find_ptr(EG(zend_constants), halt_key);
+        if (existing && (Z_TYPE(existing->value) != IS_LONG || Z_LVAL(existing->value) != halt_offset)) {
             zo_fail(r, "conflicting compiler halt offset");
         }
         if (!existing) {
-            zend_register_long_constant(ZSTR_VAL(key), ZSTR_LEN(key), halt_offset, 0, 0);
+            zend_register_long_constant(ZSTR_VAL(halt_key), ZSTR_LEN(halt_key), halt_offset, 0, 0);
         }
-        zend_string_release(key);
+        zend_string_release(halt_key);
     }
     zo_validate_unit_calls(r);
     for (size_t n = 0; n < count; n++) {

@@ -2,7 +2,7 @@
 
 These checks cover native opcode printing and loading on the pinned engine. The Cargo integration test uses the same corpus and PHP helper. [Local corpus](test-corpus.md) · [AST tests](opcode-ast.md#tests) · [Future spec comparisons and VM observation](differential-testing.md)
 
-The codec suite uses the engine's own installation constants. The semantics runner can supply alternatives for a primary CLI listing load through the private `zend_opcodes.installation_file` setting. Its temporary file contains one NUL-terminated `NAME=value` record for each canonical input. Only the first `=` separates the key and value. The extension applies the two extension-directory names together and restores the original values at request shutdown. [Native loader](../ext/zend_opcodes.c) · [Fixture driver](../scripts/zend_fixtures.py)
+The codec suite uses the engine's own predefined constants. On a differential run, the fixture driver passes a resolved JSON table to the native listing loader through `zend_opcodes.constants_file`. The loader installs it for that request, keeps the unit's compiler halt offset, and restores the original registry at shutdown. Stream values must designate live native streams. [Native constant loader](../ext/constants.c) · [Fixture driver](../scripts/zend_fixtures.py) · [Per-run inputs](differential-testing.md)
 
 ## Test script
 
