@@ -28,6 +28,6 @@ php -n -d extension="$PWD/ext/modules/zend_opcodes.so" example.zop
 
 Build the spec executable with `cargo build`. Running `target/debug/zend-opcodes tests/project/handwritten.zop </dev/null` prints `running=41`. The executable reads stdin through EOF. Add `--json` before the path for a structured outcome. [Hand-written example](tests/project/handwritten.zop)
 
-The runner reads its default runtime constants from the repository. Use `--constants FILE` to select a complete JSON table and repeat `--constant NAME=JSON` to override individual values. For example, `target/debug/zend-opcodes --constant 'PHP_BINARY="/example/php"' tests/project/installation_php_binary.zop` prints `/example/php`. The installation flags also accept their original raw-byte arguments. [Reference table](runtime-constants.json) · [Value format and lookup behavior](design-docs/execution-io.md#runtime-constants)
+The runner reads its default runtime constants from the repository. Use `--constants FILE` to select a complete JSON table and repeat `--constant NAME=JSON` to override individual values. For example, `target/debug/zend-opcodes --constant 'PHP_BINARY="/example/php"' tests/project/installation_php_binary.zop` prints `/example/php`. [Reference table](runtime-constants.json) · [Value format and lookup behavior](design-docs/execution-io.md#runtime-constants)
 
 Use listings from trusted sources with the matching PHP build when loading them into Zend.

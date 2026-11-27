@@ -272,13 +272,6 @@ impl Constants {
         }
     }
 
-    pub(super) fn default_bytes(&self, name: &str) -> Option<&[u8]> {
-        match &self.get(name)?.value {
-            ConstantValue::String(bytes) => Some(bytes),
-            _ => None,
-        }
-    }
-
     pub(super) fn apply(&mut self, overrides: Vec<(String, ConstantValue)>) -> Result<()> {
         let mut changes = BTreeMap::new();
         for (name, value) in overrides {

@@ -28,6 +28,12 @@ The file is a JSON object keyed by constant name. Each repeatable `--constant NA
 | `9223372036854775807`, `1.0` | Signed 64-bit integer or binary64 float. A decimal point or exponent denotes a float. |
 | `"text"`, `{"bytes":[0,255]}` | UTF-8 bytes or explicit octets |
 | `{"float_bits":"8000000000000000"}` | Exact binary64 encoding as 16 hexadecimal digits, here negative zero |
-| `{"stream":2}` | Stream resource with this positive PHP handle. A differential run requires an open stream at that handle in Zend. |
+| `{"stream":42}` | Stream resource with this positive PHP handle. [Stream handles as input](#stream-handles-as-input) |
 
-A file can attach a deprecation to a value, for example `{"value":2048,"deprecated":{"since":"8.4","message":"the error level was removed"}}`. Both text fields are optional. An entry such as `{"alias":"PHP_EXTENSION_DIR"}` shares a directly named value in that file. An override through either name updates the shared value and preserves its deprecation. Conflicting explicit overrides are input errors. The legacy installation flags accept raw bytes through the same override mechanism. [Reference examples](../runtime-constants.json)
+A file can attach a deprecation to a value, for example `{"value":2048,"deprecated":{"since":"8.4","message":"the error level was removed"}}`. Both text fields are optional. An entry such as `{"alias":"PHP_EXTENSION_DIR"}` shares a directly named value in that file. An override through either name updates the shared value and preserves its deprecation. Conflicting explicit overrides are input errors. [Reference examples](../runtime-constants.json)
+
+### Stream handles as input
+
+The standalone spec accepts a positive handle as a resource identity. Only stdin, stdout and stderr need I/O endpoints within scope. Our native test loader resolves the JSON handle against Zend’s live stream resources because a PHP stream value refers to an underlying resource. [Execution scope](scope.md) · [Native loader](../ext/constants.c#L93)
+
+For example, supply `PHP_BINARY={"stream":42}` to the listing for `echo PHP_BINARY;`. The spec prints `Resource id #42` without a newline and exits 0. When handle 42 is unused, the native loader reports `No live PHP stream with resource ID 42` on stdout and exits 255 before the listing runs. Both runs have empty stderr under the reference settings. [Listing](../tests/project/installation_php_binary.zop) · [CLI regression](../tests/cli.rs)

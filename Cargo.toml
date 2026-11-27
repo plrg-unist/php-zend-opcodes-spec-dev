@@ -4,7 +4,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-clap = { version = "4", features = ["string"] }
+clap = "4"
 num-bigint = "0.4"
 p4spectec = { path = "../p4-spectec/p4spectec/core" }
 serde = { version = "1", features = ["derive"] }

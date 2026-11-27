@@ -1,44 +1,44 @@
-use std::{ffi::OsStr, io, path::Path, process::Command};
-
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
+use std::{io, path::Path, process::Command};
 
 #[test]
 fn fetch_constant_prints_the_cli_value() -> io::Result<()> {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project/installation_php_binary.zop");
-    for value in [
-        OsStr::new("--json"),
-        OsStr::new("--help"),
-        OsStr::new(""),
-        #[cfg(unix)]
-        OsStr::from_bytes(b"/example/\xff"),
+    for (json, expected) in [
+        (r#""--json""#, b"--json".as_slice()),
+        (r#""--help""#, b"--help"),
+        (r#""""#, b""),
+        (r#"{"bytes":[0,255]}"#, b"\0\xff"),
+        (r#"{"stream":42}"#, b"Resource id #42"),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
-            .arg("--php-binary")
-            .arg(value)
+            .arg("--constant")
+            .arg(format!("PHP_BINARY={json}"))
             .arg(&path)
             .output()?;
         assert!(output.status.success(), "{output:?}");
         assert!(output.stderr.is_empty());
-        assert_eq!(output.stdout, value.as_encoded_bytes());
+        assert_eq!(output.stdout, expected);
     }
     Ok(())
 }
 
 #[test]
 fn json_reports_invalid_arguments() -> io::Result<()> {
+    let listing = "tests/project/handwritten.zop";
     for args in [
-        &["--unknown", "--json", "input.zop"][..],
-        &["--php-binary", "--", "--unknown", "--json"],
-        &["first.zop", "second.zop", "--json"],
+        &["--unknown", "--json", listing][..],
+        &["--constant", "--", "--unknown", "--json", listing],
+        &[listing, listing, "--json"],
         &[
-            "--php-extension-dir=A",
-            "--pear-extension-dir=B",
+            "--constant",
+            r#"PHP_EXTENSION_DIR="A""#,
+            "--constant",
+            r#"PEAR_EXTENSION_DIR="B""#,
             "--json",
-            "input.zop",
+            listing,
         ],
-        &["--json", "input.zop", "--php-binary"],
+        &["--json", listing, "--constant"],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
             .args(args)
@@ -92,8 +92,6 @@ fn invalid_runtime_constants_fail_before_program_execution() -> io::Result<()> {
 
 #[test]
 fn help_lists_the_constant_inputs() -> io::Result<()> {
-    let catalog: serde_json::Value =
-        serde_json::from_str(include_str!("../runtime-constants.json"))?;
     for args in [&["-h"][..], &["--help"], &["--json", "--help"]] {
         let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
             .args(args)
@@ -102,17 +100,11 @@ fn help_lists_the_constant_inputs() -> io::Result<()> {
         assert!(output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
         assert!(help.contains("<FILE.zop>") && help.contains("--json"));
-        for flag in [
-            "--constants",
-            "--constant",
-            "--php-binary",
-            "--default-include-path",
-            "--php-extension-dir",
-            "--pear-extension-dir",
-        ] {
+        for flag in ["--constants <FILE>", "--constant <NAME=JSON>"] {
             assert!(help.contains(flag), "help is missing {flag}");
         }
-        assert!(help.contains(catalog["PHP_BINARY"].as_str().unwrap()));
+        assert!(help.contains("runtime-constants.json"));
+        assert!(!help.contains("Installation constants"));
     }
     Ok(())
 }
@@ -122,8 +114,16 @@ fn usage_errors_go_to_stderr() -> io::Result<()> {
     for (args, detail) in [
         (&[][..], "<FILE.zop>"),
         (&[""], "<FILE.zop>"),
-        (&["--php-binary"], "--php-binary"),
-        (&["--unknown", "--php-binary", "--json"], "--unknown"),
+        (&["--constant"], "--constant"),
+        (
+            &[
+                "--php-binary",
+                "/example/php",
+                "tests/project/handwritten.zop",
+            ],
+            "unexpected argument '--php-binary'",
+        ),
+        (&["--unknown", "--constants", "--json"], "--unknown"),
         (&["--unknown", "--", "--json"], "--unknown"),
         (&["one.zop", "two.zop"], "two.zop"),
     ] {
@@ -151,8 +151,8 @@ fn option_like_listing_paths_keep_their_spelling() -> io::Result<()> {
             "-help.zop",
             &[
                 "-help.zop",
-                "--php-extension-dir=A",
-                "--pear-extension-dir=A",
+                r#"--constant=PHP_EXTENSION_DIR="A""#,
+                r#"--constant=PEAR_EXTENSION_DIR="A""#,
             ][..],
         ),
         ("--json", &["--", "--json"][..]),

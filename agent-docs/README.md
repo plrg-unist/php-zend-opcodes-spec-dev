@@ -2,7 +2,7 @@
 
 This directory is the entry point for agents working on the PHP Zend opcode specification in P4-SpecTec. Keep agent documentation here. Keep the human-facing project overview and build and test commands concise in the [root README](../README.md).
 
-Introduce project-defined versioning only at the user's request. Supply version fields when external tooling requires them.
+Backward compatibility with earlier versions of this project is required only when the user explicitly requests it. Introduce project-defined versioning only at the user's request. Supply version fields when external tooling requires them.
 
 - [PHP build and optimizer settings](fixture-compilation.md) gives the php-src pin, executable lookup and verified fixture variants.
 - [Compiling PHP fixtures to an opcode AST](opcode-input.md) covers the extension hook, required data and scope of a compilation unit.

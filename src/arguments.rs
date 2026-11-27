@@ -1,7 +1,4 @@
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::{ffi::OsString, path::PathBuf};
 
 use clap::{Arg, ArgAction, Command, error::ErrorKind, value_parser};
 
@@ -12,28 +9,8 @@ pub(super) struct Arguments {
     pub constants: Constants,
 }
 
-// These existing options accept literal OS bytes. All other names use --constant.
-const INSTALLATION_OPTIONS: &[&str] = &[
-    "DEFAULT_INCLUDE_PATH",
-    "PEAR_EXTENSION_DIR",
-    "PEAR_INSTALL_DIR",
-    "PHP_BINARY",
-    "PHP_BINDIR",
-    "PHP_BUILD_DATE",
-    "PHP_CONFIG_FILE_PATH",
-    "PHP_CONFIG_FILE_SCAN_DIR",
-    "PHP_DATADIR",
-    "PHP_EXTENSION_DIR",
-    "PHP_LIBDIR",
-    "PHP_LOCALSTATEDIR",
-    "PHP_MANDIR",
-    "PHP_PREFIX",
-    "PHP_SBINDIR",
-    "PHP_SYSCONFDIR",
-];
-
-fn command(reference: Option<&Constants>) -> Command {
-    let mut cmd = Command::new("zend-opcodes")
+fn command() -> Command {
+    Command::new("zend-opcodes")
         .no_binary_name(true)
         .about("Execute a Zend opcode listing using the specification")
         .arg(
@@ -67,38 +44,10 @@ fn command(reference: Option<&Constants>) -> Command {
                 .action(ArgAction::Append)
                 .allow_hyphen_values(true)
                 .help("Add or override a runtime constant after loading the table (repeatable)"),
-        );
-    for &name in INSTALLATION_OPTIONS {
-        let mut help = format!("Set {name} as a PHP byte string");
-        if let Some(bytes) = reference.and_then(|table| table.default_bytes(name)) {
-            help.push_str(&format!(" [default: {}]", String::from_utf8_lossy(bytes)));
-        }
-        cmd = cmd.arg(
-            Arg::new(name)
-                .long(name.to_ascii_lowercase().replace('_', "-"))
-                .help_heading("Installation constants")
-                .value_name("VALUE")
-                .action(ArgAction::Append)
-                .allow_hyphen_values(true)
-                .value_parser(value_parser!(OsString))
-                .help(help),
-        );
-    }
-    cmd
+        )
 }
 
-fn prepare_args(
-    cmd: &Command,
-    mut args: impl Iterator<Item = OsString>,
-    json: &mut bool,
-) -> Vec<OsString> {
-    let value_flags: Vec<_> = cmd
-        .get_arguments()
-        .filter(|arg| arg.get_action().takes_values())
-        .filter_map(Arg::get_long_and_visible_aliases)
-        .flatten()
-        .map(|name| OsString::from(format!("--{name}")))
-        .collect();
+fn prepare_args(mut args: impl Iterator<Item = OsString>, json: &mut bool) -> Vec<OsString> {
     let mut options = Vec::new();
     let mut paths = Vec::new();
     // Select JSON even after a usage error. Keep option-like values with their flag
@@ -108,7 +57,7 @@ fn prepare_args(
             paths.extend(args);
             break;
         }
-        if value_flags.contains(&arg) {
+        if arg == "--constants" || arg == "--constant" {
             options.push(arg);
             let Some(value) = args.next() else {
                 return options;
@@ -132,17 +81,8 @@ pub(super) fn parse(
     args: impl Iterator<Item = OsString>,
     json: &mut bool,
 ) -> Result<Arguments, clap::Error> {
-    let mut cmd = command(None);
-    let args = prepare_args(&cmd, args, json);
-    let mut matches = match cmd.try_get_matches_from_mut(&args) {
-        Err(error) if error.kind() == ErrorKind::DisplayHelp => {
-            let reference = Constants::read(Path::new(REFERENCE)).ok();
-            return Err(command(reference.as_ref())
-                .try_get_matches_from(args)
-                .unwrap_err());
-        }
-        result => result?,
-    };
+    let mut cmd = command();
+    let mut matches = cmd.try_get_matches_from_mut(prepare_args(args, json))?;
     let file = matches.remove_one("file").expect("required listing path");
     let path = matches
         .remove_one::<PathBuf>("constants")
@@ -166,14 +106,6 @@ pub(super) fn parse(
             )
         })?;
         overrides.push((name.to_owned(), value));
-    }
-    for &name in INSTALLATION_OPTIONS {
-        for raw in matches.remove_many::<OsString>(name).into_iter().flatten() {
-            overrides.push((
-                name.to_owned(),
-                ConstantValue::String(raw.into_encoded_bytes()),
-            ));
-        }
     }
     constants
         .apply(overrides)
