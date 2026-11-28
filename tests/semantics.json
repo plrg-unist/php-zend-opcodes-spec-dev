@@ -63,6 +63,16 @@
   {"fixture": "project/numeric_add_error.php"},
   {"fixture": "project/numeric_power_error.php"},
   {"fixture": "project/numeric_multiply_operands.zop"},
+  {"fixture": "project/numeric_multiply_literal_first.zop", "compare_zend": false, "stdout": [
+    10, 70, 97, 116, 97, 108, 32, 101, 114, 114, 111, 114, 58, 32, 85, 110, 99, 97, 117, 103, 104,
+    116, 32, 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 85, 110, 115, 117, 112, 112, 111,
+    114, 116, 101, 100, 32, 111, 112, 101, 114, 97, 110, 100, 32, 116, 121, 112, 101, 115, 58, 32,
+    115, 116, 114, 105, 110, 103, 32, 42, 32, 105, 110, 116, 32, 105, 110, 32, 109, 117, 108, 116,
+    105, 112, 108, 121, 46, 112, 104, 112, 58, 50, 10, 83, 116, 97, 99, 107, 32, 116, 114, 97, 99,
+    101, 58, 10, 35, 48, 32, 123, 109, 97, 105, 110, 125, 10, 32, 32, 116, 104, 114, 111, 119, 110,
+    32, 105, 110, 32, 109, 117, 108, 116, 105, 112, 108, 121, 46, 112, 104, 112, 32, 111, 110, 32,
+    108, 105, 110, 101, 32, 50, 10
+  ], "stderr": [], "exit_status": 255},
   {"fixture": "project/numeric_bits_negative_left.php"},
   {"fixture": "project/numeric_bits_negative_right.php"},
   {"fixture": "project/numeric_bits_bad_operand.php"},

@@ -257,17 +257,17 @@ dec $xor(frame, operand, slotValue, slotValue) : transition
 def $xor(frame, operand_r, slotValue_l, slotValue_r) =
   $xor_result($truth_frame(frame, slotValue_l), operand_r, slotValue_l, slotValue_r)
 
-;; Zend normalizes these commutative instruction operands when loading a listing.
-;; Their order is observable through conversion diagnostics and type-error messages.
 dec $operand_rank(operand) : nat
 def $operand_rank(LIT _) = 1
 def $operand_rank(TMP _) = 2
 def $operand_rank(VAR _) = 4
 def $operand_rank(CV _) = 8
 
+;; MUL reads its operands in listing order. The instructions below model
+;; the operand swap Zend can perform when it installs their handlers.
 dec $operand_order(opcode, operand, operand) : (operand, operand)
 def $operand_order(opcode, operand_l, operand_h) = (operand_h, operand_l)
-  -- if opcode <- [MUL, BW_OR, BW_AND, BW_XOR, BOOL_XOR, IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL]
+  -- if opcode <- [BW_OR, BW_AND, BW_XOR, BOOL_XOR, IS_IDENTICAL, IS_NOT_IDENTICAL, IS_EQUAL, IS_NOT_EQUAL]
   -- if $($operand_rank(operand_l) < $operand_rank(operand_h))
 def $operand_order(_, operand_l, operand_h) = (operand_l, operand_h)
   -- otherwise

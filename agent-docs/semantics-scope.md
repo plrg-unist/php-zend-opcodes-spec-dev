@@ -33,6 +33,10 @@ When two rules might differ observably, look for a small program that distinguis
 
 Whenever an agent identifies a reason to abstract away an observable Zend behavior, the coordinator reports it to the user as soon as it arises. Subagents pass such findings to the coordinator. Show the pinned and proposed outcomes on a concrete example. Explain the general rule, the evidence that Zend's behavior is incidental, and the cost of matching it. The user decides whether to preserve Zend's behavior or approve the abstraction. Obtain explicit approval before implementing the divergent rule or accepting it in the tests. [Differential suite](differential-testing.md#spec-executable-and-differential-suite) · [Execution abstraction review](semantics-abstraction-review.md)
 
+### Runtime error messages
+
+Match the pinned Zend engine’s exact wording for exceptions and other runtime diagnostics by default. This includes messages PHP code can read in a catch block or an error handler. If there is a clear reason to use different wording in a particular case, report the triggering example, Zend’s exact message, the proposed message and the reason to the user. Obtain the user’s explicit approval for that case before adopting the difference in the spec or its test expectations.
+
 ### Builtins
 
 Share the core operation where Zend's entry points agree. Model argument binding, coercion, diagnostics, and callbacks in their observed order. Keep Zend on the oracle side of the comparison. The evaluator implements supported cases independently and returns `UNSUPPORTED` at the boundary defined above.

@@ -1,0 +1,16 @@
+zend-opcodes
+file "multiply.php"
+main
+body - {
+  lines 1 2
+  frame 1 cache 0
+  locals 1 ["n"]
+  size 3 literals 2 children 0
+  lit[0] = int(5)
+  lit[1] = "bad"
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: T1 = MUL lit[1], CV0 | line=2
+    2: RETURN T1 | line=2
+}
+end
