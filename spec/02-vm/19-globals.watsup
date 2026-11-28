@@ -46,7 +46,8 @@ def $snapshot_index(_, (ITEM arraykey _)*, runtimeEntry_visible*) =
 
 def $fetch_globals(frame, operand_r) =
   CONTINUE $write(frame[.NEXTARRAY = $(frame.NEXTARRAY + 1)], operand_r,
-    ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) runtimeEntry_visible* ($snapshot_index($symbol_capacity(frame), runtimeEntry*, runtimeEntry_visible*)) eps)
-  -- if (SYMBOL bytes n)* = $symbol_rows(frame)
-  -- if runtimeEntry* = (ITEM ($array_key_tag($string_array_key(bytes))) ($raw_read(frame, CV n)))*
+    ARRAY_VALUE (FRESH_ARRAY frame.NEXTARRAY) runtimeEntry_visible* ($snapshot_index($symbol_capacity(symbolStore), runtimeEntry*, runtimeEntry_visible*)) eps)
+  -- if symbolStore = $symbol_store(frame, $main_caller(frame, true))
+  -- if (SYMBOL bytes n)* = $symbol_rows(symbolStore)
+  -- if runtimeEntry* = (ITEM ($array_key_tag($string_array_key(bytes))) ($current(frame.BORROWED, symbolStore.SLOTS[n].VALUE)))*
   -- if runtimeEntry_visible* = $snapshot_entries(frame, runtimeEntry*)

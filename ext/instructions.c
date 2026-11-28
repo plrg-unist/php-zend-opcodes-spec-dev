@@ -456,7 +456,10 @@ static void read_instruction(zo_reader *r, zend_op_array *body, uint32_t i)
         op->result.num = cache;
     } else if (argument_send(op->opcode) && op->op2_type == IS_UNUSED) {
         uint32_t arg = op->op2.num;
-        if ((arg == 0 && op->opcode != ZEND_SEND_UNPACK) || arg > UINT32_MAX / sizeof(zval) - ZEND_CALL_FRAME_SLOT) {
+        /* Positional sends address their result with ZEND_CALL_VAR, which casts this byte offset
+         * to int. SEND_UNPACK encodes the preceding argument count, but doesn't use the offset. */
+        if (op->opcode != ZEND_SEND_UNPACK
+                && (arg == 0 || (uint64_t)arg - 1 + ZEND_CALL_FRAME_SLOT > INT_MAX / sizeof(zval))) {
             zo_fail(r, "invalid argument position %u", arg);
         }
         op->result.var = EX_NUM_TO_VAR(arg - 1);

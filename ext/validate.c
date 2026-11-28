@@ -637,18 +637,38 @@ static void check_body_instruction(zo_reader *r, const zend_op_array *b, const z
 
 static void check_name_cache_slots(zo_reader *r, const zend_op_array *body)
 {
+    enum { CACHE_CONSTANT, CACHE_GLOBAL, CACHE_FUNCTION };
     HashTable slots;
     zend_hash_init(&slots, 8, NULL, NULL, false);
     for (uint32_t i = 0; i < body->last; i++) {
         const zend_op *op = &body->opcodes[i];
-        bool global = op->opcode == ZEND_BIND_GLOBAL;
-        if (!global && op->opcode != ZEND_FETCH_CONSTANT && op->opcode != ZEND_DEFINED) continue;
-        zval *previous = zend_hash_index_lookup(&slots, op->extended_value);
+        uint32_t offset = op->extended_value;
+        zend_long kind;
+        switch (op->opcode) {
+            case ZEND_BIND_GLOBAL:
+                kind = CACHE_GLOBAL;
+                break;
+            case ZEND_FETCH_CONSTANT:
+            case ZEND_DEFINED:
+                kind = CACHE_CONSTANT;
+                break;
+            case ZEND_INIT_FCALL:
+            case ZEND_INIT_FCALL_BY_NAME:
+            case ZEND_INIT_NS_FCALL_BY_NAME:
+                kind = CACHE_FUNCTION;
+                offset = op->result.num;
+                break;
+            default:
+                continue;
+        }
+        zval *previous = zend_hash_index_lookup(&slots, offset);
         if (Z_TYPE_P(previous) == IS_NULL) {
-            ZVAL_BOOL(previous, global);
-        } else if ((Z_TYPE_P(previous) == IS_TRUE) != global) {
+            ZVAL_LONG(previous, kind);
+        } else if (Z_LVAL_P(previous) != kind) {
+            bool function = kind == CACHE_FUNCTION || Z_LVAL_P(previous) == CACHE_FUNCTION;
             zend_hash_destroy(&slots);
-            invalid(r, body, op, "constant lookup and global binding share an incompatible cache slot");
+            invalid(r, body, op, function ? "incompatible function lookup cache slot"
+                : "constant lookup and global binding share an incompatible cache slot");
         }
     }
     zend_hash_destroy(&slots);
@@ -831,23 +851,32 @@ static void init_call_sites(zo_reader *r, const zend_op_array *b, call_site *sit
                 site->argc = op->extended_value;
                 site->placeholders = 0;
                 site->target = NULL;
-                if (site->argc > INT_MAX / sizeof(zval) - ZEND_CALL_FRAME_SLOT) {
-                    invalid(r, b, op, "argument count exceeds the Zend call frame limit");
-                }
+                const zend_function *frame_target = NULL;
                 if (op->opcode == ZEND_INIT_FCALL) {
                     zend_string *key = Z_STR_P(RT_CONSTANT(op, op->op2));
                     site->target = zend_hash_find_ptr(EG(function_table), key);
                     if (!site->target) invalid(r, b, op, "direct call target is not declared");
-                    uint64_t slots = (uint64_t)ZEND_CALL_FRAME_SLOT + site->argc + site->target->common.T;
-                    if (site->target->type == ZEND_USER_FUNCTION) {
-                        slots += site->target->op_array.last_var - MIN(site->argc, site->target->common.num_args);
-                    }
-                    if (slots * sizeof(zval) > op->op1.num || op->op1.num % sizeof(zval)) {
-                        invalid(r, b, op, "direct call frame is too small or misaligned");
-                    }
+                    frame_target = site->target;
+                } else if (op->opcode == ZEND_INIT_FCALL_BY_NAME) {
+                    frame_target = zend_hash_find_ptr(EG(function_table), Z_STR_P(RT_CONSTANT(op, op->op2) + 1));
                 } else if (op->opcode == ZEND_INIT_METHOD_CALL || op->opcode == ZEND_INIT_STATIC_METHOD_CALL
                         || op->opcode == ZEND_INIT_PARENT_PROPERTY_HOOK_CALL) {
                     site->target = direct_method(b, op);
+                }
+                /* zend_vm_calc_used_stack returns a uint32 byte size. For an unresolved callee
+                 * the frame header and the argument area are the known minimum. */
+                uint64_t slots = (uint64_t)ZEND_CALL_FRAME_SLOT + site->argc;
+                if (frame_target) {
+                    slots += frame_target->common.T;
+                    if (frame_target->type == ZEND_USER_FUNCTION) {
+                        slots += frame_target->op_array.last_var - MIN(site->argc, frame_target->common.num_args);
+                    }
+                }
+                if (slots > UINT32_MAX / sizeof(zval)) {
+                    invalid(r, b, op, "call frame size exceeds the Zend byte field");
+                }
+                if (op->opcode == ZEND_INIT_FCALL && (slots * sizeof(zval) > op->op1.num || op->op1.num % sizeof(zval))) {
+                    invalid(r, b, op, "direct call frame is too small or misaligned");
                 }
                 break;
             case ZEND_DO_ICALL:

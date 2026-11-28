@@ -1,0 +1,59 @@
+zend-opcodes
+file "call_return_temporary_reference.php"
+main
+body - {
+  lines 1 7
+  frame 3 cache 16
+  locals 1 ["x"]
+  size 10 literals 6 children 0
+  lit[0] = int(1)
+  lit[1] = "setter"
+  lit[2] = "getter"
+  lit[3] = ":"
+  lit[4] = "\x0a"
+  lit[5] = int(1)
+  code
+    0: ASSIGN CV0, lit[0] | line=4
+    1: INIT_FCALL 112, lit[1] | line=5 ext=1 cache=0
+    2: INIT_FCALL 112, lit[2] | line=5 cache=8
+    3: T2 = DO_UCALL | line=5
+    4: SEND_VAL T2, 1 | line=5
+    5: DO_UCALL | line=5
+    6: ECHO lit[3] | line=6
+    7: ECHO CV0 | line=6
+    8: ECHO lit[4] | line=6
+    9: RETURN lit[5] | line=7 ext=4294967295
+}
+function "getter"
+body "getter" {
+  flags 512 0
+  lines 2 2
+  frame 1 cache 8
+  locals 1 ["x"]
+  size 4 literals 2 children 0
+  lit[0] = "x"
+  lit[1] = null
+  code
+    0: BIND_GLOBAL CV0, lit[0] | line=2
+    1: T1 = MAKE_REF CV0 | line=2
+    2: RETURN T1 | line=2
+    3: RETURN lit[1] | line=2 ext=4294967295
+}
+function "setter"
+body "setter" {
+  flags 512 0
+  lines 3 3
+  frame 1 cache 0
+  locals 1 ["v"]
+  args 1 required 1
+  arg "v" type(0)
+  size 4 literals 2 children 0
+  lit[0] = int(8)
+  lit[1] = null
+  code
+    0: CV0 = RECV 1, 1022 | line=3
+    1: ASSIGN CV0, lit[0] | line=3
+    2: ECHO CV0 | line=3
+    3: RETURN lit[1] | line=3 ext=4294967295
+}
+end

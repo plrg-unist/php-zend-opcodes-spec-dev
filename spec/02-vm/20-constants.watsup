@@ -142,10 +142,24 @@ def $declare_constant(frame, bytes, n, _, expr) = $declaration_result(frame'', b
   -- if (frame'', numericResult') = $dimension_diagnostics(frame', numericResult)
 def $declare_constant(frame, bytes, _, slotValue, eps) = $declaration_result(frame, bytes, NUM_VALUE slotValue)
 
-dec $cache_constant(frame, nat, slotValue) : frame
-def $cache_constant(frame, n, slotValue) =
-  frame[.CONSTCACHE = $put_entry(frame.CONSTCACHE, n_pos, ITEM (INDEX n) slotValue)]
-  -- if n_pos = $array_position(frame.CONSTCACHE, INDEX n)
+;; Runtime-cache storage belongs to the op array, and survives all calls to it.
+dec $body_cache_position(bodyCacheEntry*, bytes, nat) : nat
+def $body_cache_position((CACHED_VALUE bytes_row n_row _)*, bytes_body, n_slot) = $prefix_end(b*, 0, |b*|)
+  -- if b* = (bytes_row =/= bytes_body \/ n_row =/= n_slot)*
+
+dec $body_cache_lookup(frame, nat) : slotValue?
+def $body_cache_lookup(frame, n) = slotValue
+  -- if n_pos = $body_cache_position(frame.CACHE, frame.BODYKEY, n)
+  -- if $(n_pos < |frame.CACHE|)
+  -- if CACHED_VALUE _ _ slotValue = frame.CACHE[n_pos]
+def $body_cache_lookup(_, _) = eps -- otherwise
+
+dec $cache_body_value(frame, nat, slotValue) : frame
+def $cache_body_value(frame, n, slotValue) = frame[.CACHE[n_pos] = CACHED_VALUE frame.BODYKEY n slotValue]
+  -- if n_pos = $body_cache_position(frame.CACHE, frame.BODYKEY, n)
+  -- if $(n_pos < |frame.CACHE|)
+def $cache_body_value(frame, n, slotValue) = frame[.CACHE = frame.CACHE ++ [CACHED_VALUE frame.BODYKEY n slotValue]]
+  -- otherwise
 
 ;; FETCH_CONSTANT carries a diagnostic spelling and separate lookup keys.
 dec $quick_constant_key(frame, nat, nat, bytes) : bytes
@@ -169,7 +183,7 @@ def $fetch_constant(frame, operand_r, n, n_flags, n_cache, eps) =
   -- if constantInfo? = $table_constant(frame, bytes)
   -- if frame' = $fetched_cache(frame, n_cache, bytes, constantInfo?)
 
-def $fetched_cache(frame, n, bytes, CONST_INFO _ eps) = $cache_constant(frame, n, STRING bytes)
+def $fetched_cache(frame, n, bytes, CONST_INFO _ eps) = $cache_body_value(frame, n, STRING bytes)
 def $fetched_cache(frame, _, _, _) = frame -- otherwise
 
 ;; A failed DEFINED lookup expires when a declaration grows the table.
@@ -182,10 +196,10 @@ dec $defined_constant(frame, operand, smartbranch?, nat, bytes, bool?) : transit
 def $defined_constant(frame, operand_r, smartbranch?, _, _, b) =
   CONTINUE $comparison(frame, operand_r, smartbranch?, b)
 def $defined_constant(frame, operand_r, smartbranch?, n, bytes, eps) =
-  CONTINUE $comparison($cache_constant(frame, n, STRING bytes), operand_r, smartbranch?, true)
+  CONTINUE $comparison($cache_body_value(frame, n, STRING bytes), operand_r, smartbranch?, true)
   -- if $table_constant(frame, bytes) =/= eps
 def $defined_constant(frame, operand_r, smartbranch?, n, bytes, eps) = CONTINUE $comparison(
-    $cache_constant(frame, n, INT n_count), operand_r, smartbranch?, false)
+    $cache_body_value(frame, n, INT n_count), operand_r, smartbranch?, false)
   -- if $table_constant(frame, bytes) = eps
   -- if n_count = |frame.CONSTANTS|
 
@@ -193,9 +207,9 @@ def $constant_step(frame, DECLARE_CONST, _, LIT n_name, LIT n_value, _, _) =
   $declare_constant(frame, $constant_spelling(frame, n_name), n_value, slotValue, $initializer_expr(slotValue))
   -- if slotValue = $raw_read(frame, LIT n_value)
 def $constant_step(frame, FETCH_CONSTANT, operand_r, IMM n_flags, LIT n, extension?, _) =
-  $fetch_constant(frame, operand_r, n, n_flags, n_cache, $cached_constant_name($array_find(frame.CONSTCACHE, INDEX n_cache)))
+  $fetch_constant(frame, operand_r, n, n_flags, n_cache, $cached_constant_name($body_cache_lookup(frame, n_cache)))
   -- if n_cache = $ext_value(extension?)
 def $constant_step(frame, DEFINED, operand_r, LIT n, _, extension?, smartbranch?) =
   $defined_constant(frame, operand_r, smartbranch?, n_cache, $constant_spelling(frame, n),
-    $cached_defined(|frame.CONSTANTS|, $array_find(frame.CONSTCACHE, INDEX n_cache)))
+    $cached_defined(|frame.CONSTANTS|, $body_cache_lookup(frame, n_cache)))
   -- if n_cache = $ext_value(extension?)

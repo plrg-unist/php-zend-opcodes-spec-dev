@@ -1,0 +1,42 @@
+zend-opcodes
+file "call_receive_reentry.php"
+main
+body - {
+  lines 1 7
+  frame 1 cache 8
+  locals 1 ["argc"]
+  size 4 literals 2 children 0
+  lit[0] = "again"
+  lit[1] = int(1)
+  code
+    0: INIT_FCALL 160, lit[0] | line=6 ext=1 cache=0
+    1: SEND_VAR CV0, 1 | line=6
+    2: DO_UCALL | line=6
+    3: RETURN lit[1] | line=7 ext=4294967295
+}
+function "again"
+body "again" {
+  flags 512 0
+  lines 2 5
+  frame 3 cache 0
+  locals 2 ["x", "seen"]
+  args 1 required 1
+  arg "x" type(0)
+  size 9 literals 5 children 0
+  lit[0] = int(0)
+  lit[1] = true
+  lit[2] = int(5)
+  lit[3] = null
+  lit[4] = null
+  code
+    0: CV0 = RECV 1, 1022 | line=2
+    1: T2 = ISSET_ISEMPTY_CV CV1 | line=3 smart=JMPZ
+    2: JMPZ T2, @5 | line=3
+    3: ECHO CV0 | line=3
+    4: RETURN lit[0] | line=3
+    5: ASSIGN CV1, lit[1] | line=4
+    6: ASSIGN CV0, lit[2] | line=4
+    7: JMP @0 | line=4
+    8: RETURN lit[4] | line=5 ext=4294967295
+}
+end

@@ -10,7 +10,7 @@ use p4spectec::lang::{
 
 use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
 
-mod bound_arrays;
+mod calls;
 mod expressions;
 
 /// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
@@ -42,8 +42,13 @@ pub fn validate_unit(arena: &Arena, unit: &Value, opline_size_bytes: i32) -> Res
     }
     let mut checked = CheckedLiterals::default();
     let classes = get::list(arena, &classes)?;
-    let declarations = bound_arrays::Declarations {
-        functions: get::list(arena, &functions)?,
+    let registered = calls::function_table(arena, get::list(arena, &functions)?)?;
+    let [main_decl, _, _, _, _, _, _] = fields(arena, main, "BODY")?;
+    if get::opt(arena, &fields::<7>(arena, main_decl, "BODYDECL")?[0])?.is_some() {
+        return Err(Error::new("main body has a function name"));
+    }
+    let declarations = calls::Declarations {
+        functions: &registered,
         classes,
         scope: None,
     };
@@ -54,7 +59,7 @@ pub fn validate_unit(arena: &Arena, unit: &Value, opline_size_bytes: i32) -> Res
         validate_tree(
             arena,
             root,
-            bound_arrays::Declarations {
+            calls::Declarations {
                 scope,
                 ..declarations
             },
@@ -74,7 +79,7 @@ struct CheckedLiterals {
 fn validate_tree(
     arena: &Arena,
     root: Value,
-    declarations: bound_arrays::Declarations<'_>,
+    declarations: calls::Declarations<'_>,
     opline_size_bytes: i32,
     checked: &mut CheckedLiterals,
 ) -> Result<()> {
@@ -107,6 +112,7 @@ fn validate_tree(
                     {
                         return Err(Error::new("duplicate compiled variable name"));
                     }
+                    let parameters = calls::parameters(arena, decl, locals)?;
                     let locals = locals.len();
                     let cache_size = index(arena, cache)?;
                     if !cache_size.is_multiple_of(8) {
@@ -121,6 +127,7 @@ fn validate_tree(
                         locals,
                         slots,
                         cache_size,
+                        parameters,
                         pool: get::list(arena, &pool)?,
                     };
                     let code = get::list(arena, &code)?;
@@ -132,7 +139,7 @@ fn validate_tree(
                         tries,
                         ranges,
                         opline_size_bytes,
-                        &bound_arrays::Declarations {
+                        &calls::Declarations {
                             scope,
                             ..declarations
                         },
@@ -338,6 +345,7 @@ struct Instruction<'a> {
     smart: Option<&'a str>,
     extended_target: Option<usize>,
     extended_value: usize,
+    cache: Option<usize>,
     bound_mask: u32,
 }
 
@@ -397,6 +405,9 @@ impl<'a> Instruction<'a> {
             Some(("EXT_VALUE", &[n])) => index(arena, n)?,
             _ => 0,
         };
+        let cache = get::opt(arena, &cache)?
+            .map(|n| index(arena, n))
+            .transpose()?;
         let bound_mask = match (name, right) {
             ("CALLABLE_CONVERT_PARTIAL", Operand::Immediate(n)) => n,
             ("CALLABLE_CONVERT_PARTIAL", Operand::Literal(_)) => get::opt(arena, &mask)?
@@ -413,6 +424,7 @@ impl<'a> Instruction<'a> {
             smart,
             extended_target,
             extended_value,
+            cache,
             bound_mask: u32::try_from(bound_mask)
                 .map_err(|_| Error::new("bound argument mask exceeds u32"))?,
         };
@@ -482,6 +494,7 @@ impl<'a> Instruction<'a> {
             }
             "FETCH_R" | "FETCH_W" | "FETCH_RW" | "FETCH_IS" | "FETCH_UNSET"
             | "ISSET_ISEMPTY_VAR" => left.rvalue() && right == unused && result.slot(),
+            "FETCH_FUNC_ARG" => left.value() && right == unused && result.slot(),
             "UNSET_VAR" => left.value() && right == unused && result == unused,
             "BIND_GLOBAL" => {
                 matches!(left, Operand::Cv(_))
@@ -538,6 +551,38 @@ impl<'a> Instruction<'a> {
                 left.value() && matches!(right, Operand::Literal(_)) && result == unused
             }
             "ECHO" | "RETURN" => left.rvalue() && right == unused && result == unused,
+            "INIT_FCALL" | "INIT_FCALL_BY_NAME" | "INIT_NS_FCALL_BY_NAME" => {
+                (if name == "INIT_FCALL" {
+                    matches!(left, Operand::Immediate(_))
+                } else {
+                    left == unused
+                }) && matches!(right, Operand::Literal(_))
+                    && result == unused
+            }
+            "DO_ICALL" | "DO_UCALL" | "DO_FCALL" | "DO_FCALL_BY_NAME" => {
+                left == unused && right == unused
+            }
+            "RECV" => {
+                matches!(left, Operand::Immediate(_))
+                    && (right == unused || matches!(right, Operand::Immediate(_)))
+                    && matches!(result, Operand::Cv(_))
+            }
+            "SEND_VAL" | "SEND_VAL_EX" | "SEND_VAR" | "SEND_VAR_EX" | "SEND_VAR_NO_REF_EX"
+            | "SEND_FUNC_ARG" | "CHECK_FUNC_ARG" => {
+                (match name {
+                    "SEND_VAL" | "SEND_VAL_EX" => matches!(
+                        left,
+                        Operand::Literal(_) | Operand::Tmp(_) | Operand::Var(_)
+                    ),
+                    "SEND_VAR" | "SEND_VAR_EX" => left.writable(),
+                    "CHECK_FUNC_ARG" => left == unused,
+                    _ => matches!(left, Operand::Var(_)),
+                }) && matches!(right, Operand::Immediate(_) | Operand::Literal(_))
+                    && result == unused
+            }
+            "SEND_USER" => {
+                left.value() && matches!(right, Operand::Immediate(_)) && result == unused
+            }
             _ => return Ok(row),
         };
         if !valid {
@@ -545,12 +590,20 @@ impl<'a> Instruction<'a> {
         }
         let names = match (name, left, right) {
             (
-                "FETCH_R" | "FETCH_W" | "FETCH_RW" | "FETCH_IS" | "FETCH_UNSET"
+                "FETCH_R" | "FETCH_W" | "FETCH_RW" | "FETCH_IS" | "FETCH_UNSET" | "FETCH_FUNC_ARG"
                 | "ISSET_ISEMPTY_VAR" | "UNSET_VAR" | "DECLARE_CONST" | "DEFINED",
                 Operand::Literal(n),
                 _,
             )
             | ("BIND_GLOBAL", _, Operand::Literal(n)) => n..n + 1,
+            (
+                "INIT_FCALL" | "SEND_VAL" | "SEND_VAL_EX" | "SEND_VAR" | "SEND_VAR_EX"
+                | "SEND_VAR_NO_REF_EX" | "SEND_FUNC_ARG" | "CHECK_FUNC_ARG",
+                _,
+                Operand::Literal(n),
+            ) => n..n + 1,
+            ("INIT_FCALL_BY_NAME", _, Operand::Literal(n)) => n..n + 2,
+            ("INIT_NS_FCALL_BY_NAME", _, Operand::Literal(n)) => n..n + 3,
             ("FETCH_CONSTANT", Operand::Immediate(flags), Operand::Literal(n)) => {
                 n..n + if flags & 2048 != 0 { 3 } else { 2 }
             }
@@ -598,8 +651,24 @@ impl<'a> Instruction<'a> {
         } else {
             matches!(ext, None | Some(("EXT_VALUE", [_])))
         };
+        let cache_bytes = match name {
+            "INIT_FCALL" | "INIT_FCALL_BY_NAME" | "INIT_NS_FCALL_BY_NAME" => 8,
+            "SEND_VAL" | "SEND_VAL_EX" | "SEND_VAR" | "SEND_VAR_EX" | "SEND_VAR_NO_REF_EX"
+            | "SEND_FUNC_ARG" | "CHECK_FUNC_ARG"
+                if matches!(right, Operand::Literal(_)) =>
+            {
+                16
+            }
+            _ => 0,
+        };
+        if cache.is_some() != (cache_bytes != 0)
+            || cache.is_some_and(|n| {
+                !n.is_multiple_of(8) || n > layout.cache_size || cache_bytes > layout.cache_size - n
+            })
+        {
+            return Err(Error::new(format!("invalid runtime cache slot for {name}")));
+        }
         if !valid_ext
-            || get::opt(arena, &cache)?.is_some()
             || get::opt(arena, &default_cache)?.is_some()
             || get::opt(arena, &mask)?.is_some()
         {
@@ -697,6 +766,7 @@ struct Layout<'a> {
     locals: usize,
     slots: usize,
     cache_size: usize,
+    parameters: calls::Parameters,
     pool: &'a [Value],
 }
 
@@ -793,7 +863,7 @@ impl Layout<'_> {
         tries: Value,
         ranges: Value,
         opline_size_bytes: i32,
-        declarations: &bound_arrays::Declarations<'_>,
+        declarations: &calls::Declarations<'_>,
     ) -> Result<()> {
         let code: Vec<_> = rows
             .iter()
@@ -810,6 +880,7 @@ impl Layout<'_> {
         let Some(last) = executable.last() else {
             return Err(Error::new("body has no instructions"));
         };
+        self.parameters.check_receives(&code, executable.len())?;
         if !matches!(
             last.name,
             "RETURN"
@@ -829,15 +900,20 @@ impl Layout<'_> {
         let mut tables = HashSet::new();
         let mut name_cache_slots = HashMap::new();
         for (i, op) in code.iter().enumerate() {
-            let global = op.name == "BIND_GLOBAL";
-            if (global || matches!(op.name, "FETCH_CONSTANT" | "DEFINED"))
+            let name_cache = match op.name {
+                "BIND_GLOBAL" => Some((op.extended_value, "global binding")),
+                "FETCH_CONSTANT" | "DEFINED" => Some((op.extended_value, "constant lookup")),
+                "INIT_FCALL" | "INIT_FCALL_BY_NAME" | "INIT_NS_FCALL_BY_NAME" => {
+                    op.cache.map(|slot| (slot, "function lookup"))
+                }
+                _ => None,
+            };
+            if let Some((slot, kind)) = name_cache
                 && name_cache_slots
-                    .insert(op.extended_value, global)
-                    .is_some_and(|prior| prior != global)
+                    .insert(slot, kind)
+                    .is_some_and(|prior| prior != kind)
             {
-                return Err(Error::new(
-                    "constant lookup and global binding share an incompatible cache slot",
-                ));
+                return Err(Error::new("incompatible runtime cache slot kinds"));
             }
             if (op.name == "OP_DATA") != needs_data {
                 return Err(Error::new(format!("unpaired OP_DATA at instruction {i}")));
@@ -911,7 +987,7 @@ impl Layout<'_> {
             }
         }
         self.validate_ranges(arena, tries, ranges, &code, executable.len())?;
-        bound_arrays::check(arena, self.pool, &code, tries, declarations)
+        calls::check(arena, self.pool, &code, tries, declarations)
     }
 }
 

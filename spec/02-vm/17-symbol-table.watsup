@@ -1,48 +1,74 @@
-;; The main symbol table maps byte names to CV or dynamic storage slots. CV
-;; rows remain attached while undefined. Removing a dynamic row frees its slot's value.
-;; MISSING is the shared null address returned by FETCH_UNSET for an absent name.
-dec $symbol_rows(frame) : symbolRow*
-def $symbol_rows(frame) = (SYMBOL bytes n)*
-  -- if ARRAY_VALUE _ (ITEM (KEY bytes) (INT n))* _ _ = frame.SYMBOLS
+;; Each activation's symbol table maps names to its CV or dynamic storage.
+;; The request's global symbols live in the main activation, which may be suspended.
+syntax symbolStore = { SLOTS frameSlot*, TABLE slotValue, CVS nat }
 
-dec $symbol_capacity(frame) : nat
-def $symbol_capacity(frame) = n
-  -- if ARRAY_VALUE _ _ (STORAGE _ (MIXED n _) _) _ = frame.SYMBOLS
+dec $main_caller(frame, bool) : nat?
+def $main_caller(frame, true) = n
+  -- if $(|frame.CALLERS| > 0)
+  -- if n = $(|frame.CALLERS| - 1)
+def $main_caller(_, _) = eps -- otherwise
 
-dec $symbol_slot(frame, bytes) : nat?
-def $symbol_slot(frame, bytes) = n
-  -- if INT n = $array_find($stored_entries(frame.SYMBOLS), KEY bytes)
+dec $symbol_store(frame, nat?) : symbolStore
+def $symbol_store(frame, eps) = { SLOTS frame.SLOTS, TABLE frame.SYMBOLS, CVS $(|frame.NAMES|) }
+def $symbol_store(frame, n) = { SLOTS callerFrame.SLOTS, TABLE callerFrame.SYMBOLS, CVS $(|callerFrame.NAMES|) }
+  -- if callerFrame = frame.CALLERS[n]
+
+dec $install_symbols(frame, nat?, symbolStore) : frame
+def $install_symbols(frame, eps, symbolStore) = frame[.SLOTS = symbolStore.SLOTS][.SYMBOLS = symbolStore.TABLE]
+def $install_symbols(frame, n, symbolStore) = frame[.CALLERS[n] = callerFrame[.SLOTS = symbolStore.SLOTS][.SYMBOLS = symbolStore.TABLE]]
+  -- if callerFrame = frame.CALLERS[n]
+
+def $symbol_address(frame, b_global, n) = $symbol_store(frame, $main_caller(frame, b_global)).SLOTS[n].VALUE
+def $put_symbol_address(frame, b_global, n, slotValue) =
+  $install_symbols(frame, n_main?, symbolStore[.SLOTS[n] = $owned(slotValue)])
+  -- if n_main? = $main_caller(frame, b_global)
+  -- if symbolStore = $symbol_store(frame, n_main?)
+
+dec $symbol_rows(symbolStore) : symbolRow*
+def $symbol_rows(symbolStore) = (SYMBOL bytes n)*
+  -- if ARRAY_VALUE _ (ITEM (KEY bytes) (INT n))* _ _ = symbolStore.TABLE
+
+dec $symbol_capacity(symbolStore) : nat
+def $symbol_capacity(symbolStore) = n
+  -- if ARRAY_VALUE _ _ (STORAGE _ (MIXED n _) _) _ = symbolStore.TABLE
+
+dec $symbol_slot(symbolStore, bytes) : nat?
+def $symbol_slot(symbolStore, bytes) = n
+  -- if INT n = $array_find($stored_entries(symbolStore.TABLE), KEY bytes)
 def $symbol_slot(_, _) = eps -- otherwise
 
 dec $symbol_row(frame, bytes, nat) : frame
 def $symbol_row(frame, bytes, n) = frame[.SYMBOLS = $store_bucket(frame.SYMBOLS, KEY bytes, INT n)]
 
-dec $append_symbol(frame, bytes, slotValue) : (frame, nat)
-def $append_symbol(frame, bytes, slotValue) = (frame'[.SLOTS = frame.SLOTS ++ [$owned(slotValue)]], n)
-  -- if n = |frame.SLOTS|
-  -- if frame' = $symbol_row(frame, bytes, n)
+dec $append_symbol(frame, nat?, symbolStore, bytes, slotValue) : (frame, nat)
+def $append_symbol(frame, n_main?, symbolStore, bytes, slotValue) =
+  ($install_symbols(frame, n_main?, symbolStore[.SLOTS = symbolStore.SLOTS ++ [$owned(slotValue)]]
+      [.TABLE = $store_bucket(symbolStore.TABLE, KEY bytes, INT n)]), n)
+  -- if n = |symbolStore.SLOTS|
 
-dec $ensure_symbol(frame, bytes) : (frame, nat)
-def $ensure_symbol(frame, bytes) = (frame, n)
-  -- if n = $symbol_slot(frame, bytes)
-def $ensure_symbol(frame, bytes) = $append_symbol(frame, bytes, NULL)
-  -- if $symbol_slot(frame, bytes) = eps
+dec $ensure_symbol(frame, bool, bytes) : (frame, nat)
+def $ensure_symbol(frame, b_global, bytes) = (frame, n)
+  -- if n = $symbol_slot($symbol_store(frame, $main_caller(frame, b_global)), bytes)
+def $ensure_symbol(frame, b_global, bytes) = $append_symbol(frame, n_main?, symbolStore, bytes, NULL)
+  -- if n_main? = $main_caller(frame, b_global)
+  -- if symbolStore = $symbol_store(frame, n_main?)
+  -- if $symbol_slot(symbolStore, bytes) = eps
 
-dec $unset_symbol(frame, bytes) : frame
-def $unset_symbol(frame, bytes) = $write(frame, CV n, UNDEF)
-  -- if n = $symbol_slot(frame, bytes)
-  -- if $(n < |frame.NAMES|)
-def $unset_symbol(frame, bytes) = $write(frame[.SYMBOLS = $array_remove(frame.SYMBOLS, KEY bytes)], CV n, UNDEF)
-  -- if n = $symbol_slot(frame, bytes)
-  -- if $(n >= |frame.NAMES|)
-def $unset_symbol(frame, _) = frame -- otherwise
+;; Attached CV rows survive unset. Removing a dynamic row frees its slot's value.
+dec $unset_symbol(symbolStore, bytes, nat?) : symbolStore
+def $unset_symbol(symbolStore, _, n) = symbolStore[.SLOTS[n] = $owned(UNDEF)]
+  -- if $(n < symbolStore.CVS)
+def $unset_symbol(symbolStore, bytes, n) =
+  symbolStore[.TABLE = $array_remove(symbolStore.TABLE, KEY bytes)][.SLOTS[n] = $owned(UNDEF)]
+  -- if $(n >= symbolStore.CVS)
+def $unset_symbol(symbolStore, _, eps) = symbolStore
 
 dec $seed_symbol(frame, bytes, nat) : frame
 def $seed_symbol(frame, bytes, n) = $write($symbol_row(frame, bytes, n), CV n, $initial_global(bytes, frame.SCRIPT))
   -- if $(n < |frame.NAMES|)
 def $seed_symbol(frame, bytes, n) = frame'
   -- if n = |frame.NAMES|
-  -- if (frame', _) = $append_symbol(frame, bytes, $initial_global(bytes, frame.SCRIPT))
+  -- if (frame', _) = $append_symbol(frame, eps, $symbol_store(frame, eps), bytes, $initial_global(bytes, frame.SCRIPT))
 
 dec $seed_symbols(frame, bytes*) : frame
 def $seed_symbols(frame, bytes :: bytes_rest*) = $seed_symbols($seed_symbol(frame, bytes, n), bytes_rest*)
@@ -57,6 +83,12 @@ def $attach_symbols(frame, eps, _) = frame
 
 def $start_symbols(frame, bytes_auto*) = $attach_symbols($seed_symbols(frame, $global_names(bytes_auto*)), frame.NAMES, 0)
 
+dec $global_reference(frame, nat, slotValue) : (frame, slotValue)
+def $global_reference(frame, _, REFERENCE n_ref) = (frame, REFERENCE n_ref)
+def $global_reference(frame, n, slotValue) = ($put_symbol_address(frame', true, n, slotValue_ref), slotValue_ref)
+  -- if ~$is_reference(slotValue)
+  -- if (frame', slotValue_ref) = $new_reference(frame, $reference_initial(slotValue))
+
 def $bind_global(frame, operand, bytes) = $bind(frame'', operand, slotValue_ref)
-  -- if (frame', n) = $ensure_symbol(frame, bytes)
-  -- if (frame'', slotValue_ref) = $as_reference(frame', CV n)
+  -- if (frame', n) = $ensure_symbol(frame, true, bytes)
+  -- if (frame'', slotValue_ref) = $global_reference(frame', n, $current(frame'.BORROWED, $symbol_address(frame', true, n)))

@@ -61,6 +61,8 @@ BIND_GLOBAL FETCH_GLOBALS DECLARE_CONST FETCH_CONSTANT DEFINED
 
 ## 4. Calls, closures and standard streams
 
+4A executes `INIT_FCALL` and the literal-name `INIT_FCALL_BY_NAME` for unconditional unit functions and `strlen`. The latter occurs in ordinary recursive calls. Positional by-value sends, read-mode argument fetches, `RECV` and the matching `DO_*` instructions enter here. A checked send can need the target's parameter mode before invocation. A direct call to an unmodeled builtin can evaluate arguments and produce output before stopping at invocation. [Direct calls](../spec/02-vm/24-direct-calls.watsup) · [Argument evaluation](../tests/project/call_unsupported_builtin.php)
+
 ```text
 SEND_VAR_NO_REF_EX INIT_FCALL_BY_NAME DO_FCALL INIT_FCALL RECV RECV_INIT SEND_VAL
 SEND_VAR_EX SEND_REF INIT_NS_FCALL_BY_NAME FETCH_FUNC_ARG FETCH_DIM_FUNC_ARG CHECK_FUNC_ARG

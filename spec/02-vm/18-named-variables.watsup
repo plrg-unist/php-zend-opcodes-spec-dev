@@ -5,9 +5,13 @@ def $name_operand(frame, ISSET_ISEMPTY_VAR, operand) = (frame, $read(frame, oper
 def $name_operand(frame, opcode, operand) = $read_operand(frame, operand)
   -- if opcode =/= ISSET_ISEMPTY_VAR
 
-dec $symbol_value(frame, nat?) : slotValue
-def $symbol_value(_, eps) = UNDEF
-def $symbol_value(frame, n) = $read(frame, CV n)
+;; Both GLOBAL and GLOBAL_LOCK address the request's symbol table.
+dec $global_scope(nat) : bool
+def $global_scope(n) = $((n / 2) \ 2 = 1) \/ $((n / 8) \ 2 = 1)
+
+dec $symbol_value(frame, symbolStore, nat?) : slotValue
+def $symbol_value(_, _, eps) = UNDEF
+def $symbol_value(frame, symbolStore, n) = $deref(frame, symbolStore.SLOTS[n].VALUE)
 
 ;; Undefined [global ]variable $<name>. The special $this read has the local diagnostic.
 dec $symbol_qualifier(bytes, nat) : bytes
@@ -34,18 +38,19 @@ def $named_fetch(frame, FETCH_UNSET, _, [ 116, 104, 105, 115 ], _, _, UNDEF) =
   $raise(frame, [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 110, 115, 101, 116,
                   32, 36, 116, 104, 105, 115 ]) ;; Error: Cannot unset $this
 def $named_fetch(frame, FETCH_UNSET, operand_r, bytes, _, _, UNDEF) =
-  CONTINUE $write(frame, operand_r, SYMBOL_LOCATION frame.MISSING)
+  CONTINUE $write(frame, operand_r, SYMBOL_LOCATION false frame.MISSING)
   -- if bytes =/= [ 116, 104, 105, 115 ]
 def $named_fetch(frame, opcode, _, [ 116, 104, 105, 115 ], _, _, UNDEF) =
   $raise(frame, [ 69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 114, 101, 45, 97, 115, 115,
                   105, 103, 110, 32, 36, 116, 104, 105, 115 ]) ;; Error: Cannot re-assign $this
   -- if opcode = FETCH_W \/ opcode = FETCH_RW
 def $named_fetch(frame, opcode, operand_r, bytes, n, _, UNDEF) =
-  CONTINUE $write($write(frame', CV n_slot, NULL), operand_r, SYMBOL_LOCATION n_slot)
+  CONTINUE $write($put_symbol_address(frame', b_global, n_slot, NULL), operand_r, SYMBOL_LOCATION b_global n_slot)
   -- if (opcode = FETCH_W \/ opcode = FETCH_RW) /\ bytes =/= [ 116, 104, 105, 115 ]
-  -- if (frame', n_slot) = $ensure_symbol($missing_write_frame(frame, opcode, bytes, n), bytes)
-def $named_fetch(frame, opcode, operand_r, _, _, n_slot, slotValue) =
-  CONTINUE $write(frame, operand_r, SYMBOL_LOCATION n_slot)
+  -- if b_global = $global_scope(n)
+  -- if (frame', n_slot) = $ensure_symbol($missing_write_frame(frame, opcode, bytes, n), b_global, bytes)
+def $named_fetch(frame, opcode, operand_r, _, n, n_slot, slotValue) =
+  CONTINUE $write(frame, operand_r, SYMBOL_LOCATION ($global_scope(n)) n_slot)
   -- if opcode <- [FETCH_W, FETCH_RW, FETCH_UNSET] /\ slotValue =/= UNDEF
 
 ;; GLOBAL_LOCK keeps the temporary name alive. The special $this path returns before release too.
@@ -55,14 +60,19 @@ def $release_name(frame, operand_name, operand_r, bytes, n, slotValue) = $releas
 def $release_name(frame, _, _, _, _, _) = frame -- otherwise
 
 dec $named_lookup(frame, opcode, operand, operand, bytes, nat, smartbranch?) : transition
-def $named_lookup(frame, UNSET_VAR, _, _, bytes, _, _) = CONTINUE $unset_symbol(frame, bytes)
+def $named_lookup(frame, UNSET_VAR, _, _, bytes, n, _) =
+  CONTINUE $install_symbols(frame, n_main?, $unset_symbol(symbolStore, bytes, $symbol_slot(symbolStore, bytes)))
+  -- if n_main? = $main_caller(frame, $global_scope(n))
+  -- if symbolStore = $symbol_store(frame, n_main?)
 def $named_lookup(frame, ISSET_ISEMPTY_VAR, operand_r, _, bytes, n, smartbranch?) =
-  $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, $symbol_value(frame, $symbol_slot(frame, bytes)))
+  $isset_empty(frame, operand_r, $(n \ 2), smartbranch?, $symbol_value(frame, symbolStore, $symbol_slot(symbolStore, bytes)))
+  -- if symbolStore = $symbol_store(frame, $main_caller(frame, $global_scope(n)))
 def $named_lookup(frame, opcode, operand_r, operand_name, bytes, n, _) =
   $named_fetch($release_name(frame, operand_name, operand_r, bytes, n, slotValue), opcode, operand_r, bytes, n, n_slot?, slotValue)
   -- if opcode <- [FETCH_R, FETCH_W, FETCH_RW, FETCH_IS, FETCH_UNSET]
-  -- if n_slot? = $symbol_slot(frame, bytes)
-  -- if slotValue = $symbol_value(frame, n_slot?)
+  -- if symbolStore = $symbol_store(frame, $main_caller(frame, $global_scope(n)))
+  -- if n_slot? = $symbol_slot(symbolStore, bytes)
+  -- if slotValue = $symbol_value(frame, symbolStore, n_slot?)
 
 def $named_step(frame, opcode, operand_r, operand_name, n, smartbranch?) =
   $named_lookup($string_frame(frame', slotValue), opcode, operand_r, operand_name, $scalar_bytes(slotValue), n, smartbranch?)

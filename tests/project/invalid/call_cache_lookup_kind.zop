@@ -1,0 +1,31 @@
+zend-opcodes
+file "call_cache_lookup_kind.php"
+main
+body - {
+  lines 1 4
+  frame 2 cache 16
+  size 5 literals 4 children 0
+  lit[0] = "f"
+  lit[1] = "unknown_const"
+  lit[2] = "unknown_const"
+  lit[3] = int(1)
+  code
+    0: INIT_FCALL 80, lit[0] | line=3 cache=0
+    1: DO_UCALL | line=3
+    2: T1 = FETCH_CONSTANT 0, lit[1] | line=3
+    3: ECHO T1 | line=3
+    4: RETURN lit[3] | line=4 ext=4294967295
+}
+function "f"
+body "f" {
+  flags 512 0
+  lines 2 2
+  frame 0 cache 0
+  size 2 literals 2 children 0
+  lit[0] = int(1)
+  lit[1] = null
+  code
+    0: RETURN lit[0] | line=2
+    1: RETURN lit[1] | line=2 ext=4294967295
+}
+end

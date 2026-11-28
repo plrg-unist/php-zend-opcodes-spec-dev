@@ -107,7 +107,7 @@ def $array_order(comparisonMode, arrayId_l, arrayId_r, slotValue_l, slotValue_r)
 dec $strict_pointer(slotValue) : bool
 def $strict_pointer(REFERENCE _) = true
 def $strict_pointer(ELEMENT_LOCATION _ _) = true
-def $strict_pointer(SYMBOL_LOCATION _) = true
+def $strict_pointer(SYMBOL_LOCATION _ _) = true
 def $strict_pointer(_) = false -- otherwise
 
 dec $typed_host_order(comparisonMode, nat*, slotValue, int) : valueOrder

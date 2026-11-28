@@ -1,0 +1,33 @@
+zend-opcodes
+file "call_send_position.php"
+main
+body - {
+  lines 1 4
+  frame 1 cache 8
+  size 5 literals 3 children 0
+  lit[0] = "f"
+  lit[1] = int(1)
+  lit[2] = int(1)
+  code
+    0: INIT_FCALL 96, lit[0] | line=3 ext=1 cache=0
+    1: SEND_VAL lit[1], 2 | line=3
+    2: T0 = DO_UCALL | line=3
+    3: ECHO T0 | line=3
+    4: RETURN lit[2] | line=4 ext=4294967295
+}
+function "f"
+body "f" {
+  flags 512 0
+  lines 2 2
+  frame 0 cache 0
+  locals 1 ["x"]
+  args 1 required 1
+  arg "x" type(0)
+  size 3 literals 1 children 0
+  lit[0] = null
+  code
+    0: CV0 = RECV 1, 1022 | line=2
+    1: RETURN CV0 | line=2
+    2: RETURN lit[0] | line=2 ext=4294967295
+}
+end

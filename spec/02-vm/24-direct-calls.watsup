@@ -1,0 +1,145 @@
+;; INIT_FCALL carries a previously resolved key. INIT_FCALL_BY_NAME uses the
+;; following name literal for lookup, which may differ from the displayed spelling.
+def $call_body(eps, _) = eps
+def $call_body((NAMEDBODY bytes body) :: _, bytes) = body
+def $call_body((NAMEDBODY bytes_other _) :: namedBody*, bytes) = $call_body(namedBody*, bytes)
+  -- if bytes_other =/= bytes
+
+dec $strlen_name() : bytes
+def $strlen_name() = [115, 116, 114, 108, 101, 110]
+
+dec $call_name(frame, opcode, nat) : bytes
+def $call_name(frame, INIT_FCALL, n) = bytes -- if LITERAL (STRING bytes) = frame.POOL[n]
+def $call_name(frame, INIT_FCALL_BY_NAME, n) = bytes
+  -- if LITERAL (STRING bytes) = frame.POOL[$(n + 1)]
+
+dec $open_call(frame, bytes, nat) : transition
+def $open_call(frame, bytes, n) =
+  CONTINUE frame[.PENDING = (PENDING_CALL bytes $empty_slots(n)) :: frame.PENDING]
+
+dec $resolve_call(frame, opcode, bytes, nat, nat, slotValue?) : transition
+def $resolve_call(frame, _, _, n_args, _, STRING bytes) = $open_call(frame, bytes, n_args)
+def $resolve_call(frame, opcode, bytes, n_args, n_cache, eps) =
+  $open_call($cache_body_value(frame, n_cache, STRING bytes), bytes, n_args)
+  -- if opcode = INIT_FCALL \/ bytes = $strlen_name() \/ $call_body(frame.FUNCTIONS, bytes) =/= eps
+;; Lookup of another by-name target needs the installed function table before
+;; its argument expressions can run.
+def $resolve_call(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
+def $call_init(frame, opcode, LIT n, extension?) =
+  $resolve_call(frame, opcode, $call_name(frame, opcode, n), $ext_value(extension?), n_cache, $body_cache_lookup(frame, n_cache))
+  -- if n_pc = $(frame.PC - 1)
+  -- if OPLINE _ _ _ _ _ _ n_cache _ _ _ _ = frame.CODE[n_pc]
+
+;; Zend keeps the argument passing mode in bits 25 and 26 of the type mask.
+dec $argument_mode(ztype) : nat
+def $argument_mode(MASK n) = $((n / 33554432) \ 4)
+def $argument_mode(NAMED n _) = $((n / 33554432) \ 4)
+def $argument_mode(UNION n _) = $((n / 33554432) \ 4)
+def $argument_mode(INTERSECTION n _) = $((n / 33554432) \ 4)
+
+dec $positional_mode(signature?, nat) : nat
+def $positional_mode(ARGS n_declared _ _ arginfo*, n) = $argument_mode(ztype)
+  -- if $(n <= n_declared)
+  -- if n_param = $(n - 1)
+  -- if ARG _ ztype _ = arginfo*[n_param]
+;; The variadic argument row follows the declared nonvariadic arguments.
+def $positional_mode(ARGS n_declared _ _ arginfo*, n) = $argument_mode(ztype)
+  -- if $(n > n_declared) /\ $(n_declared < |arginfo*|)
+  -- if ARG _ ztype _ = arginfo*[n_declared]
+def $positional_mode(_, _) = 0 -- otherwise
+
+dec $pending_arg_mode(frame, nat) : nat?
+def $pending_arg_mode(frame, n) = $positional_mode(signature?, n)
+  -- if (PENDING_CALL bytes _) :: _ = frame.PENDING
+  -- if BODY (BODYDECL _ _ _ _ _ signature? _) _ _ _ _ _ _ = $call_body(frame.FUNCTIONS, bytes)
+def $pending_arg_mode(frame, _) = 0
+  -- if (PENDING_CALL bytes _) :: _ = frame.PENDING
+  -- if bytes = $strlen_name()
+def $pending_arg_mode(_, _) = eps -- otherwise
+
+;; An unconditionally by-value send already carries its passing mode in the
+;; opcode. Checked sends consult the current target at the send instruction.
+dec $send_by_value(frame, opcode, nat) : bool
+def $send_by_value(_, opcode, _) = true -- if opcode <- [SEND_VAL, SEND_VAR, SEND_FUNC_ARG]
+def $send_by_value(frame, opcode, n) = $(n_mode \ 2 = 0)
+  -- if opcode <- [SEND_USER, SEND_VAL_EX]
+  -- if n_mode = $pending_arg_mode(frame, n)
+def $send_by_value(frame, opcode, n) = (n_mode = 0)
+  -- if opcode <- [SEND_VAR_EX, SEND_VAR_NO_REF_EX]
+  -- if n_mode = $pending_arg_mode(frame, n)
+def $send_by_value(_, _, _) = false -- otherwise
+
+;; Positional SEND writes directly into the designated argument slot. A second
+;; SEND to the same slot leaves the old array or reference owning its edges.
+dec $retain_argument(frame, slotValue) : frame
+def $retain_argument(frame, slotValue) = frame[.DISPLACEDARGS = slotValue :: frame.DISPLACEDARGS]
+  -- if $is_array_value(slotValue) \/ $is_reference(slotValue)
+def $retain_argument(frame, _) = frame -- otherwise
+
+dec $store_argument(frame, nat, slotValue) : transition
+def $store_argument(frame, n, slotValue) =
+  CONTINUE frame'[.PENDING[0] = PENDING_CALL bytes slotValue_args*[[n_param] = slotValue]]
+  -- if n_param = $(n - 1)
+  -- if PENDING_CALL bytes slotValue_args* = frame.PENDING[0]
+  -- if frame' = $retain_argument(frame, slotValue_args*[n_param])
+
+;; SEND_VAL transfers a temporary verbatim. SEND_VAR and SEND_USER copy the
+;; referent of a variable at the time of the send.
+def $call_send(frame, opcode, operand, n) = $store_argument(frame, n, $raw_read(frame, operand))
+  -- if opcode <- [SEND_VAL, SEND_VAL_EX]
+  -- if $send_by_value(frame, opcode, n)
+def $call_send(frame, opcode, operand, n) = $store_argument(frame', n, slotValue)
+  -- if opcode <- [SEND_VAR, SEND_VAR_EX, SEND_VAR_NO_REF_EX, SEND_FUNC_ARG, SEND_USER]
+  -- if $send_by_value(frame, opcode, n)
+  -- if (frame', slotValue) = $read_operand(frame, operand)
+;; SEND_USER fetches its value before checking a reference parameter.
+def $call_send(frame, SEND_USER, operand, n) = FINISH (UNSUPPORTED frame'.STDOUT eps)
+  -- if ~$send_by_value(frame, SEND_USER, n)
+  -- if (frame', _) = $read_operand(frame, operand)
+def $call_send(frame, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
+;; The pending frame starts in read mode. A CHECK requesting write mode
+;; reaches reference-parameter binding. All subsequent fetches on supported
+;; paths therefore use Zend's ordinary read handlers.
+def $call_check_arg(frame, n) = CONTINUE frame -- if 0 = $pending_arg_mode(frame, n)
+def $call_check_arg(frame, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+def $call_fetch_arg(frame, FETCH_FUNC_ARG, operand_r, operand_a, _, extension?) =
+  $checked_step(frame, FETCH_R, operand_r, operand_a, UNUSED, extension?, eps)
+def $call_fetch_arg(frame, FETCH_DIM_FUNC_ARG, _, _, UNUSED, _) =
+  $raise(frame, [69, 114, 114, 111, 114, 58, 32, 67, 97, 110, 110, 111, 116, 32, 117, 115, 101, 32, 91, 93, 32, 102, 111, 114, 32, 114, 101, 97, 100, 105, 110, 103])
+def $call_fetch_arg(frame, FETCH_DIM_FUNC_ARG, operand_r, operand_a, operand_k, extension?) =
+  $checked_step(frame, FETCH_DIM_R, operand_r, operand_a, operand_k, extension?, eps)
+  -- if operand_k =/= UNUSED
+
+dec $call_attribute_needed(opcode, operand, nat) : bool
+def $call_attribute_needed(opcode, operand, n_flags) =
+  (opcode <- [DO_FCALL, DO_FCALL_BY_NAME]) /\
+  ($((n_flags / 2048) \ 2 = 1) \/ (operand = UNUSED /\ $((n_flags / 536870912) \ 2 = 1)))
+
+dec $invoke_call(frame, opcode, operand, bytes, slotValue*, body?) : transition
+def $invoke_call(frame, opcode, operand_r, bytes, slotValue*, body) =
+  $enter_user(frame, operand_r, bytes, body, slotValue*)
+  -- if opcode =/= DO_ICALL
+  -- if BODY (BODYDECL _ n_flags _ _ _ _ _) _ _ _ _ _ _ = body
+  -- if ~$call_attribute_needed(opcode, operand_r, n_flags)
+def $invoke_call(frame, opcode, operand_r, bytes, slotValue*, eps) =
+  $call_strlen(frame, operand_r, slotValue*)
+  -- if opcode =/= DO_UCALL /\ bytes = $strlen_name()
+def $invoke_call(frame, _, _, _, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise
+
+def $call_do(frame, opcode, operand_r) =
+  $invoke_call(frame[.PENDING = pendingCall*], opcode, operand_r, bytes, slotValue*, $call_body(frame.FUNCTIONS, bytes))
+  -- if (PENDING_CALL bytes slotValue*) :: pendingCall* = frame.PENDING
+
+;; Arguments already occupy the callee's parameter CVs on entry. Reaching
+;; RECV again through a jump checks the current invocation's argument count.
+def $call_recv(frame, _, n) = $missing_call_arguments(frame, frame.ARGC, n_required, n_declared)
+  -- if $(n > frame.ARGC)
+  -- if BODY (BODYDECL _ _ _ _ _ (ARGS n_declared n_required _ _) _) _ _ _ _ _ _ = $call_body(frame.FUNCTIONS, frame.BODYKEY)
+def $call_recv(frame, _, n) = CONTINUE frame
+  -- if $(n <= frame.ARGC)
+  -- if BODY (BODYDECL _ _ _ _ _ (ARGS _ _ _ arginfo*) _) _ _ _ _ _ _ = $call_body(frame.FUNCTIONS, frame.BODYKEY)
+  -- if n_param = $(n - 1)
+  -- if ARG _ (MASK 0) _ = arginfo*[n_param]
+def $call_recv(frame, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps) -- otherwise

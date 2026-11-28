@@ -1,0 +1,82 @@
+zend-opcodes
+file "call_positional_slots.php"
+main
+body - {
+  lines 1 5
+  frame 3 cache 24
+  size 19 literals 13 children 0
+  lit[0] = "digits"
+  lit[1] = int(3)
+  lit[2] = int(7)
+  lit[3] = "|"
+  lit[4] = "difference"
+  lit[5] = int(4)
+  lit[6] = int(1)
+  lit[7] = "|"
+  lit[8] = "difference"
+  lit[9] = int(4)
+  lit[10] = int(1)
+  lit[11] = "\x0a"
+  lit[12] = int(1)
+  code
+    0: INIT_FCALL 144, lit[0] | line=4 ext=2 cache=0
+    1: SEND_VAL lit[1], 2 | line=4
+    2: SEND_VAL lit[2], 1 | line=4
+    3: T0 = DO_UCALL | line=4
+    4: ECHO T0 | line=4
+    5: ECHO lit[3] | line=4
+    6: INIT_FCALL 144, lit[4] | line=4 ext=2 cache=0
+    7: SEND_VAL lit[5], 1 | line=4
+    8: SEND_VAL lit[6], 2 | line=4
+    9: T1 = DO_UCALL | line=4
+    10: ECHO T1 | line=4
+    11: ECHO lit[7] | line=4
+    12: INIT_FCALL 144, lit[8] | line=4 ext=2 cache=16
+    13: SEND_VAL lit[9], 1 | line=4
+    14: SEND_VAL lit[10], 2 | line=4
+    15: T2 = DO_UCALL | line=4
+    16: ECHO T2 | line=4
+    17: ECHO lit[11] | line=4
+    18: RETURN lit[12] | line=5 ext=4294967295
+}
+function "digits"
+body "digits" {
+  flags 512 0
+  lines 2 2
+  frame 2 cache 0
+  locals 2 ["a", "b"]
+  args 2 required 2
+  arg "a" type(0)
+  arg "b" type(0)
+  size 6 literals 2 children 0
+  lit[0] = int(10)
+  lit[1] = null
+  code
+    0: CV0 = RECV 1, 1022 | line=2
+    1: CV1 = RECV 2, 1022 | line=2
+    2: T2 = MUL CV0, lit[0] | line=2
+    3: T3 = ADD T2, CV1 | line=2
+    4: RETURN T3 | line=2
+    5: RETURN lit[1] | line=2 ext=4294967295
+}
+function "difference"
+body "difference" {
+  flags 512 0
+  lines 3 3
+  frame 2 cache 0
+  locals 2 ["a", "b"]
+  args 2 required 2
+  arg "a" type(0)
+  arg "b" type(0)
+  size 6 literals 2 children 0
+  lit[0] = int(10)
+  lit[1] = null
+  code
+    0: CV0 = RECV 1, 1022 | line=3
+    1: CV1 = RECV 2, 1022 | line=3
+    2: T2 = MUL CV0, lit[0] | line=3
+    3: T3 = SUB T2, CV1 | line=3
+    4: RETURN T3 | line=3
+    5: RETURN lit[1] | line=3 ext=4294967295
+}
+end

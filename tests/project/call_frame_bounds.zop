@@ -1,0 +1,29 @@
+zend-opcodes
+file "call_frame_bounds.php"
+main
+body - {
+  lines 1 1
+  frame 0 cache 8
+  size 7 literals 2 children 0
+  lit[0] = "f"
+  lit[1] = int(1)
+  code
+    0: JMP @5
+    1: INIT_FCALL 4294967280, lit[0] | ext=268435450 cache=0
+    2: CHECK_FUNC_ARG _, 268435450
+    3: SEND_VAL lit[1], 134217723
+    4: DO_UCALL
+    5: ECHO lit[1]
+    6: RETURN lit[1]
+}
+function "f"
+body "f" {
+  flags 512 0
+  lines 1 1
+  frame 0 cache 0
+  size 1 literals 1 children 0
+  lit[0] = int(1)
+  code
+    0: RETURN lit[0]
+}
+end

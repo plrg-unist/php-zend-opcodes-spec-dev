@@ -1,0 +1,29 @@
+zend-opcodes
+file "call_dormant_receive.php"
+main
+body - {
+  lines 1 4
+  frame 0 cache 0
+  size 2 literals 2 children 0
+  lit[0] = "never"
+  lit[1] = int(1)
+  code
+    0: ECHO lit[0] | line=3
+    1: RETURN lit[1] | line=4 ext=4294967295
+}
+function "f"
+body "f" {
+  flags 512 0
+  lines 2 2
+  frame 0 cache 0
+  locals 1 ["x"]
+  args 1 required 1
+  arg "x" type(0)
+  size 3 literals 1 children 0
+  lit[0] = null
+  code
+    0: CV0 = RECV 2, 1022 | line=2
+    1: RETURN CV0 | line=2
+    2: RETURN lit[0] | line=2 ext=4294967295
+}
+end

@@ -1,0 +1,131 @@
+syntax traceArgument = TRACE_VALUE slotValue | REDACTED
+syntax traceCall = TRACE_CALL nat bytes traceArgument*
+
+dec $trace_hex(nat) : nat
+def $trace_hex(n) = n_digit*[n]
+  -- if n_digit* = [ 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70 ]
+
+;; Zend escapes control characters and high bytes. Printable ASCII includes the single quote.
+dec $trace_escape(nat) : bytes
+def $trace_escape(9) = [92, 116]
+def $trace_escape(10) = [92, 110]
+def $trace_escape(11) = [92, 118]
+def $trace_escape(12) = [92, 102]
+def $trace_escape(13) = [92, 114]
+def $trace_escape(27) = [92, 101]
+def $trace_escape(92) = [92, 92]
+def $trace_escape(n) = [92, 120, $trace_hex($(n / 16)), $trace_hex($(n \ 16))]
+  -- if $(n > 126) \/ ($(n < 32) /\ ~(n <- [9, 10, 11, 12, 13, 27]))
+def $trace_escape(n) = [n] -- otherwise
+
+dec $trace_escaped(bytes) : bytes
+def $trace_escaped(eps) = eps
+def $trace_escaped(n_char :: bytes) = $trace_escape(n_char) ++ $trace_escaped(bytes)
+
+;; The pinned CLI's zend.exception_string_param_max_len displays the first 15 raw bytes.
+dec $trace_ellipsis(nat) : bytes
+def $trace_ellipsis(n) = [46, 46, 46] -- if $(n > 15)
+def $trace_ellipsis(_) = eps -- otherwise
+dec $trace_string(bytes) : bytes
+def $trace_string(bytes) = [39] ++ $trace_escaped(bytes[0 : n]) ++ $trace_ellipsis(|bytes|) ++ [39]
+  -- if n = $min_nat([|bytes|, 15])
+
+dec $trace_arg_known(traceArgument) : bool
+def $trace_arg_known(REDACTED) = true
+def $trace_arg_known(TRACE_VALUE slotValue) = slotValue = UNDEF \/ $known_value(slotValue)
+
+dec $trace_zero_fraction(nat, bytes) : bytes
+def $trace_zero_fraction(n, bytes) = [46, 48]
+  -- if $($float_magnitude(n) < 0x7FF0_0000_0000_0000) /\ ~(46 <- bytes)
+def $trace_zero_fraction(_, _) = eps -- otherwise
+
+dec $trace_arg_text(traceArgument) : bytes
+def $trace_arg_text(REDACTED) = [ 79, 98, 106, 101, 99, 116, 40, 83, 101, 110, 115, 105, 116, 105, 118, 101, 80, 97, 114, 97,
+      109, 101, 116, 101, 114, 86, 97, 108, 117, 101, 41 ]
+def $trace_arg_text(TRACE_VALUE slotValue) = [ 78, 85, 76, 76 ] -- if slotValue = NULL \/ slotValue = UNDEF
+def $trace_arg_text(TRACE_VALUE slotValue) = $value_name(slotValue) -- if slotValue = TRUE \/ slotValue = FALSE
+def $trace_arg_text(TRACE_VALUE (STRING bytes)) = $trace_string(bytes)
+def $trace_arg_text(TRACE_VALUE (FLOAT n)) = bytes ++ $trace_zero_fraction(n, bytes)
+  -- if bytes = $scalar_bytes(FLOAT n)
+def $trace_arg_text(TRACE_VALUE slotValue) = $scalar_bytes(slotValue)
+  -- if $is_array_value(slotValue) \/ ($scalar_type_bit(slotValue) <- [16, 512])
+
+dec $trace_args_text(traceArgument*) : bytes
+def $trace_args_text(eps) = eps
+def $trace_args_text([traceArgument]) = $trace_arg_text(traceArgument)
+def $trace_args_text(traceArgument :: traceArgument_rest*) =
+  $trace_arg_text(traceArgument) ++ [44, 32] ++ $trace_args_text(traceArgument_rest*)
+  -- if traceArgument_rest* =/= eps
+
+dec $trace_call_known(traceCall) : bool
+def $trace_call_known(TRACE_CALL _ _ traceArgument*) = ~(false <- ($trace_arg_known(traceArgument))*)
+
+dec $trace_text(bytes, nat, traceCall*) : bytes
+def $trace_text(_, n, eps) = [35] ++ $digits(n) ++ [ 32, 123, 109, 97, 105, 110, 125 ]
+def $trace_text(bytes_file, n, (TRACE_CALL n_line bytes_name traceArgument*) :: traceCall*) =
+  [35] ++ $digits(n) ++ [32] ++ bytes_file ++ [40] ++ $digits(n_line) ++ [41, 58, 32] ++ bytes_name
+    ++ [40] ++ $trace_args_text(traceArgument*) ++ [41, 10] ++ $trace_text(bytes_file, $(n + 1), traceCall*)
+
+dec $sensitive_parameter(attribute, nat) : bool
+def $sensitive_parameter(ATTRIBUTE n_char* n_offset _ _ _ _, n) =
+  n_offset = n /\ ($const_lower(n_char))* = [ 115, 101, 110, 115, 105, 116, 105, 118, 101, 112, 97, 114, 97, 109, 101, 116, 101, 114 ]
+
+dec $trace_parameter(frame, slotValue, bool) : traceArgument
+def $trace_parameter(_, _, true) = REDACTED
+def $trace_parameter(frame, slotValue, false) = TRACE_VALUE $deref(frame, slotValue)
+
+;; Read live argument CVs, including changes made by the callee. Positional extras retain their supplied values.
+dec $trace_parameters(frame, attribute*, frameSlot*, nat) : traceArgument*
+def $trace_parameters(_, _, eps, _) = eps
+def $trace_parameters(frame, attribute*, frameSlot :: frameSlot_rest*, n) =
+  $trace_parameter(frame, frameSlot.VALUE, b) :: $trace_parameters(frame, attribute*, frameSlot_rest*, $(n + 1))
+  -- if b = (true <- ($sensitive_parameter(attribute, n))*)
+
+dec $user_trace(frame) : traceCall*
+def $user_trace(frame) = eps -- if frame.CALLERS = eps
+def $user_trace(frame) = (TRACE_CALL callerFrame.LINE frame.FUNCNAME traceArgument*) ::
+    $user_trace($restore_caller(frame, callerFrame, callerFrame_rest*))
+  -- if callerFrame :: callerFrame_rest* = frame.CALLERS
+  -- if BODY (BODYDECL _ _ _ _ _ _ attribute*) _ _ _ _ _ _ = $call_body(frame.FUNCTIONS, frame.BODYKEY)
+  -- if slotValue_extra* = frame.EXTRAARGS
+  -- if n_params = $(frame.ARGC - |slotValue_extra*|)
+  -- if frameSlot_params* = frame.SLOTS[0 : n_params]
+  -- if traceArgument* = $trace_parameters(frame, attribute*, frameSlot_params*, 1)
+      ++ (TRACE_VALUE $deref(frame, slotValue_extra))*
+
+;; The throwing instruction and every suspended call site may transfer to a handler in a later milestone.
+dec $call_site_protected(tryregion*, nat) : bool
+def $call_site_protected(tryregion*, n_pc) = true <- ($protected(tryregion, n_site))*
+  -- if n_site = $(n_pc - 1)
+
+dec $raise_trace(frame, bytes, traceCall*) : transition
+def $raise_trace(frame, bytes_exception, traceCall_internal*) = FINISH (PHP frame'.STDOUT eps 255)
+  -- if ~$call_site_protected(frame.TRIES, frame.PC)
+  -- if callerFrame* = frame.CALLERS
+  -- if ~(true <- ($call_site_protected(callerFrame.TRIES, callerFrame.PC))*)
+  -- if traceCall* = traceCall_internal* ++ $user_trace(frame)
+  -- if ~(false <- ($trace_call_known(traceCall))*)
+  ;; Uncaught <exception> in <file>:<line>\nStack trace:\n<trace>\n  thrown
+  -- if bytes_msg = [ 85, 110, 99, 97, 117, 103, 104, 116, 32 ] ++ bytes_exception ++ [ 32, 105, 110, 32 ] ++ frame.FILE ++ [58] ++ $digits(frame.LINE)
+      ++ [ 10, 83, 116, 97, 99, 107, 32, 116, 114, 97, 99, 101, 58, 10 ] ++ $trace_text(frame.FILE, 0, traceCall*) ++ [ 10, 32, 32, 116, 104, 114, 111, 119, 110 ]
+  -- if frame' = $report(frame, FATAL, bytes_msg)
+def $raise_trace(frame, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise
+
+def $raise(frame, bytes_exception) = $raise_trace(frame, bytes_exception, eps)
+def $raise_strlen(frame, bytes_exception, slotValue*) = $raise_trace(frame, bytes_exception,
+    [TRACE_CALL frame.LINE bytes_name (TRACE_VALUE $deref(frame, slotValue))*])
+  -- if bytes_name = [ 115, 116, 114, 108, 101, 110 ] ;; strlen
+
+dec $argument_count_qualifier(nat, nat) : bytes
+def $argument_count_qualifier(n, n) = [ 101, 120, 97, 99, 116, 108, 121 ]
+def $argument_count_qualifier(_, _) = [ 97, 116, 32, 108, 101, 97, 115, 116 ] -- otherwise
+
+def $missing_call_arguments(frame, n_supplied, n_required, n_declared) = $raise(frame, bytes_msg)
+  -- if callerFrame :: callerFrame_rest* = frame.CALLERS
+  ;; Too few arguments to function <name>(), <count> passed in <file> on line <line> and <qualifier> <required> expected
+  -- if bytes_msg = [ 65, 114, 103, 117, 109, 101, 110, 116, 67, 111, 117, 110, 116, 69, 114, 114, 111, 114, 58,
+      32, 84, 111, 111, 32, 102, 101, 119, 32, 97, 114, 103, 117, 109, 101, 110, 116, 115, 32,
+      116, 111, 32, 102, 117, 110, 99, 116, 105, 111, 110, 32 ] ++ frame.FUNCNAME ++ [ 40, 41, 44, 32 ]
+      ++ $digits(n_supplied) ++ [ 32, 112, 97, 115, 115, 101, 100, 32, 105, 110, 32 ] ++ frame.FILE ++ [ 32, 111, 110, 32, 108, 105, 110, 101, 32 ] ++ $digits(callerFrame.LINE)
+      ++ [ 32, 97, 110, 100, 32 ] ++ $argument_count_qualifier(n_required, n_declared) ++ [32] ++ $digits(n_required) ++ [ 32, 101, 120, 112, 101, 99, 116, 101, 100 ]

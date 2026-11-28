@@ -648,7 +648,6 @@ fn execution_checks_array_operands_and_dimension_keys() {
         "V1 = FETCH_DIM_W CV0",
         "V1 = FETCH_DIM_RW V2, lit[2] | ext=4 numeric-string-key",
         "V1 = FETCH_DIM_UNSET V2, T3 | ext=2",
-        "V1 = FETCH_DIM_FUNC_ARG lit[0], lit[2] | numeric-string-key",
         "T1 = FETCH_LIST_R V2, lit[2] | numeric-string-key",
         "V1 = FETCH_LIST_W V2, CV0",
         "UNSET_DIM V2, lit[2] | numeric-string-key",
@@ -663,6 +662,7 @@ fn execution_checks_array_operands_and_dimension_keys() {
         validate(row).unwrap_or_else(|err| panic!("{row}: {err}"));
     }
     for row in [
+        "V1 = FETCH_DIM_FUNC_ARG lit[0], lit[2] | numeric-string-key",
         "T1 = INIT_ARRAY CV0, V2",
         "T1 = INIT_ARRAY lit[4]",
         "T1 = ADD_ARRAY_ELEMENT lit[4], lit[2]",
@@ -1082,6 +1082,49 @@ fn execution_checks_reference_and_foreach_shapes() {
     ] {
         assert!(validate(row).is_err(), "{row}");
     }
+}
+
+#[test]
+fn execution_checks_direct_calls_and_declarations() {
+    let listing = include_str!("../tests/project/call_positional_slots.zop");
+    let mut arena = Arena::new();
+    let mut check = |text: &str| {
+        let unit = parse_zop(&mut arena, text).unwrap();
+        validate_unit(&arena, &unit)
+    };
+    check(listing).unwrap();
+    for (original, invalid) in [
+        ("function \"digits\"", "function \"Digits\""),
+        (
+            "function \"difference\"\nbody \"difference\"",
+            "function \"digits\"\nbody \"digits\"",
+        ),
+        (
+            "function \"digits\"\nbody \"digits\"",
+            "function \"strlen\"\nbody \"strlen\"",
+        ),
+        ("arg \"b\" type(0)", "arg \"x\" type(0)"),
+        ("args 2 required 2", "args 2 required 3"),
+        ("INIT_FCALL 144", "INIT_FCALL 145"),
+        ("INIT_FCALL 144", "INIT_FCALL 128"),
+        ("ext=2 cache=0", "ext=2"),
+        ("ext=2 cache=0", "ext=2 cache=1"),
+        ("SEND_VAL lit[1], 2", "SEND_VAL lit[1], 0"),
+        ("SEND_VAL lit[1], 2", "T0 = SEND_USER lit[1], 2"),
+        ("4: ECHO T0", "4: JMP @2"),
+        ("CV0 = RECV 1, 1022", "CV0 = RECV 2, 1022"),
+        ("CV0 = RECV 1, 1022", "NOP"),
+    ] {
+        assert!(
+            check(&listing.replacen(original, invalid, 1)).is_err(),
+            "{invalid}"
+        );
+    }
+    let by_name = listing
+        .replacen("INIT_FCALL 144", "INIT_FCALL_BY_NAME _", 1)
+        .replacen("lit[1] = int(3)", "lit[1] = \"digits\"", 1);
+    assert!(check(&by_name).is_err());
+    check(&by_name.replacen("DO_UCALL", "DO_FCALL_BY_NAME", 1)).unwrap();
 }
 
 #[test]

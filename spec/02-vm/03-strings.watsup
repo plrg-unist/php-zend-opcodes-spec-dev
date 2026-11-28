@@ -71,3 +71,48 @@ rule StringStep/rope-end:
   -- StringOperand: frame; operand ~> frame'; bytes_last
   -- RopePrefix: frame'.ROPEPARTS; n_base; $ext_value(extension?) ~> bytes_prefix
   -- if frame_clean = frame'[.ROPEPARTS = $forget_rope(n_base, frame'.ROPEPARTS)]
+
+dec $apply_length(frame, operand, slotValue, lengthResult, bool) : transition
+def $apply_length(frame, operand, slotValue, LENGTH n, _) = CONTINUE $write($string_frame(frame, slotValue), operand, INT n)
+;; strlen(): Passing null to parameter #1 ($string) of type string is deprecated
+def $apply_length(frame, operand, _, NULL_LENGTH, _) = CONTINUE $write(frame', operand, INT 0)
+  -- if frame' = $report(frame, DEPRECATED,
+      [ 115, 116, 114, 108, 101, 110, 40, 41, 58, 32, 80, 97, 115, 115, 105, 110, 103, 32,
+        110, 117, 108, 108, 32, 116, 111, 32, 112, 97, 114, 97, 109, 101, 116, 101, 114, 32,
+        35, 49, 32, 40, 36, 115, 116, 114, 105, 110, 103, 41, 32, 111, 102, 32, 116, 121,
+        112, 101, 32, 115, 116, 114, 105, 110, 103, 32, 105, 115, 32, 100, 101, 112, 114, 101,
+        99, 97, 116, 101, 100 ])
+;; Both entry points share PHP string coercion. The ordinary call adds strlen to the exception trace.
+dec $strlen_type_error(bytes) : bytes
+def $strlen_type_error(bytes_type) =
+    [ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 115, 116, 114, 108, 101, 110,
+        40, 41, 58, 32, 65, 114, 103, 117, 109, 101,
+        110, 116, 32, 35, 49, 32, 40, 36, 115, 116, 114, 105, 110, 103, 41, 32, 109, 117,
+        115, 116, 32, 98, 101, 32, 111, 102, 32, 116, 121, 112, 101, 32, 115, 116, 114, 105,
+        110, 103, 44, 32 ]
+      ++ bytes_type ++ [ 32, 103, 105, 118, 101, 110 ]
+def $apply_length(frame, _, _, LENGTH_ERROR bytes_type, false) = $raise(frame, $strlen_type_error(bytes_type))
+def $apply_length(frame, _, slotValue, LENGTH_ERROR bytes_type, true) =
+  $raise_strlen(frame, $strlen_type_error(bytes_type), [slotValue])
+
+def $length_result(frame, operand, slotValue, lengthResult) = $apply_length(frame, operand, slotValue, lengthResult, false)
+
+def $call_strlen(frame, operand, [slotValue]) =
+  $apply_length(frame, operand, slotValue, $strlen(slotValue, frame.STRICT), true)
+  -- if $known_value(slotValue)
+;; SEND_VAL can transfer a reference from a temporary. Zend's string parameter parser rejects
+;; the wrapper and its type-error message names the referenced value.
+def $call_strlen(frame, _, [REFERENCE n]) =
+  $raise_strlen(frame, $strlen_type_error($value_name(slotValue)), [slotValue])
+  -- if slotValue = $deref(frame, REFERENCE n)
+  -- if $known_value(slotValue)
+def $call_strlen(frame, _, slotValue*) = $raise_strlen(frame, bytes_msg, slotValue*)
+  -- if |slotValue*| =/= 1
+  ;; ArgumentCountError: strlen() expects exactly 1 argument, <n> given
+  -- if bytes_msg = [ 65, 114, 103, 117, 109, 101, 110, 116, 67, 111, 117, 110, 116, 69, 114, 114, 111,
+      114, 58, 32, 115, 116, 114, 108, 101, 110, 40, 41, 32, 101, 120, 112, 101, 99, 116,
+      115, 32, 101, 120, 97, 99, 116, 108, 121, 32, 49, 32, 97, 114, 103, 117, 109, 101,
+      110, 116, 44, 32 ]
+      ++ $digits(|slotValue*|) ++ [ 32, 103, 105, 118, 101, 110 ]
+def $call_strlen(frame, _, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
+  -- otherwise

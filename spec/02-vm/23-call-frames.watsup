@@ -1,0 +1,47 @@
+dec $save_caller(frame, operand) : callerFrame
+def $save_caller(frame, operand) = {
+  CODE frame.CODE, POOL frame.POOL, PC frame.PC, SLOTS frame.SLOTS, ROPEPARTS frame.ROPEPARTS,
+  ITERATORS frame.ITERATORS, LINE frame.LINE, NAMES frame.NAMES, SYMBOLS frame.SYMBOLS, MISSING frame.MISSING,
+  STRICT frame.STRICT, TRIES frame.TRIES, BODYKEY frame.BODYKEY, FUNCNAME frame.FUNCNAME,
+  ARGC frame.ARGC, EXTRAARGS frame.EXTRAARGS, PENDING frame.PENDING, DEST operand
+}
+
+def $restore_caller(frame, callerFrame, callerFrame_rest*) =
+  frame[.CODE = callerFrame.CODE][.POOL = callerFrame.POOL][.PC = callerFrame.PC][.SLOTS = callerFrame.SLOTS]
+       [.ROPEPARTS = callerFrame.ROPEPARTS][.ITERATORS = callerFrame.ITERATORS][.LINE = callerFrame.LINE]
+       [.NAMES = callerFrame.NAMES][.SYMBOLS = callerFrame.SYMBOLS][.MISSING = callerFrame.MISSING]
+       [.STRICT = callerFrame.STRICT][.TRIES = callerFrame.TRIES][.BODYKEY = callerFrame.BODYKEY]
+       [.FUNCNAME = callerFrame.FUNCNAME][.ARGC = callerFrame.ARGC][.EXTRAARGS = callerFrame.EXTRAARGS]
+       [.PENDING = callerFrame.PENDING][.CALLERS = callerFrame_rest*]
+
+dec $declared_args(signature?) : nat
+def $declared_args(eps) = 0
+def $declared_args(ARGS n _ _ _) = n
+
+;; With no parameter type hints Zend skips the receive instructions for arguments already sent.
+dec $receive_start(nat, nat) : nat
+def $receive_start(n_flags, n_bound) = n_bound -- if $((n_flags / 256) \ 2 = 0)
+def $receive_start(n_flags, _) = 0 -- if $((n_flags / 256) \ 2 = 1)
+
+def $enter_user(frame, operand_r, bytes_key,
+    BODY (BODYDECL bytes_name n_flags _ _ (LINES n_start _ _) signature? _) (FRAME n_tmp _ bytes_cv* _)
+         poolentry* tryregion* _ _ instruction*, slotValue_arg*) =
+  CONTINUE $attach_symbols(frame', bytes_cv*, 0)
+  -- if n_slots = $(|bytes_cv*| + n_tmp)
+  -- if n_bound = $min_nat([|slotValue_arg*|, $declared_args(signature?)])
+  -- if n_empty = $(n_slots - n_bound)
+  -- if slotValue* = slotValue_arg*[0 : n_bound] ++ $empty_slots(n_empty)
+  -- if n_extra = $(|slotValue_arg*| - n_bound)
+  -- if slotValue_extra* = slotValue_arg*[n_bound : n_extra]
+  -- if arrayIndex = STORAGE (-9223372036854775808) (MIXED ($array_capacity(|bytes_cv*|, 8)) eps) false
+  -- if frame' = frame[.CODE = instruction*][.POOL = poolentry*][.PC = $receive_start(n_flags, n_bound)]
+                      [.SLOTS = ($owned(slotValue))* ++ [$owned(NULL)]][.ROPEPARTS = eps][.ITERATORS = eps]
+                      [.LINE = n_start][.NAMES = bytes_cv*][.SYMBOLS = ARRAY_VALUE SYMBOL_TABLE eps arrayIndex eps]
+                      [.MISSING = n_slots][.STRICT = $(n_flags >= 2147483648)][.TRIES = tryregion*]
+                      [.BODYKEY = bytes_key][.FUNCNAME = bytes_name][.ARGC = |slotValue_arg*|]
+                      [.EXTRAARGS = slotValue_extra*][.PENDING = eps][.CALLERS = $save_caller(frame, operand_r) :: frame.CALLERS]
+
+def $return_result(frame, _) = FINISH (PHP frame.STDOUT eps 0)
+  -- if frame.CALLERS = eps
+def $return_result(frame, slotValue) = CONTINUE $write($restore_caller(frame, callerFrame, callerFrame_rest*), callerFrame.DEST, slotValue)
+  -- if callerFrame :: callerFrame_rest* = frame.CALLERS

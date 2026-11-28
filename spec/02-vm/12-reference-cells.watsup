@@ -88,11 +88,26 @@ def $retained_edges(frame, n, owner, owners) =
   -- if TABLE arrayId slotValue = frame.BORROWED[n_table]
 def $retained_edges(_, _, _, owners) = owners -- otherwise
 
+;; Sent arguments are already owned by a pending call. On entry their named
+;; slots become CVs and surplus arguments remain owned until the call returns.
+dec $pending_roots(pendingCall*) : slotValue*
+def $pending_roots(eps) = eps
+def $pending_roots((PENDING_CALL _ slotValue*) :: pendingCall*) = slotValue* ++ $pending_roots(pendingCall*)
+
+dec $frame_roots(frameSlot*, pendingCall*, slotValue*) : slotValue*
+def $frame_roots(frameSlot*, pendingCall*, slotValue_extra*) =
+  ($owned_value(frameSlot))* ++ $pending_roots(pendingCall*) ++ slotValue_extra*
+
+dec $caller_roots(callerFrame*) : slotValue*
+def $caller_roots(eps) = eps
+def $caller_roots(callerFrame :: callerFrame_rest*) =
+  $frame_roots(callerFrame.SLOTS, callerFrame.PENDING, callerFrame.EXTRAARGS) ++ $caller_roots(callerFrame_rest*)
+
 dec $shared_owner(frame, owner) : bool
 def $shared_owner(frame, owner) = $(owners'.COUNT > 1)
-  -- if frameSlot* = frame.SLOTS
+  -- if slotValue_root* = $frame_roots(frame.SLOTS, frame.PENDING, frame.EXTRAARGS) ++ $caller_roots(frame.CALLERS)
   -- if (ITEM _ slotValue_const)* = frame.CONSTANTS
-  -- if owners = $visit_edges(frame, ($owned_value(frameSlot))* ++ slotValue_const*, owner, { SEEN eps, COUNT 0 })
+  -- if owners = $visit_edges(frame, slotValue_root* ++ slotValue_const* ++ frame.DISPLACEDARGS, owner, { SEEN eps, COUNT 0 })
   -- if owners' = $retained_edges(frame, 0, owner, owners)
 
 def $shared_array(frame, slotValue) = $shared_owner(frame, TABLE_OWNER (FRESH_ARRAY n))

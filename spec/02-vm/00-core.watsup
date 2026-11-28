@@ -4,14 +4,34 @@ syntax iteratorPosition = ITER_AT arrayId nat
 syntax foreachIterator = SNAPSHOT nat nat | LIVE nat iteratorPosition iteratorPosition*
 syntax symbolRow = SYMBOL bytes nat
 syntax frameSlot = { VALUE slotValue, OWNS bool }
+syntax pendingCall = PENDING_CALL bytes slotValue*
+syntax bodyCacheEntry = CACHED_VALUE bytes nat slotValue
+;; A DO opline suspends this invocation until its callee returns into DEST.
+syntax callerFrame = {
+  CODE instruction*, POOL poolentry*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, ITERATORS foreachIterator*,
+  LINE nat, NAMES bytes*, SYMBOLS slotValue, MISSING nat, STRICT bool, TRIES tryregion*,
+  BODYKEY bytes, FUNCNAME bytes, ARGC nat, EXTRAARGS slotValue*, PENDING pendingCall*, DEST operand
+}
 dec $owned(slotValue) : frameSlot
 def $owned(slotValue) = { VALUE slotValue, OWNS true }
 syntax frame = {
   CODE instruction*, OPLINESIZE nat, POOL poolentry*, PC nat, SLOTS frameSlot*, ROPEPARTS fragment*, NEXTARRAY nat, BORROWED borrowedTable*,
   CELLS slotValue*, ITERATORS foreachIterator*, FILE bytes, SCRIPT bytes, LINE nat, NAMES bytes*, SYMBOLS slotValue, MISSING nat,
-  PREDEFINED predefinedConstants, CONSTANTS runtimeEntry*, CONSTCACHE runtimeEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes
+  PREDEFINED predefinedConstants, CONSTANTS runtimeEntry*, CACHE bodyCacheEntry*, STRICT bool, TRIES tryregion*, STDOUT bytes,
+  FUNCTIONS namedBody*, DISPLACEDARGS slotValue*, BODYKEY bytes, FUNCNAME bytes, ARGC nat, EXTRAARGS slotValue*, PENDING pendingCall*, CALLERS callerFrame*
 }
 syntax transition = CONTINUE frame | FINISH outcome
+
+dec $call_body(namedBody*, bytes) : body?
+dec $enter_user(frame, operand, bytes, body, slotValue*) : transition
+dec $restore_caller(frame, callerFrame, callerFrame*) : frame
+dec $return_result(frame, slotValue) : transition
+dec $call_init(frame, opcode, operand, extension?) : transition
+dec $call_send(frame, opcode, operand, nat) : transition
+dec $call_check_arg(frame, nat) : transition
+dec $call_fetch_arg(frame, opcode, operand, operand, operand, extension?) : transition
+dec $call_do(frame, opcode, operand) : transition
+dec $call_recv(frame, operand, nat) : transition
 
 dec $global_names(bytes*) : bytes*
 dec $initial_global(bytes, bytes) : slotValue
@@ -41,7 +61,7 @@ def $runtime_value(SHARED_ARRAY n zval, _, _) = $runtime_value(zval, SHARED_LITE
 def $runtime_value(zval, _, _) = zval
   -- otherwise
 
-dec $literal_value(zval, nat, instruction*, nat) : slotValue
+dec $literal_value(zval, nat, bytes, instruction*, nat) : slotValue
 dec $deref(frame, slotValue) : slotValue
 dec $bind(frame, operand, slotValue) : frame
 dec $as_reference(frame, operand) : (frame, slotValue)
@@ -59,13 +79,14 @@ dec $server_fresh(frame, slotValue, arrayId?) : (frame, slotValue)
 dec $server_separate(frame, operand, slotValue) : (frame, slotValue)
 
 ;; CV, TMP and VAR indices address the same frame.
+dec $symbol_address(frame, bool, nat) : slotValue
 dec $address_value(frame, slotValue) : slotValue
-def $address_value(frame, SYMBOL_LOCATION n) = frame.SLOTS[n].VALUE
+def $address_value(frame, SYMBOL_LOCATION b n) = $symbol_address(frame, b, n)
 def $address_value(_, slotValue) = slotValue -- otherwise
 dec $slot_value(frame, nat) : slotValue
 def $slot_value(frame, n) = $current(frame.BORROWED, $address_value(frame, frame.SLOTS[n].VALUE))
 dec $raw_read(frame, operand) : slotValue
-def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.CODE, frame.OPLINESIZE)
+def $raw_read(frame, LIT n) = $literal_value(zval, n, frame.BODYKEY, frame.CODE, frame.OPLINESIZE)
   -- if LITERAL zval = frame.POOL[n]
 def $raw_read(frame, CV n) = $slot_value(frame, n)
 def $raw_read(frame, TMP n) = $slot_value(frame, n)
@@ -151,40 +172,11 @@ dec $protected(tryregion, nat) : bool
 def $protected(TRY n_start n_catch _ n_end, n_pc) =
   $(n_start <= n_pc) /\ ($(n_pc < n_catch) \/ $(n_pc <= n_end))
 
-;; An uncaught exception in main contributes one stack frame. An active handler
-;; or finally region requires PHP exception unwinding.
 dec $raise(frame, bytes) : transition
-def $raise(frame, bytes_exception) = FINISH (PHP frame'.STDOUT eps 255)
-  -- if tryregion* = frame.TRIES
-  -- if n_pc = $(frame.PC - 1)
-  -- if ~(true <- ($protected(tryregion, n_pc))*)
-  -- if bytes_msg = [ 85, 110, 99, 97, 117, 103, 104, 116, 32 ] ++ bytes_exception
-      ++ [ 32, 105, 110, 32 ] ++ frame.FILE ++ [58] ++ $digits(frame.LINE)
-      ++ [ 10, 83, 116, 97, 99, 107, 32, 116, 114, 97, 99, 101, 58, 10, 35, 48, 32, 123,
-           109, 97, 105, 110, 125, 10, 32, 32, 116, 104, 114, 111, 119, 110 ]
-  -- if frame' = $report(frame, FATAL, bytes_msg)
-def $raise(frame, _) = FINISH (UNSUPPORTED frame.STDOUT eps)
-  -- otherwise
-
+dec $raise_strlen(frame, bytes, slotValue*) : transition
+dec $missing_call_arguments(frame, nat, nat, nat) : transition
 dec $length_result(frame, operand, slotValue, lengthResult) : transition
-def $length_result(frame, operand, slotValue, LENGTH n) = CONTINUE $write($string_frame(frame, slotValue), operand, INT n)
-;; strlen(): Passing null to parameter #1 ($string) of type string is deprecated
-def $length_result(frame, operand, _, NULL_LENGTH) = CONTINUE $write(frame', operand, INT 0)
-  -- if frame' = $report(frame, DEPRECATED,
-      [ 115, 116, 114, 108, 101, 110, 40, 41, 58, 32, 80, 97, 115, 115, 105, 110, 103, 32,
-        110, 117, 108, 108, 32, 116, 111, 32, 112, 97, 114, 97, 109, 101, 116, 101, 114, 32,
-        35, 49, 32, 40, 36, 115, 116, 114, 105, 110, 103, 41, 32, 111, 102, 32, 116, 121,
-        112, 101, 32, 115, 116, 114, 105, 110, 103, 32, 105, 115, 32, 100, 101, 112, 114, 101,
-        99, 97, 116, 101, 100 ])
-;; TypeError: strlen(): Argument #1 ($string) must be of type string, <type> given
-def $length_result(frame, _, _, LENGTH_ERROR bytes_type) = $raise(frame, bytes_msg)
-  -- if bytes_msg =
-      [ 84, 121, 112, 101, 69, 114, 114, 111, 114, 58, 32, 115, 116, 114, 108, 101, 110,
-        40, 41, 58, 32, 65, 114, 103, 117, 109, 101,
-        110, 116, 32, 35, 49, 32, 40, 36, 115, 116, 114, 105, 110, 103, 41, 32, 109, 117,
-        115, 116, 32, 98, 101, 32, 111, 102, 32, 116, 121, 112, 101, 32, 115, 116, 114, 105,
-        110, 103, 44, 32 ]
-      ++ bytes_type ++ [ 32, 103, 105, 118, 101, 110 ]
+dec $call_strlen(frame, operand, slotValue*) : transition
 
 dec $store_result(frame, operand, operand, slotValue) : transition
 def $store_result(frame, operand_r, operand_dst, slotValue) =
@@ -226,7 +218,7 @@ def $unary(frame, CHECK_VAR, _, _, _, _) = CONTINUE frame
 def $unary(frame, ECHO, _, _, _, slotValue) = CONTINUE frame'[.STDOUT = frame'.STDOUT ++ $scalar_bytes(slotValue)]
   -- if $known_value(slotValue)
   -- if frame' = $string_frame(frame, slotValue)
-def $unary(frame, RETURN, _, _, _, slotValue) = FINISH (PHP frame.STDOUT eps 0)
+def $unary(frame, RETURN, _, operand_src, _, slotValue) = $return_result(frame, $copy_value(frame, operand_src, slotValue))
   -- if $known_value(slotValue) \/ $host_offset(slotValue)
 def $unary(frame, opcode, operand_r, _, _, slotValue) = CONTINUE $write($truth_frame(frame, slotValue), operand_r, $zend_bool(b))
   -- if opcode = BOOL \/ opcode = BOOL_NOT
@@ -366,6 +358,17 @@ relation DestructureStep: frame; operand; operand; operand ~> transition
 
 dec $step(frame, opcode, operand, operand, operand, extension?, smartbranch?) : transition
 def $step(frame, NOP, _, _, _, _, _) = CONTINUE frame
+def $step(frame, opcode, _, _, operand_b, extension?, _) = $call_init(frame, opcode, operand_b, extension?)
+  -- if opcode <- [INIT_FCALL, INIT_FCALL_BY_NAME]
+def $step(frame, opcode, _, operand_a, IMM n, _, _) = $call_send(frame, opcode, operand_a, n)
+  -- if opcode <- [SEND_VAL, SEND_VAL_EX, SEND_VAR, SEND_VAR_EX, SEND_VAR_NO_REF_EX, SEND_FUNC_ARG, SEND_USER]
+def $step(frame, CHECK_FUNC_ARG, _, _, IMM n, _, _) = $call_check_arg(frame, n)
+def $step(frame, opcode, operand_r, operand_a, operand_b, extension?, _) =
+  $call_fetch_arg(frame, opcode, operand_r, operand_a, operand_b, extension?)
+  -- if opcode <- [FETCH_FUNC_ARG, FETCH_DIM_FUNC_ARG]
+def $step(frame, opcode, operand_r, _, _, _, _) = $call_do(frame, opcode, operand_r)
+  -- if opcode <- [DO_ICALL, DO_UCALL, DO_FCALL, DO_FCALL_BY_NAME]
+def $step(frame, RECV, operand_r, IMM n, _, _, _) = $call_recv(frame, operand_r, n)
 def $step(frame, COPY_TMP, operand_r, operand_src, _, _, _) =
   CONTINUE $write(frame, operand_r, $temporary_value(frame, operand_src))
 def $step(frame, JMP, _, TARGET n, _, _, _) = CONTINUE frame[.PC = n]
@@ -464,7 +467,8 @@ def $host_operand(_, _) = false -- otherwise
 dec $handles_host_input(opcode) : bool
 def $handles_host_input(opcode) = ($binary_kind(opcode) =/= eps) \/
   (opcode <- [ASSIGN, ASSIGN_OP, ASSIGN_REF, MAKE_REF, SEPARATE, COPY_TMP, QM_ASSIGN, FREE, FE_FREE, CHECK_VAR, UNSET_CV, CONCAT, FAST_CONCAT,
-              RETURN, TYPE_CHECK, GET_TYPE, COUNT, CAST, CASE, CASE_STRICT, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT, BIND_GLOBAL,
+              RETURN, SEND_VAL, SEND_VAL_EX, SEND_VAR, SEND_VAR_EX, SEND_VAR_NO_REF_EX, SEND_FUNC_ARG, SEND_USER, FETCH_FUNC_ARG, FETCH_DIM_FUNC_ARG,
+              TYPE_CHECK, GET_TYPE, COUNT, CAST, CASE, CASE_STRICT, ISSET_ISEMPTY_CV, INIT_ARRAY, ADD_ARRAY_ELEMENT, BIND_GLOBAL,
               FE_RESET_R, FE_RESET_RW, FE_FETCH_RW, FETCH_LIST_W, SWITCH_LONG, SWITCH_STRING, MATCH])
 dec $host_type_suffices(frame, opcode, operand, operand) : bool
 def $host_type_suffices(frame, opcode, operand_a, _) = true
@@ -511,11 +515,12 @@ def $dormant_class(_) = false
   -- otherwise
 
 dec $execute(unit, bytes, bytes, predefinedConstants, nat) : outcome
-def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) _ classDecl*, _, bytes_script, predefinedConstants, n_opline_size)
+def $execute(UNIT bytes_file n_halt? bytes_auto* (BODY (BODYDECL _ n_flags _ _ _ _ _) (FRAME n _ bytes_cv* _) poolentry* tryregion* _ _ instruction*) namedBody* classDecl*, _, bytes_script, predefinedConstants, n_opline_size)
   = $run($start_symbols({ CODE instruction*, OPLINESIZE n_opline_size, POOL poolentry*, PC 0, SLOTS (($owned(slotValue))* ++ [$owned(NULL)]), ROPEPARTS eps, NEXTARRAY 0, BORROWED eps,
            CELLS eps, ITERATORS eps, FILE bytes_file, SCRIPT bytes_script, LINE 0, NAMES bytes_cv*,
            SYMBOLS ARRAY_VALUE SYMBOL_TABLE eps (STORAGE (-9223372036854775808) (MIXED 64 eps) false) eps, MISSING $(|slotValue*|),
-           PREDEFINED predefinedConstants, CONSTANTS $initial_constants(bytes_file, n_halt?), CONSTCACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps }, bytes_auto*))
+           PREDEFINED predefinedConstants, CONSTANTS $initial_constants(bytes_file, n_halt?), CACHE eps, STRICT $(n_flags >= 2147483648), TRIES tryregion*, STDOUT eps,
+           FUNCTIONS namedBody*, DISPLACEDARGS eps, BODYKEY eps, FUNCNAME eps, ARGC 0, EXTRAARGS eps, PENDING eps, CALLERS eps }, bytes_auto*))
   -- if ~(false <- ($dormant_class(classDecl))*)
   -- if slotValue* = $empty_slots($(|bytes_cv*| + n))
 def $execute(_, _, _, _, _) = UNSUPPORTED eps eps

@@ -1,0 +1,22 @@
+zend-opcodes
+file "call_strlen_reference.php"
+main
+body - {
+  lines 1 4
+  frame 2 cache 8
+  locals 1 ["x"]
+  size 8 literals 3 children 0
+  lit[0] = "abc"
+  lit[1] = int(1)
+  lit[2] = "strlen"
+  code
+    0: ASSIGN CV0, lit[0] | line=1
+    1: V1 = MAKE_REF CV0 | line=1
+    2: T2 = COPY_TMP V1 | line=1
+    3: FREE V1 | line=1
+    4: INIT_FCALL 96, lit[2] | line=2 ext=1 cache=0
+    5: SEND_VAL T2, 1 | line=3
+    6: T1 = DO_ICALL | line=4
+    7: RETURN lit[1] | line=4
+}
+end

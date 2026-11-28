@@ -24,10 +24,18 @@ def $update_array_iterator(slotValue_old, slotValue_new, arrayId_old, arrayId_ne
 def $update_array_iterator(_, _, _, _, foreachIterator) = foreachIterator
   -- otherwise
 
+dec $update_iterators(foreachIterator*, slotValue, slotValue, arrayId, arrayId) : foreachIterator*
+def $update_iterators(foreachIterator*, slotValue_old, slotValue_new, arrayId_old, arrayId_new) =
+  ($update_array_iterator(slotValue_old, slotValue_new, arrayId_old, arrayId_new, foreachIterator))*
+
+dec $update_caller_iterators(callerFrame, slotValue, slotValue, arrayId, arrayId) : callerFrame
+def $update_caller_iterators(callerFrame, slotValue_old, slotValue_new, arrayId_old, arrayId_new) =
+  callerFrame[.ITERATORS = $update_iterators(callerFrame.ITERATORS, slotValue_old, slotValue_new, arrayId_old, arrayId_new)]
+
 def $iterator_update(frame, slotValue_old, slotValue_new) =
-  frame[.ITERATORS = ($update_array_iterator(slotValue_old, slotValue_new, arrayId_old, arrayId_new, foreachIterator))*]
-  -- if foreachIterator* = frame.ITERATORS
-  -- if $(|foreachIterator*| > 0)
+  frame[.ITERATORS = $update_iterators(frame.ITERATORS, slotValue_old, slotValue_new, arrayId_old, arrayId_new)]
+       [.CALLERS = ($update_caller_iterators(callerFrame, slotValue_old, slotValue_new, arrayId_old, arrayId_new))*]
+  -- if callerFrame* = frame.CALLERS
   -- if ARRAY_VALUE arrayId_old _ _ _ = slotValue_old
   -- if ARRAY_VALUE arrayId_new _ _ _ = slotValue_new
   -- if arrayId_old = arrayId_new \/ $iterator_copies(slotValue_old)
