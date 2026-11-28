@@ -43,17 +43,13 @@ fn valid_flags(tag: &str, flags: usize) -> bool {
 struct Check<'a> {
     arena: &'a Arena,
     allow_objects: bool,
-    closure_depth: usize,
-    pending: &'a mut Vec<(Value, usize)>,
+    pending: &'a mut Vec<Value>,
     literals: &'a mut HashSet<Value>,
 }
 
 impl Check<'_> {
-    fn node(&mut self, v: Value, depth: usize) -> Result<Role> {
+    fn node(&mut self, v: Value) -> Result<Role> {
         use Role::*;
-        if depth > 256 {
-            return Err(Error::new("constant expression nesting exceeds 256"));
-        }
         let arena = self.arena;
         let (tag, args) = case_fields(arena, v)?;
         if (tag, args) == ("ABSENT", &[]) {
@@ -73,7 +69,7 @@ impl Check<'_> {
                 "dynamic object creation in enum backing expression",
             ));
         }
-        let mut child = |v| crate::with_stack(|| self.node(v, depth + 1));
+        let mut child = |v| crate::with_stack(|| self.node(v));
         match (tag, children) {
             ("VALUE", &[v]) => {
                 let kind = case_fields(arena, v)?.0;
@@ -81,7 +77,7 @@ impl Check<'_> {
                     return Err(Error::new("undefined value in a constant expression"));
                 }
                 check_constant_literal(arena, v, self.literals)?;
-                self.pending.push((v, self.closure_depth));
+                self.pending.push(v);
                 Ok(if kind == "STRING" {
                     String(flags)
                 } else {
@@ -114,10 +110,7 @@ impl Check<'_> {
                         "constant closure requires a named static closure body",
                     ));
                 }
-                if self.closure_depth >= 64 {
-                    return Err(Error::new("constant closure nesting exceeds 64"));
-                }
-                self.pending.push((body, self.closure_depth + 1));
+                self.pending.push(body);
                 Ok(Expression)
             }
             ("ARRAY", &[items]) => {
@@ -233,18 +226,16 @@ pub(super) fn check(
     arena: &Arena,
     root: Value,
     allow_objects: bool,
-    closure_depth: usize,
-    pending: &mut Vec<(Value, usize)>,
+    pending: &mut Vec<Value>,
     literals: &mut HashSet<Value>,
 ) -> Result<()> {
     let mut check = Check {
         arena,
         allow_objects,
-        closure_depth,
         pending,
         literals,
     };
-    if !check.node(root, 0)?.expression() {
+    if !check.node(root)?.expression() {
         return Err(Error::new("expected a constant expression"));
     }
     Ok(())

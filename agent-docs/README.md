@@ -4,6 +4,8 @@ This directory is the entry point for agents working on the PHP Zend opcode spec
 
 Backward compatibility with earlier versions of this project is required only when the user explicitly requests it. Introduce project-defined versioning only at the user's request. Supply version fields when external tooling requires them.
 
+Report to the user any proposed limit in the spec or its tools that goes beyond what the pinned Zend engine enforces. Explain which inputs or executions it affects, why it is needed, and how its threshold was chosen so the user can judge whether it is necessary and reasonable.
+
 - [PHP build and optimizer settings](fixture-compilation.md) gives the php-src pin, executable lookup and verified fixture variants.
 - [Compiling PHP fixtures to an opcode AST](opcode-input.md) covers the extension hook, required data and scope of a compilation unit.
 - [Concrete syntax for opcode fixtures](opcode-syntax.md) describes the notation used by the printer and loader.

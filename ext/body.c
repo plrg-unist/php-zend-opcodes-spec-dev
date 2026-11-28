@@ -292,10 +292,9 @@ static bool check_attribute_literals(const zend_op_array *body, bool *has_attrib
     return valid && tables == owners;
 }
 
-static void print_body(zo_writer *writer, const zend_op_array *body, unsigned int depth)
+void zo_print_body(zo_writer *writer, const zend_op_array *body)
 {
     smart_str *out = writer->out;
-    if (depth > 256) zo_unsupported("body nesting exceeds 256 levels");
     if (body->type != ZEND_USER_FUNCTION || !(body->fn_flags & ZEND_ACC_DONE_PASS_TWO)) {
         zo_unsupported("expected a finalized user op array");
     }
@@ -352,16 +351,11 @@ static void print_body(zo_writer *writer, const zend_op_array *body, unsigned in
     }
     print_ranges(out, body);
     for (uint32_t i = 0; i < body->num_dynamic_func_defs; i++) {
-        print_body(writer, body->dynamic_func_defs[i], depth + 1);
+        zo_print_body(writer, body->dynamic_func_defs[i]);
     }
     smart_str_appends(out, "  code\n");
     zo_print_instructions(out, body);
     smart_str_appends(out, "}\n");
-}
-
-void zo_print_body(zo_writer *writer, const zend_op_array *body)
-{
-    print_body(writer, body, 0);
 }
 
 static void allocate_code(zo_reader *r, zend_op_array *body)
@@ -385,10 +379,8 @@ static void allocate_code(zo_reader *r, zend_op_array *body)
 #endif
 }
 
-static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
-        zend_class_entry *scope, unsigned int depth)
+void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend_class_entry *scope)
 {
-    if (depth > 256) zo_fail(r, "body nesting exceeds 256 levels");
     zo_expect(r, "body");
     zend_string *name = zo_take(r, "-") ? NULL : zo_string(r);
     if (name && !ZSTR_LEN(name)) zo_fail(r, "empty function name");
@@ -517,7 +509,7 @@ static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
         body->dynamic_func_defs = ecalloc(body->num_dynamic_func_defs, sizeof(zend_op_array *));
         for (uint32_t i = 0; i < body->num_dynamic_func_defs; i++) {
             zend_op_array *child = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
-            load_body(r, child, filename, r->scope, depth + 1);
+            zo_load_body(r, child, filename, r->scope);
             if (!child->function_name) zo_fail(r, "nested body requires function name");
             body->dynamic_func_defs[i] = child;
         }
@@ -535,9 +527,4 @@ static void load_body(zo_reader *r, zend_op_array *body, zend_string *filename,
     r->body = old_context;
     r->filename = old_source;
     r->scope = old_scope;
-}
-
-void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend_class_entry *scope)
-{
-    load_body(r, body, filename, scope, 0);
 }

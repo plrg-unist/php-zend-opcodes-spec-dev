@@ -62,14 +62,13 @@ static bool valid_node_attr(zend_ast_kind kind, uint32_t attr)
     }
 }
 
-static void put_node(zo_writer *writer, zend_ast *ast, unsigned depth)
+void zo_put_expression(zo_writer *writer, zend_ast *ast)
 {
     smart_str *out = writer->out;
     if (!ast) {
         smart_str_appends(out, "none");
         return;
     }
-    if (depth > 256) zo_unsupported("constant expression nesting exceeds 256");
     size_t index = 0;
     while (index < sizeof(nodes) / sizeof(*nodes) && nodes[index].kind != ast->kind) {
         index++;
@@ -96,7 +95,7 @@ static void put_node(zo_writer *writer, zend_ast *ast, unsigned depth)
         if (fcc->name) zo_put_string(out, fcc->name);
         else smart_str_appends(out, "none");
         smart_str_appendc(out, ' ');
-        put_node(writer, fcc->args, depth + 1);
+        zo_put_expression(writer, fcc->args);
     } else {
         uint32_t count;
         zend_ast **children;
@@ -111,7 +110,7 @@ static void put_node(zo_writer *writer, zend_ast *ast, unsigned depth)
         }
         for (uint32_t i = 0; i < count; i++) {
             smart_str_appendc(out, ' ');
-            put_node(writer, children[i], depth + 1);
+            zo_put_expression(writer, children[i]);
         }
     }
     smart_str_appendc(out, ')');
@@ -121,13 +120,8 @@ void zo_put_ast(zo_writer *writer, const zval *value)
 {
     smart_str *out = writer->out;
     smart_str_appends(out, "ast(");
-    put_node(writer, Z_ASTVAL_P(value), 0);
+    zo_put_expression(writer, Z_ASTVAL_P(value));
     smart_str_appendc(out, ')');
-}
-
-void zo_put_expression(zo_writer *writer, zend_ast *ast)
-{
-    put_node(writer, ast, 0);
 }
 
 static bool string_node(zend_ast *node)
@@ -191,9 +185,8 @@ static bool valid_child(zend_ast_kind parent, uint32_t index, zend_ast *child)
     }
 }
 
-static zend_ast *get_node(zo_reader *r, zend_arena **arena, unsigned depth, bool allow_dynamic)
+static zend_ast *get_node(zo_reader *r, zend_arena **arena, bool allow_dynamic)
 {
-    if (depth > 256) zo_fail(r, "constant expression nesting exceeds 256");
     if (zo_take(r, "none")) return NULL;
     size_t index = 0;
     while (index < sizeof(nodes) / sizeof(*nodes) && !zo_take(r, nodes[index].opening)) {
@@ -223,15 +216,13 @@ static zend_ast *get_node(zo_reader *r, zend_arena **arena, unsigned depth, bool
         }
         Z_LINENO(leaf->val) = line;
     } else if (kind == ZEND_AST_OP_ARRAY) {
-        if (!r->filename || r->closure_depth >= 64) zo_fail(r, "invalid closure default context or nesting");
+        if (!r->filename) zo_fail(r, "invalid closure default context");
         zo_eol(r);
         zend_ast_op_array *closure = zend_arena_alloc(arena, sizeof(*closure));
         closure->op_array = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
-        r->closure_depth++;
         r->in_ast = false;
         zo_load_body(r, closure->op_array, r->filename, r->scope);
         r->in_ast = true;
-        r->closure_depth--;
         if (!closure->op_array->function_name ||
             (closure->op_array->fn_flags & (ZEND_ACC_CLOSURE | ZEND_ACC_STATIC)) !=
                 (ZEND_ACC_CLOSURE | ZEND_ACC_STATIC)) {
@@ -244,7 +235,7 @@ static zend_ast *get_node(zo_reader *r, zend_arena **arena, unsigned depth, bool
         fcc->lineno = line;
         fcc->filename = zo_take(r, "none") ? NULL : zo_string(r);
         fcc->name = zo_take(r, "none") ? NULL : zo_string(r);
-        fcc->args = get_node(r, arena, depth + 1, allow_dynamic);
+        fcc->args = get_node(r, arena, allow_dynamic);
         if (!fcc->args || fcc->args->kind != ZEND_AST_ARG_LIST) {
             zo_fail(r, "expected arguments for a callable conversion");
         }
@@ -279,7 +270,7 @@ static zend_ast *get_node(zo_reader *r, zend_arena **arena, unsigned depth, bool
         node->lineno = line;
         bool named = false;
         for (uint32_t i = 0; i < count; i++) {
-            children[i] = get_node(r, arena, depth + 1, allow_dynamic);
+            children[i] = get_node(r, arena, allow_dynamic);
             if (!valid_child(kind, i, children[i])) zo_fail(r, "invalid constant expression child");
             if (kind == ZEND_AST_ARG_LIST) {
                 if (children[i]->kind == ZEND_AST_NAMED_ARG) {
@@ -306,7 +297,7 @@ zend_ast_ref *zo_get_expression(zo_reader *r, bool allow_dynamic)
     if (r->in_ast) zo_fail(r, "a constant-expression value cannot contain a deferred zval");
     r->in_ast = true;
     zend_arena *arena = zend_arena_create(1024);
-    zend_ast *ast = get_node(r, &arena, 0, allow_dynamic);
+    zend_ast *ast = get_node(r, &arena, allow_dynamic);
     zend_ast_ref *ref = NULL;
     if (ast) {
         if (!expression_node(ast)) zo_fail(r, "expected a constant expression");

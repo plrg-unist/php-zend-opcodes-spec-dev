@@ -217,10 +217,7 @@ static double read_float(zo_reader *r)
     return value;
 }
 
-#define ZO_MAX_VALUE_DEPTH 256
-
-static void put_value(zo_writer *writer, const zval *value, unsigned depth);
-static bool get_value(zo_reader *r, zval *value, unsigned depth);
+static bool get_value(zo_reader *r, zval *value);
 
 /* Replay the listed keys on a new table to omit reconstructible layout. */
 static uint32_t plain_array_capacity(const HashTable *table, bool *packed)
@@ -290,8 +287,7 @@ static bool print_array_layout(smart_str *out, const HashTable *table, bool raw_
     return true;
 }
 
-static void print_array(zo_writer *writer, const HashTable *table, unsigned depth,
-                        const zend_op_array *body, uint32_t owner)
+void zo_put_table(zo_writer *writer, const HashTable *table, const zend_op_array *body, uint32_t owner)
 {
     smart_str *out = writer->out;
     zend_ulong index;
@@ -319,7 +315,7 @@ static void print_array(zo_writer *writer, const HashTable *table, unsigned dept
             if (Z_TYPE_P(entry) != IS_LONG) zo_unsupported("non-integer switch target");
             smart_str_append_printf(out, "int(%u)", zo_absolute_target(body, owner, Z_LVAL_P(entry)));
         } else {
-            put_value(writer, entry, depth + 1);
+            zo_put_value(writer, entry);
         }
     } ZEND_HASH_FOREACH_END();
     bool empty_layout = has_layout && !count;
@@ -336,11 +332,6 @@ static void print_array(zo_writer *writer, const HashTable *table, unsigned dept
     smart_str_appendc(out, ')');
 }
 
-void zo_put_table(zo_writer *writer, const HashTable *table, const zend_op_array *body, uint32_t owner)
-{
-    print_array(writer, table, 0, body, owner);
-}
-
 static zval *array_label(zo_writer *writer, zend_ulong offset)
 {
     zval *label = zend_hash_index_find(writer->array_labels, offset);
@@ -350,7 +341,7 @@ static zval *array_label(zo_writer *writer, zend_ulong offset)
     return zend_hash_index_add_new(writer->array_labels, offset, &id);
 }
 
-static void put_array_value(zo_writer *writer, const HashTable *table, unsigned depth)
+static void put_array_value(zo_writer *writer, const HashTable *table)
 {
     zend_ulong pointer = (zend_ulong)(uintptr_t)table;
     zval *first = zend_hash_index_find(writer->array_offsets, pointer);
@@ -370,7 +361,7 @@ static void put_array_value(zo_writer *writer, const HashTable *table, unsigned 
         /* A single-use binding preserves Zend's immutable duplication, including holes. */
         array_label(writer, Z_LVAL(position));
     }
-    print_array(writer, table, depth, NULL, 0);
+    zo_put_table(writer, table, NULL, 0);
     zend_hash_index_update(writer->array_offsets, pointer, &position);
 }
 
@@ -447,7 +438,7 @@ static void restore_mixed_layout(HashTable *table, uint32_t capacity, uint32_t c
 }
 
 /* The result tells a shared binding whether it can also serve as an immutable partial argument. */
-static bool read_array(zo_reader *r, zval *result, unsigned depth)
+static bool read_array(zo_reader *r, zval *result)
 {
     bool packed = zo_take(r, "packed=");
     bool reserved_mixed = !packed && zo_take(r, "mixed=");
@@ -499,7 +490,7 @@ static bool read_array(zo_reader *r, zval *result, unsigned depth)
             }
             zo_expect(r, "=>");
             zval item;
-            if (!get_value(r, &item, depth + 1)) freezable = false;
+            if (!get_value(r, &item)) freezable = false;
             if (Z_ISUNDEF(item)) zo_fail(r, "undef cannot be an array element");
             zval *added = key ? zend_hash_add(table, key, &item)
                               : zend_hash_index_add(table, (zend_ulong)index, &item);
@@ -520,10 +511,9 @@ static bool read_array(zo_reader *r, zval *result, unsigned depth)
     return freezable;
 }
 
-static void put_value(zo_writer *writer, const zval *value, unsigned depth)
+void zo_put_value(zo_writer *writer, const zval *value)
 {
     smart_str *out = writer->out;
-    if (depth > ZO_MAX_VALUE_DEPTH) zo_unsupported("literal nesting exceeds %d", ZO_MAX_VALUE_DEPTH);
     switch (Z_TYPE_P(value)) {
         case IS_UNDEF: smart_str_appends(out, "undef"); break;
         case IS_NULL:  smart_str_appends(out, "null"); break;
@@ -536,15 +526,14 @@ static void put_value(zo_writer *writer, const zval *value, unsigned depth)
             break;
         case IS_DOUBLE: print_float(out, Z_DVAL_P(value)); break;
         case IS_STRING: zo_put_string(out, Z_STR_P(value)); break;
-        case IS_ARRAY:  put_array_value(writer, Z_ARRVAL_P(value), depth); break;
+        case IS_ARRAY:  put_array_value(writer, Z_ARRVAL_P(value)); break;
         case IS_CONSTANT_AST: zo_put_ast(writer, value); break;
         default: zo_unsupported("literal with Zend type %d", Z_TYPE_P(value));
     }
 }
 
-static bool get_value(zo_reader *r, zval *value, unsigned depth)
+static bool get_value(zo_reader *r, zval *value)
 {
-    if (depth > ZO_MAX_VALUE_DEPTH) zo_fail(r, "literal nesting exceeds %d", ZO_MAX_VALUE_DEPTH);
     Z_EXTRA_P(value) = 0;
     if (zo_take(r, "undef")) { ZVAL_UNDEF(value); return true; }
     if (zo_take(r, "null"))  { ZVAL_NULL(value); return true; }
@@ -559,14 +548,14 @@ static bool get_value(zo_reader *r, zval *value, unsigned depth)
     } else if (r->p < r->end && *r->p == '"') {
         ZVAL_STR(value, zo_string(r));
     } else if (zo_take(r, "array(")) {
-        return read_array(r, value, depth);
+        return read_array(r, value);
     } else if (zo_take(r, "array#")) {
         uint32_t id = zo_u32(r);
         zo_expect(r, "(");
         if (!zend_hash_index_add_empty_element(r->array_bindings, id)) {
             zo_fail(r, "duplicate literal array binding %u", id);
         }
-        bool freezable = read_array(r, value, depth);
+        bool freezable = read_array(r, value);
         if (freezable) zo_freeze_bound_literal(r, value);
         Z_TRY_ADDREF_P(value);
         zend_hash_index_update(r->array_bindings, id, value);
@@ -592,12 +581,7 @@ static bool get_value(zo_reader *r, zval *value, unsigned depth)
     return true;
 }
 
-void zo_put_value(zo_writer *writer, const zval *value)
-{
-    put_value(writer, value, 0);
-}
-
 void zo_get_value(zo_reader *r, zval *value)
 {
-    get_value(r, value, 0);
+    get_value(r, value);
 }

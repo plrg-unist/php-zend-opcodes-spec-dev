@@ -291,12 +291,13 @@ fn shared_array_graphs_roundtrip_without_expanding_references() {
 }
 
 #[test]
-fn spec_accepts_arrays_at_zends_nesting_limit() {
-    let literal = format!("{}int(9){}", "array(0 => ".repeat(256), ")".repeat(256));
+fn spec_accepts_deeply_nested_literal_arrays() {
+    let literal = format!("{}int(9){}", "array(0 => ".repeat(257), ")".repeat(257));
     let listing = BYTES_AND_LITERAL.replace("int(-7)", &literal);
     let mut arena = Arena::new();
     let mut runner = test_spec::runner(&mut arena);
     let unit = parse_zop(&mut arena, &listing).unwrap();
+    validate_unit(&arena, &unit).unwrap();
     test_spec::check_unit(&mut runner, &mut arena, unit).unwrap();
 }
 
@@ -911,7 +912,7 @@ fn execution_validates_bodies_inside_deferred_attribute_arguments() {
 }
 
 #[test]
-fn execution_checks_constant_expression_roles_and_limits() {
+fn execution_checks_constant_expression_flags_and_child_roles() {
     let mut arena = Arena::new();
     let mut check = |expr: &str| {
         let text = BYTES_AND_LITERAL.replace("int(-7)", &format!("ast({expr})"));
@@ -954,14 +955,17 @@ fn execution_checks_constant_expression_roles_and_limits() {
     ] {
         assert!(check(expr).is_err(), "{expr}");
     }
-    for (depth, accepted) in [(256, true), (257, false)] {
-        let expr = format!(
-            "{}value(0 1 int(1)){}",
-            "plus(0 1 ".repeat(depth),
-            ")".repeat(depth)
-        );
-        assert_eq!(check(&expr).is_ok(), accepted);
-    }
+    let nested = format!(
+        "{}value(0 1 int(1)){}",
+        "plus(0 1 ".repeat(257),
+        ")".repeat(257)
+    );
+    check(&nested).unwrap();
+    let bad_leaf = nested.replace("value(0 ", "value(65536 ");
+    assert_eq!(
+        check(&bad_leaf).unwrap_err().to_string(),
+        "invalid constant expression flags 65536 for VALUE"
+    );
 }
 
 #[test]

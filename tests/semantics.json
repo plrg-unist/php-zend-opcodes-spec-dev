@@ -364,6 +364,7 @@
   {"fixture": "project/constant_reserved_names.zop"},
   {"fixture": "project/deferred_class_lookup.php", "expect": "unsupported", "stdout": [98, 101, 102, 111, 114, 101]},
   {"fixture": "project/deferred_class_name_type.php"},
+  {"fixture": "project/deeply_nested_unit.phpt", "stdout": "ok\n", "stderr": "", "exit_status": 0},
   {"fixture": "project/deferred_diagnostic_order.php"},
   {"fixture": "project/deferred_literal_identity.zop"},
   {"fixture": "project/deferred_nullsafe_chains.php"},

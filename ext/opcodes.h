@@ -23,7 +23,6 @@ typedef struct {
     bool in_ast;
     zend_string *filename;
     zend_class_entry *scope;
-    unsigned int closure_depth;
     struct zo_pending_body *pending;
     HashTable *array_bindings;
 } zo_reader;

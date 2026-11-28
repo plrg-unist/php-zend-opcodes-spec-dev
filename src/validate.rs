@@ -45,12 +45,11 @@ pub fn validate_unit_and_collect_bodies(
             return Err(Error::new("unknown or repeated autoglobal"));
         }
     }
-    let mut pending = vec![(classes, 0), (functions, 0), (main, 0)];
+    let mut pending = vec![classes, functions, main];
     let mut bodies = Vec::new();
     let mut shared_arrays = HashMap::new();
     let mut constant_literals = HashSet::new();
-    while let Some((value, closure_depth)) = pending.pop() {
-        let same_depth = |child| (child, closure_depth);
+    while let Some(value) = pending.pop() {
         match arena.value.kind(value.node) {
             ValueKind::Case(_) => match case_fields(arena, value)? {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
@@ -98,18 +97,11 @@ pub fn validate_unit_and_collect_bodies(
                     layout.validate_code(arena, code, tries, ranges, opline_size_bytes)?;
                     bodies.push(value);
                     // Deferred expressions anywhere in declarations or values can contain another body.
-                    pending.extend([decl, frame, pool, children].map(same_depth));
+                    pending.extend([decl, frame, pool, children]);
                 }
                 ("BODY", _) => return Err(Error::new("invalid body fields")),
                 ("DEFERRED", &[root]) => {
-                    expressions::check(
-                        arena,
-                        root,
-                        true,
-                        closure_depth,
-                        &mut pending,
-                        &mut constant_literals,
-                    )?;
+                    expressions::check(arena, root, true, &mut pending, &mut constant_literals)?;
                 }
                 (
                     "CLASS",
@@ -124,9 +116,7 @@ pub fn validate_unit_and_collect_bodies(
                         methods,
                     ],
                 ) => {
-                    pending.extend(
-                        [header, attrs, interfaces, traits, props, methods].map(same_depth),
-                    );
+                    pending.extend([header, attrs, interfaces, traits, props, methods]);
                     let backing = get::opt(arena, &backing)?
                         .map(|b| case_fields(arena, b))
                         .transpose()?;
@@ -145,14 +135,13 @@ pub fn validate_unit_and_collect_bodies(
                                     arena,
                                     root,
                                     false,
-                                    closure_depth,
                                     &mut pending,
                                     &mut constant_literals,
                                 )?;
                             }
-                            pending.push(same_depth(attrs));
+                            pending.push(attrs);
                         } else {
-                            pending.push(same_depth(constant));
+                            pending.push(constant);
                         }
                     }
                 }
@@ -163,7 +152,7 @@ pub fn validate_unit_and_collect_bodies(
                     get::list(arena, &entries)?;
                     let payload = arena.value.canon_id(array.node);
                     match shared_arrays.insert(id, payload) {
-                        None => pending.push(same_depth(array)),
+                        None => pending.push(array),
                         Some(known) if known == payload => {}
                         Some(_) => {
                             return Err(Error::new(format!("conflicting shared array {id}")));
@@ -173,19 +162,19 @@ pub fn validate_unit_and_collect_bodies(
                 ("SHARED_ARRAY", _) => return Err(Error::new("invalid shared array fields")),
                 ("ARRAY", &[entries, next, cursor, layout]) => {
                     check_array(arena, entries, next, cursor, layout)?;
-                    pending.push(same_depth(entries));
+                    pending.push(entries);
                 }
                 ("ARRAY", _) => return Err(Error::new("invalid array fields")),
-                (_, args) => pending.extend(args.iter().copied().map(same_depth)),
+                (_, args) => pending.extend_from_slice(args),
             },
             ValueKind::List(items) => {
                 if let Some(first) = items.first()
                     && !matches!(arena.value.kind(first.node), ValueKind::Num(_))
                 {
-                    pending.extend(items.iter().copied().map(same_depth));
+                    pending.extend_from_slice(items);
                 }
             }
-            ValueKind::Opt(Some(child)) => pending.push(same_depth(*child)),
+            ValueKind::Opt(Some(child)) => pending.push(*child),
             _ => {}
         }
     }
