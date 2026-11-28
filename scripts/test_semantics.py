@@ -15,9 +15,6 @@ from pathlib import Path
 from typing import Any
 
 sys.dont_write_bytecode = True
-if hasattr(sys, "set_int_max_str_digits"):
-    # The manifest and input files allow arbitrary-precision instruction sizes.
-    sys.set_int_max_str_digits(0)
 from zend_fixtures import PROFILES, ROOT, TESTS, compare, corpus, expected_error, read_fixture, run_php
 
 
@@ -134,8 +131,8 @@ def constant_value_key(value: Any) -> tuple[object, object]:
 
 
 def opline_size(value: object) -> int:
-    if type(value) is not int or value <= 0:
-        raise ValueError("opline_size_bytes must be a positive JSON integer")
+    if type(value) is not int or not 1 <= value <= 2**31 - 1:
+        raise ValueError("opline_size_bytes must be a JSON integer from 1 to 2147483647")
     return value
 
 

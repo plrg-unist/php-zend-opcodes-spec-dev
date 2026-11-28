@@ -9,7 +9,7 @@ def $uses_dispatch_table(_, _) = false
 dec $ordinary_array(zval, nat, bool, nat, nat, nat) : slotValue
 def $ordinary_array(zval, n_lit, b, n_end, n_end, _) = $runtime_value(zval, POOL_LITERAL n_lit b, eps)
 def $ordinary_array(ARRAY (ENTRY arraykey (INT i_target))* i_next? literalCursor? literalLayout?, n_lit, b, n_owner, n_end, n_opline_size) =
-  $runtime_value(ARRAY (ENTRY arraykey (INT $signed64($((i_target - n_owner) * n_opline_size))))* i_next? literalCursor? literalLayout?, POOL_LITERAL n_lit b, eps)
+  $runtime_value(ARRAY (ENTRY arraykey (INT $((i_target - n_owner) * n_opline_size)))* i_next? literalCursor? literalLayout?, POOL_LITERAL n_lit b, eps)
   -- if $(n_owner < n_end)
 
 def $literal_value(ARRAY arrayentry* i? literalCursor? literalLayout?, n_lit, instruction*, b_frozen, n_opline_size) =

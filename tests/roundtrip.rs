@@ -48,7 +48,8 @@ fn corpus_roundtrip() -> Result<(), Box<dyn Error>> {
             Err(err) => return Err(format!("{label}: parsing input: {err}").into()),
         };
         if !case.join("expected-error").is_file() {
-            validate_unit(&arena, &ast).map_err(|err| format!("{label}: invalid unit: {err}"))?;
+            validate_unit(&arena, &ast, 32)
+                .map_err(|err| format!("{label}: invalid unit: {err}"))?;
         }
         test_spec::check_unit(&mut spec, &mut arena, ast)
             .map_err(|err| format!("{label}: input AST: {err}"))?;

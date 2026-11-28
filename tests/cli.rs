@@ -32,6 +32,13 @@ fn json_reports_invalid_arguments() -> io::Result<()> {
         &[listing, listing, "--json"],
         &["--json", listing, "--input", "opline_size_bytes=0"],
         &["--json", listing, "--input", "opline_size_bytes=-1"],
+        &["--json", listing, "--input", "opline_size_bytes=2147483648"],
+        &[
+            "--json",
+            listing,
+            "--input",
+            "opline_size_bytes=18446744073709551617",
+        ],
         &["--json", listing, "--input", "opline_size_bytes=1.5"],
         &["--json", listing, "--input", r#"opline_size_bytes="56""#],
         &["--json", listing, "--input", "opline_size_bytes=true"],
@@ -108,12 +115,52 @@ fn invalid_runtime_constants_fail_before_program_execution() -> io::Result<()> {
 }
 
 #[test]
+fn runtime_inputs_file_requires_named_fields_and_a_bounded_size() -> io::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("inputs.json");
+    for (contents, detail) in [
+        ("[32, {}]", "JSON object"),
+        (r#"{"constants": {}}"#, "missing field"),
+        (
+            r#"{"opline_size_bytes":32,"opline_size_bytes":56,"constants":{}}"#,
+            "duplicate field",
+        ),
+        (
+            r#"{"opline_size_bytes":32,"constants":{},"extra":0}"#,
+            "unknown field",
+        ),
+        (
+            r#"{"opline_size_bytes":2147483648,"constants":{}}"#,
+            "opline_size_bytes",
+        ),
+    ] {
+        std::fs::write(&file, contents)?;
+        let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
+            .args(["--json", "--inputs"])
+            .arg(&file)
+            .arg("tests/project/handwritten.zop")
+            .output()?;
+        assert!(
+            output.status.success() && output.stderr.is_empty(),
+            "{output:?}"
+        );
+        let outcome: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(outcome["kind"], "tool_error", "{contents}: {outcome}");
+        assert!(
+            outcome["message"].as_str().unwrap().contains(detail),
+            "{contents}: {outcome}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn opline_size_comes_from_the_input_file_and_accepts_overrides() -> io::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("inputs.json");
     std::fs::write(
         &file,
-        r#"{"opline_size_bytes":40,"constants":{"opline_size_bytes":9}}"#,
+        r#"  {"constants":{"opline_size_bytes":9},"opline_size_bytes":40}"#,
     )?;
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project");
     let offsets = fixtures.join("array_dispatch_offsets.zop");
@@ -123,16 +170,13 @@ fn opline_size_comes_from_the_input_file_and_accepts_overrides() -> io::Result<(
     for (listing, overrides, expected) in [
         (&offsets, &[][..], "40,-40,0\n"),
         (&offsets, &["--input", "opline_size_bytes=28"], "28,-28,0\n"),
+        (&offsets, &["--input", "opline_size_bytes=1"], "1,-1,0\n"),
         (
             &offsets,
-            &["--input", "opline_size_bytes=18446744073709551617"],
-            "1,-1,0\n",
+            &["--input", "opline_size_bytes=2147483647"],
+            "2147483647,-2147483647,0\n",
         ),
-        (
-            &lookup,
-            &["--input", "opline_size_bytes=18446744073709551616"],
-            "9",
-        ),
+        (&lookup, &["--input", "opline_size_bytes=56"], "9"),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_zend-opcodes"))
             .arg("--inputs")

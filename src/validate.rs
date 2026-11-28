@@ -10,12 +10,19 @@ use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
 mod expressions;
 
 /// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
-pub fn validate_unit(arena: &Arena, unit: &Value) -> Result<()> {
-    validate_unit_and_collect_bodies(arena, unit).map(|_| ())
+pub fn validate_unit(arena: &Arena, unit: &Value, opline_size_bytes: i32) -> Result<()> {
+    validate_unit_and_collect_bodies(arena, unit, opline_size_bytes).map(|_| ())
 }
 
 /// Checks the unit and returns all bodies, including closures inside deferred expressions.
-pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<Vec<Value>> {
+pub fn validate_unit_and_collect_bodies(
+    arena: &Arena,
+    unit: &Value,
+    opline_size_bytes: i32,
+) -> Result<Vec<Value>> {
+    if opline_size_bytes <= 0 {
+        return Err(Error::new("opline_size_bytes must be positive"));
+    }
     let [filename, _, globals, main, functions, classes] = fields(arena, *unit, "UNIT")?;
     let filename = get::list(arena, &filename)?;
     if filename.is_empty() {
@@ -88,7 +95,7 @@ pub fn validate_unit_and_collect_bodies(arena: &Arena, unit: &Value) -> Result<V
                         pool: get::list(arena, &pool)?,
                     };
                     let code = get::list(arena, &code)?;
-                    layout.validate_code(arena, code, tries, ranges)?;
+                    layout.validate_code(arena, code, tries, ranges, opline_size_bytes)?;
                     bodies.push(value);
                     // Deferred expressions anywhere in declarations or values can contain another body.
                     pending.extend([decl, frame, pool, children].map(same_depth));
@@ -731,6 +738,7 @@ impl Layout<'_> {
         rows: &[Value],
         tries: Value,
         ranges: Value,
+        opline_size_bytes: i32,
     ) -> Result<()> {
         let code: Vec<_> = rows
             .iter()
@@ -837,7 +845,14 @@ impl Layout<'_> {
                 if !tables.insert(n) {
                     return Err(Error::new("shared jump-table literal"));
                 }
-                check_jump_table(arena, self.pool[n], op.name, executable)?;
+                check_jump_table(
+                    arena,
+                    self.pool[n],
+                    op.name,
+                    executable,
+                    i,
+                    opline_size_bytes,
+                )?;
             }
         }
         self.validate_ranges(arena, tries, ranges, &code, executable.len())
@@ -942,6 +957,8 @@ fn check_jump_table(
     literal: Value,
     name: &str,
     code: &[Instruction<'_>],
+    dispatch: usize,
+    opline_size_bytes: i32,
 ) -> Result<()> {
     let [array] = fields(arena, literal, "LITERAL")?;
     let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
@@ -953,7 +970,14 @@ fn check_jump_table(
             return Err(Error::new(format!("invalid jump-table key for {name}")));
         }
         let [target] = fields(arena, target, "INT")?;
-        check_target(code, index(arena, target)?)?;
+        let target = index(arena, target)?;
+        check_target(code, target)?;
+        let displacement = (target as i128 - dispatch as i128) * i128::from(opline_size_bytes);
+        if i32::try_from(displacement).is_err() {
+            return Err(Error::new(format!(
+                "{name} at instruction {dispatch} has a jump-table displacement of {displacement} bytes to @{target}, outside the signed 32-bit range"
+            )));
+        }
     }
     Ok(())
 }

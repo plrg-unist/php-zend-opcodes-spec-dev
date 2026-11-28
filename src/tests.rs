@@ -1,4 +1,4 @@
-use super::{Arena, parse_zop, print_zop, validate_unit};
+use super::{Arena, Value, parse_zop, print_zop};
 use p4spectec::lang::{
     data::value::flat::make,
     traits::{eq::SyntaxEq, print::Print},
@@ -6,6 +6,10 @@ use p4spectec::lang::{
 
 #[path = "test_spec.rs"]
 mod test_spec;
+
+fn validate_unit(arena: &Arena, unit: &Value) -> super::Result<()> {
+    super::validate_unit(arena, unit, 32)
+}
 
 const BYTES_AND_LITERAL: &str = r#"zend-opcodes
 file "f\xff"

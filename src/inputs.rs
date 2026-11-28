@@ -1,7 +1,5 @@
 use std::{fs, path::Path};
 
-use num_bigint::{BigInt, Sign};
-use p4spectec::lang::common::prim::num::Natural;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
@@ -13,17 +11,16 @@ use crate::{
 pub(super) const REFERENCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/runtime-inputs.json");
 
 pub(super) struct RuntimeInputs {
-    pub opline_size_bytes: Natural,
+    pub opline_size_bytes: i32,
     pub constants: Constants,
 }
 
-fn opline_size(raw: &RawValue) -> Result<Natural> {
-    let message = "opline_size_bytes must be a positive JSON integer";
-    let size: BigInt = raw.get().parse().map_err(|_| message)?;
-    if size.sign() != Sign::Plus {
-        return Err(message.into());
-    }
-    Ok(size.try_into()?)
+fn opline_size(raw: &RawValue) -> Result<i32> {
+    raw.get()
+        .parse::<i32>()
+        .ok()
+        .filter(|&bytes| bytes > 0)
+        .ok_or_else(|| "opline_size_bytes must be a JSON integer from 1 to 2147483647".into())
 }
 
 impl RuntimeInputs {
@@ -42,6 +39,10 @@ impl RuntimeInputs {
             constants: &'a RawValue,
         }
 
+        // Serde also accepts positional arrays when deserializing a struct.
+        if !data.trim_ascii_start().starts_with(b"{") {
+            return Err("runtime inputs must be a JSON object".into());
+        }
         let file: InputFile = serde_json::from_slice(data)?;
         Ok(Self {
             opline_size_bytes: opline_size(file.opline_size_bytes)?,

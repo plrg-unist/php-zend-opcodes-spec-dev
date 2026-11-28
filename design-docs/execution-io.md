@@ -19,9 +19,9 @@ By default the executable forwards PHP's stdout, stderr, and exit status. With `
 
 ## Runtime inputs
 
-The runner reads `runtime-inputs.json` from the repository by default. An explicit `--inputs FILE` supplies a complete replacement with two required fields, as in `{"opline_size_bytes":32,"constants":{"GLOB_MARK":8}}`. Each repeatable `--input KEY=JSON` applies after the file is loaded. Conflicting explicit overrides for the same input are errors. [Reference inputs](../runtime-inputs.json)
+The runner reads `runtime-inputs.json` from the repository by default. An explicit `--inputs FILE` supplies a complete replacement. The file must be a JSON object with exactly the two named fields shown in `{"opline_size_bytes":32,"constants":{"GLOB_MARK":8}}`. Each repeatable `--input KEY=JSON` applies after the file is loaded. Conflicting explicit overrides for the same input are errors. [Reference inputs](../runtime-inputs.json)
 
-`opline_size_bytes` accepts any positive JSON integer. Branches use instruction numbers. When a program reads a switch or match jump table as an ordinary array, each entry gives the signed distance in bytes from the dispatch instruction to the target. With `--input opline_size_bytes=56`, an entry targeting the next instruction reads as `56`. If a synthetic size produces a distance outside PHP's signed 64-bit integer range, the read interprets the low 64 bits as a signed PHP integer. [Jump-table fixture](../tests/project/array_dispatch_offsets.zop)
+`opline_size_bytes` must be a JSON integer from 1 through 2147483647. Branches use instruction numbers. When a program reads a switch or match jump table as an ordinary array, each entry gives the exact byte distance from the dispatch instruction to the target. With `--input opline_size_bytes=56`, an entry targeting the next instruction reads as `56`. Before execution, the runner checks that every table entry's distance fits in a signed 32-bit integer (−2147483648 through 2147483647). A listing with an out-of-range entry is `malformed` for the selected size, even if the dispatch instruction never runs. [Jump-table fixture](../tests/project/array_dispatch_offsets.zop) · [Backward limit](../tests/project/array_dispatch_backward_offset.zop)
 
 ## Runtime constants
 

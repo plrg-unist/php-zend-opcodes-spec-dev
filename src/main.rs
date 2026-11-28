@@ -106,7 +106,11 @@ fn execute(
     let stdin = byte_list(arena, input)?;
     let script = byte_list(arena, path.as_os_str().as_encoded_bytes())?;
     let constants = inputs.constants.spec_value(arena)?;
-    let opline_size = make::nat(arena, inputs.opline_size_bytes.clone(), Default::default())?;
+    let opline_size = make::nat(
+        arena,
+        u64::try_from(inputs.opline_size_bytes)?.into(),
+        Default::default(),
+    )?;
 
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("spec");
     let spec = p4spectec::structure(&[dir], true).map_err(|report| diagnostic(&report))?;
@@ -166,7 +170,8 @@ fn run(path: &Path, inputs: &inputs::RuntimeInputs) -> Result<Outcome> {
     };
     let mut arena = Arena::new();
     let parsed = parse_zop(&mut arena, &listing).and_then(|unit| {
-        validate_unit_and_collect_bodies(&arena, &unit).map(|bodies| (unit, bodies))
+        validate_unit_and_collect_bodies(&arena, &unit, inputs.opline_size_bytes)
+            .map(|bodies| (unit, bodies))
     });
     let (unit, bodies) = match parsed {
         Ok(checked) => checked,
