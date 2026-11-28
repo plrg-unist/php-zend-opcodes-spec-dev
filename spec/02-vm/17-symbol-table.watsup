@@ -7,7 +7,7 @@ def $symbol_rows(frame) = (SYMBOL bytes n)*
 
 dec $symbol_capacity(frame) : nat
 def $symbol_capacity(frame) = n
-  -- if ARRAY_VALUE _ _ (STORAGE _ (MIXED n _)) _ = frame.SYMBOLS
+  -- if ARRAY_VALUE _ _ (STORAGE _ (MIXED n _) _) _ = frame.SYMBOLS
 
 dec $symbol_slot(frame, bytes) : nat?
 def $symbol_slot(frame, bytes) = n

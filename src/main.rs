@@ -26,7 +26,7 @@ use p4spectec::{
     runner::{Config, build_sl},
 };
 use serde::Serialize;
-use zend_opcodes::{Arena, Value, parse_zop, validate_unit_and_collect_bodies};
+use zend_opcodes::{Arena, Value, parse_zop, validate_unit};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -98,7 +98,6 @@ fn byte_list(arena: &mut Arena, bytes: &[u8]) -> Result<Value> {
 fn execute(
     arena: &mut Arena,
     unit: Value,
-    bodies: &[Value],
     input: &[u8],
     path: &Path,
     inputs: &inputs::RuntimeInputs,
@@ -127,17 +126,6 @@ fn execute(
         (path, cover, hits)
     });
 
-    for &body in bodies {
-        let valid = runner
-            .eval_func(arena, "valid_literal_preparation", &[], &[unit, body])
-            .result
-            .map_err(|err| diagnostic(&err.into_report()))?;
-        if !get::bool(arena, &valid)? {
-            return Ok(Outcome::Malformed {
-                message: "invalid constant in a bound argument".into(),
-            });
-        }
-    }
     let result = runner
         .eval_func(
             arena,
@@ -169,11 +157,9 @@ fn run(path: &Path, inputs: &inputs::RuntimeInputs) -> Result<Outcome> {
         Err(err) => return Err(format!("{}: {err}", path.display()).into()),
     };
     let mut arena = Arena::new();
-    let parsed = parse_zop(&mut arena, &listing).and_then(|unit| {
-        validate_unit_and_collect_bodies(&arena, &unit, inputs.opline_size_bytes)
-            .map(|bodies| (unit, bodies))
-    });
-    let (unit, bodies) = match parsed {
+    let parsed = parse_zop(&mut arena, &listing)
+        .and_then(|unit| validate_unit(&arena, &unit, inputs.opline_size_bytes).map(|()| unit));
+    let unit = match parsed {
         Ok(checked) => checked,
         Err(err) => {
             return Ok(Outcome::Malformed {
@@ -183,7 +169,7 @@ fn run(path: &Path, inputs: &inputs::RuntimeInputs) -> Result<Outcome> {
     };
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
-    execute(&mut arena, unit, &bodies, &input, path, inputs)
+    execute(&mut arena, unit, &input, path, inputs)
 }
 
 fn write_streams(stdout: &[u8], stderr: &[u8]) -> io::Result<()> {

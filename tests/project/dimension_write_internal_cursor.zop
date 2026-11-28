@@ -8,7 +8,7 @@ body - {
   size 20 literals 9 children 0
   lit[0] = array(0 => "A", 1 => "B", 2 => "C"; cursor=2)
   lit[1] = array(0 => "A", 1 => "B"; cursor=2)
-  lit[2] = array#0(0 => "A", 1 => "B"; cursor=2)
+  lit[2] = array#0(immutable; 0 => "A", 1 => "B"; cursor=2)
   lit[3] = array-ref(0)
   lit[4] = int(0)
   lit[5] = int(1)

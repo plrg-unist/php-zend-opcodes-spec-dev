@@ -1,5 +1,4 @@
 #include "opcodes.h"
-#include "Zend/zend_arena.h"
 #include "Zend/zend_frameless_function.h"
 #include "Zend/zend_partial.h"
 #include "Zend/zend_vm.h"
@@ -12,73 +11,6 @@ typedef struct {
     zo_operand_kind kind;
     uint32_t value;
 } zo_operand;
-
-static zend_string *intern_bound_string(zend_string *source)
-{
-    if (ZSTR_IS_INTERNED(source)) return source;
-    zend_string *str = zend_string_init_interned(ZSTR_VAL(source), ZSTR_LEN(source), false);
-    if (ZSTR_IS_INTERNED(str)) return str;
-
-    /* OPcache only looks up strings already in shared memory. */
-    zval *existing = zend_hash_find(&CG(interned_strings), str);
-    if (existing) {
-        zend_string_release(str);
-        return Z_STR_P(existing);
-    }
-    GC_ADD_FLAGS(str, IS_STR_INTERNED);
-    zval value;
-    ZVAL_INTERNED_STR(&value, str);
-    zend_hash_add_new(&CG(interned_strings), str, &value);
-    return str;
-}
-
-static void freeze_bound_copy(zo_reader *r, zval *copy)
-{
-    if (!Z_REFCOUNTED_P(copy)) return;
-    if (Z_TYPE_P(copy) == IS_STRING) {
-        ZVAL_INTERNED_STR(copy, intern_bound_string(Z_STR_P(copy)));
-        return;
-    }
-    if (Z_TYPE_P(copy) != IS_ARRAY) zo_fail(r, "invalid constant in a bound argument");
-
-    /* A generated partial closure can outlive the loaded op array. */
-    zend_array *source = Z_ARR_P(copy);
-    zend_array *frozen = zend_arena_alloc(&CG(arena), sizeof(*frozen));
-    *frozen = *source;
-    if (HT_IS_INITIALIZED(source)) {
-        size_t bytes = HT_IS_PACKED(source) ? HT_PACKED_USED_SIZE(source) : HT_USED_SIZE(source);
-        void *data = zend_arena_alloc(&CG(arena), bytes);
-        memcpy(data, HT_GET_DATA_ADDR(source), bytes);
-        HT_SET_DATA_ADDR(frozen, data);
-        if (HT_IS_PACKED(frozen)) {
-            zval *item;
-            ZEND_HASH_PACKED_FOREACH_VAL(frozen, item) {
-                freeze_bound_copy(r, item);
-            } ZEND_HASH_FOREACH_END();
-        } else {
-            Bucket *bucket;
-            ZEND_HASH_MAP_FOREACH_BUCKET(frozen, bucket) {
-                if (bucket->key) bucket->key = intern_bound_string(bucket->key);
-                freeze_bound_copy(r, &bucket->val);
-            } ZEND_HASH_FOREACH_END();
-            HT_FLAGS(frozen) |= HASH_FLAG_STATIC_KEYS;
-        }
-    }
-    GC_SET_REFCOUNT(frozen, 2);
-    GC_TYPE_INFO(frozen) = GC_ARRAY | (IS_ARRAY_IMMUTABLE << GC_FLAGS_SHIFT);
-    ZVAL_ARR(copy, frozen);
-    Z_TYPE_FLAGS_P(copy) = 0;
-}
-
-void zo_freeze_bound_literal(zo_reader *r, zval *value)
-{
-    if (!Z_REFCOUNTED_P(value)) return;
-    zval copy;
-    ZVAL_COPY_VALUE(&copy, value);
-    freeze_bound_copy(r, &copy);
-    zval_ptr_dtor(value);
-    ZVAL_COPY_VALUE(value, &copy);
-}
 
 static bool dispatch_table(uint8_t opcode)
 {
@@ -604,7 +536,7 @@ static void fix_targets(zo_reader *r, zend_op_array *body, uint32_t first_line, 
     efree(used);
 }
 
-void zo_read_instructions(zo_reader *r, zend_op_array *body)
+void zo_read_instructions(zo_reader *r, zend_op_array *body, const bool *immutable_literals)
 {
     if (!body->last) zo_fail(r, "a body requires at least one instruction");
     uint32_t first_line = r->line;
@@ -617,6 +549,10 @@ void zo_read_instructions(zo_reader *r, zend_op_array *body)
         --executable;
     }
     fix_targets(r, body, first_line, executable);
+    /* Pool jump tables now contain the byte offsets used by Zend. */
+    for (uint32_t i = 0; i < body->last_literal; ++i) {
+        if (immutable_literals[i]) zo_freeze_literal_array(&body->literals[i]);
+    }
     r->line = next_line;
     zo_validate_code(r, body, executable);
     for (uint32_t i = 0; i < body->last; ++i) ZEND_VM_SET_OPCODE_HANDLER(&body->opcodes[i]);

@@ -6,7 +6,7 @@ body - {
   frame 1 cache 0
   size 13 literals 6 children 0
   lit[0] = int(0)
-  lit[1] = array(0 => int(3), 1 => int(1), "z" => int(2))
+  lit[1] = array(immutable; 0 => int(3), 1 => int(1), "z" => int(2))
   lit[2] = int(1)
   lit[3] = ","
   lit[4] = "z"

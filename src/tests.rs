@@ -74,7 +74,7 @@ body - {
   lines 1 1
   frame 0 cache 0
   size 1 literals 2 children 0
-  lit[0] = array#42(mixed=16; holes=[0, 2]; 0 => array#7(packed=16; 0 => int(9); position=4), 1 => array-ref(7); next=5; cursor=1)
+  lit[0] = array#42(mixed=16; holes=[0, 2]; 0 => array#7(immutable; packed=16; 0 => int(9); position=4), 1 => array-ref(7); next=5; cursor=1)
   lit[1] = array-ref(42)
   code
     0: RETURN lit[1] | line=1
@@ -136,6 +136,7 @@ fn shared_arrays_require_a_completed_unique_definition() {
     for name in [
         "conflicting_arrays",
         "conflicting_layouts",
+        "conflicting_mutability",
         "bad_array_payload",
     ] {
         let unit = runner.eval_func(&mut arena, name, &[], &[]).result.unwrap();
@@ -177,6 +178,10 @@ fn shared_arrays_cross_body_and_class_metadata() {
 fn literal_layout_bounds_and_keys() {
     let mut arena = Arena::new();
     for literal in [
+        "array(immutable;)",
+        "array(immutable; next=3; cursor=0)",
+        "array(immutable; 0 => int(42))",
+        "array(immutable; mixed=8; holes=[0]; 0 => array(immutable;); position=2)",
         "array(packed=8;)",
         "array(packed=1073741824; next=7; cursor=0)",
         "array(packed=16; 0 => true, 15 => false; next=20; cursor=2)",
@@ -195,6 +200,8 @@ fn literal_layout_bounds_and_keys() {
         assert_eq!(print_zop(&arena, &unit).unwrap(), listing);
     }
     for literal in [
+        "array(immutable; 0 => array())",
+        "array(0 => array#2(), 1 => array(immutable; 0 => array-ref(2)))",
         "array(packed=4;)",
         "array(packed=12;)",
         "array(packed=2147483648;)",
@@ -220,6 +227,9 @@ fn literal_layout_bounds_and_keys() {
         assert!(validate_unit(&arena, &unit).is_err(), "{literal}");
     }
     for literal in [
+        "array(immutable)",
+        "array(immutable; immutable;)",
+        "array(packed=8; immutable;)",
         "array(mixed)",
         "array(mixed;; next=4)",
         "array(packed=8; mixed;)",

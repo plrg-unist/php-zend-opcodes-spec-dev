@@ -465,17 +465,12 @@ void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend
     if (!name && (body->num_args || body->arg_info)) zo_fail(r, "main body cannot have parameters");
     body->attributes = zo_get_attributes(r, argument_count(body));
     if (zo_take(r, "statics")) {
-        zval statics;
-        zo_get_value(r, &statics);
-        if (Z_TYPE(statics) != IS_ARRAY || GC_REFCOUNT(Z_ARR(statics)) != 1) {
-            zo_fail(r, "expected a plain static variable table");
-        }
-        if (!HT_IS_WITHOUT_HOLES(Z_ARRVAL(statics))) zo_fail(r, "static variable table contains gaps");
+        body->static_variables = zo_get_static_table(r);
+        if (!HT_IS_WITHOUT_HOLES(body->static_variables)) zo_fail(r, "static variable table contains gaps");
         zend_string *key;
-        ZEND_HASH_FOREACH_STR_KEY(Z_ARRVAL(statics), key) {
+        ZEND_HASH_FOREACH_STR_KEY(body->static_variables, key) {
             if (!key) zo_fail(r, "invalid static variable name");
         } ZEND_HASH_FOREACH_END();
-        body->static_variables = Z_ARRVAL(statics);
         zo_eol(r);
     }
     zo_expect(r, "size");
@@ -487,6 +482,7 @@ void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend
     if (!body->last) zo_fail(r, "body has no instructions");
     zo_eol(r);
     allocate_code(r, body);
+    bool *immutable_literals = ecalloc(MAX(1, body->last_literal), sizeof(bool));
     for (uint32_t i = 0; i < body->last_literal; i++) {
         zo_expect(r, "lit[");
         if (zo_u32(r) != i) zo_fail(r, "expected literal %u", i);
@@ -500,7 +496,7 @@ void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend
             zo_expect(r, "}");
             ZVAL_PTR(&body->literals[i], attributes);
         } else {
-            zo_get_value(r, &body->literals[i]);
+            immutable_literals[i] = zo_get_pool_value(r, &body->literals[i]);
         }
         zo_eol(r);
     }
@@ -516,7 +512,8 @@ void zo_load_body(zo_reader *r, zend_op_array *body, zend_string *filename, zend
     }
     zo_expect(r, "code");
     zo_eol(r);
-    zo_read_instructions(r, body);
+    zo_read_instructions(r, body, immutable_literals);
+    efree(immutable_literals);
     bool has_attributes;
     if (!check_attribute_literals(body, &has_attributes)) {
         zo_fail(r, "attribute literal must belong to exactly one global constant declaration");

@@ -2,24 +2,19 @@ use std::collections::{HashMap, HashSet};
 
 use p4spectec::lang::{
     common::prim::num,
-    data::value::flat::{ValueKind, get},
+    data::{
+        intern::CanonId,
+        value::flat::{ValueKind, get},
+    },
 };
 
 use crate::{Arena, Error, Result, Value, ast::fields, case_fields};
 
+mod bound_arrays;
 mod expressions;
 
 /// Checks the body-relative references of a parsed unit and supported opcode forms before execution.
 pub fn validate_unit(arena: &Arena, unit: &Value, opline_size_bytes: i32) -> Result<()> {
-    validate_unit_and_collect_bodies(arena, unit, opline_size_bytes).map(|_| ())
-}
-
-/// Checks the unit and returns all bodies, including closures inside deferred expressions.
-pub fn validate_unit_and_collect_bodies(
-    arena: &Arena,
-    unit: &Value,
-    opline_size_bytes: i32,
-) -> Result<Vec<Value>> {
     if opline_size_bytes <= 0 {
         return Err(Error::new("opline_size_bytes must be positive"));
     }
@@ -45,17 +40,52 @@ pub fn validate_unit_and_collect_bodies(
             return Err(Error::new("unknown or repeated autoglobal"));
         }
     }
-    let mut pending = vec![classes, functions, main];
-    let mut bodies = Vec::new();
-    let mut shared_arrays = HashMap::new();
-    let mut constant_literals = HashSet::new();
+    let mut checked = CheckedLiterals::default();
+    let classes = get::list(arena, &classes)?;
+    let declarations = bound_arrays::Declarations {
+        functions: get::list(arena, &functions)?,
+        classes,
+        scope: None,
+    };
+    let roots = [(main, None), (functions, None)]
+        .into_iter()
+        .chain(classes.iter().map(|&class| (class, Some(class))));
+    for (root, scope) in roots {
+        validate_tree(
+            arena,
+            root,
+            bound_arrays::Declarations {
+                scope,
+                ..declarations
+            },
+            opline_size_bytes,
+            &mut checked,
+        )?;
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct CheckedLiterals {
+    shared_arrays: HashMap<u32, CanonId<ValueKind>>,
+    constant_literals: HashSet<Value>,
+}
+
+fn validate_tree(
+    arena: &Arena,
+    root: Value,
+    declarations: bound_arrays::Declarations<'_>,
+    opline_size_bytes: i32,
+    checked: &mut CheckedLiterals,
+) -> Result<()> {
+    let mut pending = vec![root];
     while let Some(value) = pending.pop() {
         match arena.value.kind(value.node) {
             ValueKind::Case(_) => match case_fields(arena, value)? {
                 ("BODY", &[decl, frame, pool, tries, ranges, children, code]) => {
                     let [temps, cache, locals, statics] = fields(arena, frame, "FRAME")?;
                     if let Some(table) = get::opt(arena, &statics)? {
-                        let [entries, _, _, layout] = fields(arena, table, "ARRAY")?;
+                        let [entries, _, _, layout, _] = fields(arena, table, "ARRAY")?;
                         if let Some(layout) = get::opt(arena, &layout)?
                             && let ("MIXED_TABLE", &[_, holes]) = case_fields(arena, layout)?
                             && !get::list(arena, &holes)?.is_empty()
@@ -94,14 +124,31 @@ pub fn validate_unit_and_collect_bodies(
                         pool: get::list(arena, &pool)?,
                     };
                     let code = get::list(arena, &code)?;
-                    layout.validate_code(arena, code, tries, ranges, opline_size_bytes)?;
-                    bodies.push(value);
+                    let [_, _, _, declared_scope, _, _, _] = fields(arena, decl, "BODYDECL")?;
+                    let scope = get::opt(arena, &declared_scope)?.and(declarations.scope);
+                    layout.validate_code(
+                        arena,
+                        code,
+                        tries,
+                        ranges,
+                        opline_size_bytes,
+                        &bound_arrays::Declarations {
+                            scope,
+                            ..declarations
+                        },
+                    )?;
                     // Deferred expressions anywhere in declarations or values can contain another body.
                     pending.extend([decl, frame, pool, children]);
                 }
                 ("BODY", _) => return Err(Error::new("invalid body fields")),
                 ("DEFERRED", &[root]) => {
-                    expressions::check(arena, root, true, &mut pending, &mut constant_literals)?;
+                    expressions::check(
+                        arena,
+                        root,
+                        true,
+                        &mut pending,
+                        &mut checked.constant_literals,
+                    )?;
                 }
                 (
                     "CLASS",
@@ -136,7 +183,7 @@ pub fn validate_unit_and_collect_bodies(
                                     root,
                                     false,
                                     &mut pending,
-                                    &mut constant_literals,
+                                    &mut checked.constant_literals,
                                 )?;
                             }
                             pending.push(attrs);
@@ -148,10 +195,10 @@ pub fn validate_unit_and_collect_bodies(
                 ("SHARED_ARRAY", &[id, array]) => {
                     let id = u32::try_from(index(arena, id)?)
                         .map_err(|_| Error::new("shared array id exceeds u32"))?;
-                    let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
+                    let [entries, _, _, _, _] = fields(arena, array, "ARRAY")?;
                     get::list(arena, &entries)?;
                     let payload = arena.value.canon_id(array.node);
-                    match shared_arrays.insert(id, payload) {
+                    match checked.shared_arrays.insert(id, payload) {
                         None => pending.push(array),
                         Some(known) if known == payload => {}
                         Some(_) => {
@@ -160,8 +207,15 @@ pub fn validate_unit_and_collect_bodies(
                     }
                 }
                 ("SHARED_ARRAY", _) => return Err(Error::new("invalid shared array fields")),
-                ("ARRAY", &[entries, next, cursor, layout]) => {
-                    check_array(arena, entries, next, cursor, layout)?;
+                ("ARRAY", &[entries, next, cursor, layout, immutable]) => {
+                    check_array(
+                        arena,
+                        entries,
+                        next,
+                        cursor,
+                        layout,
+                        get::bool(arena, &immutable)?,
+                    )?;
                     pending.push(entries);
                 }
                 ("ARRAY", _) => return Err(Error::new("invalid array fields")),
@@ -178,7 +232,7 @@ pub fn validate_unit_and_collect_bodies(
             _ => {}
         }
     }
-    Ok(bodies)
+    Ok(())
 }
 
 // A zval inside a constant-expression VALUE cannot itself defer another expression.
@@ -195,7 +249,7 @@ fn check_constant_literal(arena: &Arena, value: Value, checked: &mut HashSet<Val
                 ));
             }
             ("SHARED_ARRAY", &[_, array]) => pending.push(array),
-            ("ARRAY", &[entries, _, _, _]) => {
+            ("ARRAY", &[entries, _, _, _, _]) => {
                 for &entry in get::list(arena, &entries)? {
                     let [_, item] = fields(arena, entry, "ENTRY")?;
                     pending.push(item);
@@ -284,6 +338,7 @@ struct Instruction<'a> {
     smart: Option<&'a str>,
     extended_target: Option<usize>,
     extended_value: usize,
+    bound_mask: u32,
 }
 
 impl<'a> Instruction<'a> {
@@ -342,6 +397,14 @@ impl<'a> Instruction<'a> {
             Some(("EXT_VALUE", &[n])) => index(arena, n)?,
             _ => 0,
         };
+        let bound_mask = match (name, right) {
+            ("CALLABLE_CONVERT_PARTIAL", Operand::Immediate(n)) => n,
+            ("CALLABLE_CONVERT_PARTIAL", Operand::Literal(_)) => get::opt(arena, &mask)?
+                .map(|n| index(arena, n))
+                .transpose()?
+                .unwrap_or(0),
+            _ => 0,
+        };
         let row = Self {
             name,
             result,
@@ -350,6 +413,8 @@ impl<'a> Instruction<'a> {
             smart,
             extended_target,
             extended_value,
+            bound_mask: u32::try_from(bound_mask)
+                .map_err(|_| Error::new("bound argument mask exceeds u32"))?,
         };
         let unused = Operand::Unused;
         if result != unused && !result.slot() {
@@ -568,7 +633,7 @@ impl<'a> Instruction<'a> {
                 ("SHARED_ARRAY", &[_, array]) => array,
                 _ => value,
             };
-            let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
+            let [entries, _, _, _, _] = fields(arena, array, "ARRAY")?;
             if extended_value == 0 {
                 for &entry in get::list(arena, &entries)? {
                     let [key, _] = fields(arena, entry, "ENTRY")?;
@@ -728,6 +793,7 @@ impl Layout<'_> {
         tries: Value,
         ranges: Value,
         opline_size_bytes: i32,
+        declarations: &bound_arrays::Declarations<'_>,
     ) -> Result<()> {
         let code: Vec<_> = rows
             .iter()
@@ -844,7 +910,8 @@ impl Layout<'_> {
                 )?;
             }
         }
-        self.validate_ranges(arena, tries, ranges, &code, executable.len())
+        self.validate_ranges(arena, tries, ranges, &code, executable.len())?;
+        bound_arrays::check(arena, self.pool, &code, tries, declarations)
     }
 }
 
@@ -854,6 +921,7 @@ fn check_array(
     next: Value,
     cursor: Value,
     layout: Value,
+    immutable: bool,
 ) -> Result<()> {
     let entries = get::list(arena, &entries)?;
     let (capacity, packed) = match get::opt(arena, &layout)?
@@ -918,8 +986,20 @@ fn check_array(
         if !keys.insert(arena.value.canon_id(key.node)) {
             return Err(Error::new("duplicate array key"));
         }
-        if case_fields(arena, value)?.0 == "UNDEF" {
-            return Err(Error::new("undef cannot be an array element"));
+        let payload = match case_fields(arena, value)? {
+            ("SHARED_ARRAY", &[_, array]) => array,
+            _ => value,
+        };
+        match case_fields(arena, payload)? {
+            ("UNDEF", _) => return Err(Error::new("undef cannot be an array element")),
+            ("ARRAY", &[_, _, _, _, child_immutable])
+                if immutable && !get::bool(arena, &child_immutable)? =>
+            {
+                return Err(Error::new(
+                    "an immutable array cannot contain a mutable array",
+                ));
+            }
+            _ => {}
         }
     }
     if let Some(next) = get::opt(arena, &next)?
@@ -950,7 +1030,7 @@ fn check_jump_table(
     opline_size_bytes: i32,
 ) -> Result<()> {
     let [array] = fields(arena, literal, "LITERAL")?;
-    let [entries, _, _, _] = fields(arena, array, "ARRAY")?;
+    let [entries, _, _, _, _] = fields(arena, array, "ARRAY")?;
     for &entry in get::list(arena, &entries)? {
         let [key, target] = fields(arena, entry, "ENTRY")?;
         let kind = case_fields(arena, key)?.0;

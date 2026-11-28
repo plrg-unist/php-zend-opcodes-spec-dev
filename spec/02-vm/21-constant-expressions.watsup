@@ -22,7 +22,7 @@ dec $expr_array_unpack(frame, slotValue, slotValue) : (frame, numericResult)
 dec $expr_dimension(frame, nat, slotValue, slotValue) : (frame, numericResult)
 dec $expr_property(frame, slotValue, slotValue) : (frame, numericResult)
 
-def $eval_constant_expr(frame, expr, n) = $expr_walk(frame, expr, SITE (POOL_LITERAL n false) eps, eps)
+def $eval_constant_expr(frame, expr, n) = $expr_walk(frame, expr, SITE (POOL_LITERAL n) eps, eps)
 
 def $expr_walk(frame, VALUE _ _ zval, SITE literalRoot arraykey*, exprAction*) =
   $expr_resume(frame, $runtime_value(zval, literalRoot, arraykey*), false, exprAction*)

@@ -6,7 +6,7 @@ body - {
   frame 22 cache 24
   locals 10 ["frozen", "mutable", "wrapper", "b", "a", "first", "v", "key", "argc", "unused"]
   size 48 literals 22 children 0
-  lit[0] = array(0 => array(mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8), 1 => array#91(0 => float(nan:0x7ff8000000000001)))
+  lit[0] = array(immutable; 0 => array(immutable; mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8), 1 => array#91(immutable; 0 => float(nan:0x7ff8000000000001)))
   lit[1] = array(0 => array(mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8), 1 => array-ref(91))
   lit[2] = int(1)
   lit[3] = int(1)

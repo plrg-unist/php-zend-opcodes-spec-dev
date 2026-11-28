@@ -3,7 +3,7 @@ var i : int
 var b : bool
 
 ;; Shared arrays compare equal immediately, even when an element is NaN.
-syntax literalRoot = POOL_LITERAL nat bool | SHARED_LITERAL nat bool
+syntax literalRoot = POOL_LITERAL nat | SHARED_LITERAL nat
 syntax arrayId = LITERAL_ARRAY literalRoot arraykey* | FRESH_ARRAY nat | CLI_ARRAY_ID nat | SYMBOL_TABLE
 syntax slotValue
 syntax runtimeEntry = ITEM arraykey slotValue
@@ -11,7 +11,8 @@ syntax cliOrigin = SERVER | ENVIRONMENT
 syntax hostSource = ENV_ENTRY arraykey | CLOCK_ENTRY arraykey
 syntax serverHistory = { ORIGIN cliOrigin, TAIL runtimeEntry*, SATURATED bool }
 syntax arrayLayout = VACANT nat | PACKED nat | MIXED nat nat*
-syntax arrayIndex = STORAGE int arrayLayout
+;; The final storage field records whether the table is immutable.
+syntax arrayIndex = STORAGE int arrayLayout bool
 syntax slotValue = zval | CLI_ARRAY | CLI_ENV | CLI_UPDATED arrayId runtimeEntry* serverHistory | ARRAY_VALUE arrayId runtimeEntry* arrayIndex? nat?
                  | STREAM nat
                  | ELEMENT_LOCATION nat arraykey | SYMBOL_LOCATION nat | REFERENCE nat | HOST_OFFSET hostSource

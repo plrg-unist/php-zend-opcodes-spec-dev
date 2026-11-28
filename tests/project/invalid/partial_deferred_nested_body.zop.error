@@ -1,1 +1,1 @@
-invalid constant in a bound argument
+a constant-bound array must be immutable

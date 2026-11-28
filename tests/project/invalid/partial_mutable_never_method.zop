@@ -1,0 +1,48 @@
+zend-opcodes
+file "partial_never_method.php"
+main
+body - {
+  lines 1 7
+  frame 4 cache 40
+  locals 2 ["argc", "p"]
+  size 11 literals 9 children 0
+  lit[0] = int(42)
+  lit[1] = "StopCalls"
+  lit[2] = "stopcalls"
+  lit[3] = "halt"
+  lit[4] = "halt"
+  lit[5] = "array_merge"
+  lit[6] = array(0 => int(42))
+  lit[7] = "{closure:pfa:partial_never_method.php:6}"
+  lit[8] = int(1)
+  code
+    0: T2 = IS_IDENTICAL CV0, lit[0] | line=5 smart=JMPNZ
+    1: JMPNZ T2, @5 | line=5
+    2: INIT_FCALL 112, lit[5] | line=6 ext=2 cache=16
+    3: SEND_VAL lit[6], 1 | line=6
+    4: JMP @7 | line=6
+    5: INIT_STATIC_METHOD_CALL lit[1], lit[3] | line=5 cache=0
+    6: DO_UCALL | line=5
+    7: SEND_PLACEHOLDER _, 2 | line=6
+    8: T4 = CALLABLE_CONVERT_PARTIAL lit[7], 1 | line=6 ext=24
+    9: ASSIGN CV1, T4 | line=6
+    10: RETURN lit[8] | line=7 ext=4294967295
+}
+class "stopcalls" "StopCalls" linked 512 2 4 - - {
+method "halt"
+body "halt" {
+  flags 8209 0
+  scope "StopCalls"
+  lines 3 3
+  frame 1 cache 8
+  args 0 required 0
+  returns type(131072)
+  size 3 literals 1 children 0
+  lit[0] = "exit"
+  code
+    0: INIT_FCALL 80, lit[0] | line=3 cache=0
+    1: DO_ICALL | line=3
+    2: VERIFY_NEVER_TYPE | line=3
+}
+}
+end

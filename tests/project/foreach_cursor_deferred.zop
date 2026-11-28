@@ -6,7 +6,7 @@ body - {
   frame 10 cache 0
   locals 5 ["b", "a", "first", "v", "key"]
   size 20 literals 10 children 0
-  lit[0] = array#10(mixed=8; holes=[1, 3]; "a" => array#11(0 => ast(constant(0 1 "NAME"))), "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
+  lit[0] = array(mixed=8; holes=[1, 3]; "a" => array(immutable; 0 => ast(constant(0 1 "NAME"))), "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
   lit[1] = "x"
   lit[2] = true
   lit[3] = "y"

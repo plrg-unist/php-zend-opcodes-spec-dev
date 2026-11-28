@@ -25,6 +25,7 @@ typedef struct {
     zend_class_entry *scope;
     struct zo_pending_body *pending;
     HashTable *array_bindings;
+    HashTable *deferred_array_bindings;
 } zo_reader;
 
 ZEND_NORETURN void zo_fail(zo_reader *r, const char *format, ...) ZEND_ATTRIBUTE_FORMAT(printf, 2, 3);
@@ -37,6 +38,11 @@ zend_long zo_long(zo_reader *r);
 zend_string *zo_string(zo_reader *r);
 void zo_put_string(smart_str *out, const zend_string *s);
 void zo_get_value(zo_reader *r, zval *value);
+bool zo_get_pool_value(zo_reader *r, zval *value);
+zend_array *zo_get_static_table(zo_reader *r);
+void zo_freeze_literal_array(zval *value);
+void zo_intern_literal_string(zval *value);
+zend_result zo_release_immutable_asts(void);
 void zo_put_value(zo_writer *writer, const zval *value);
 void zo_put_table(zo_writer *writer, const HashTable *table, const zend_op_array *body, uint32_t owner);
 uint32_t zo_absolute_target(const zend_op_array *body, uint32_t index, zend_long offset);
@@ -55,8 +61,7 @@ void zo_check_enum(zo_reader *r, const zend_class_entry *ce);
 
 void zo_print_literal(zo_writer *writer, const zend_op_array *body, uint32_t index);
 void zo_print_instructions(smart_str *out, const zend_op_array *body);
-void zo_read_instructions(zo_reader *r, zend_op_array *body);
-void zo_freeze_bound_literal(zo_reader *r, zval *value);
+void zo_read_instructions(zo_reader *r, zend_op_array *body, const bool *immutable_literals);
 void zo_validate_code(zo_reader *r, zend_op_array *body, uint32_t executable);
 void zo_validate_unit_calls(zo_reader *r);
 

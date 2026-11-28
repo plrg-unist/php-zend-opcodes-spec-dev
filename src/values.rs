@@ -103,8 +103,12 @@ impl Parser<'_> {
     }
 
     fn read_array(&mut self) -> Result<Value> {
+        let immutable = self.take("immutable");
+        if immutable {
+            self.expect(";")?;
+        }
         let layout = self.read_literal_layout()?;
-        let mut has_metadata = if layout.is_some() {
+        let mut has_metadata = if immutable || layout.is_some() {
             self.peek("next=") || self.peek("cursor=") || self.peek("position=")
         } else {
             self.take(";")
@@ -151,7 +155,8 @@ impl Parser<'_> {
         let next = self.opt("int", next)?;
         let cursor = self.opt("literalCursor", cursor)?;
         let layout = self.opt("literalLayout", layout)?;
-        self.case("zval", "ARRAY", [entries, next, cursor, layout])
+        let immutable = self.boolean(immutable)?;
+        self.case("zval", "ARRAY", [entries, next, cursor, layout, immutable])
     }
 
     pub(crate) fn ztype(&mut self) -> Result<Value> {
@@ -232,13 +237,12 @@ impl Printer<'_> {
                     write!(self.out, "float({float:?})")?;
                 }
             }
-            ("ARRAY", &[entries, next, cursor, layout]) => {
+            ("ARRAY", _) => {
                 self.out.push_str("array");
-                self.write_array(entries, next, cursor, layout)?;
+                self.write_array(value)?;
             }
             ("SHARED_ARRAY", &[id, array]) => {
                 let id = self.u32(id)?;
-                let [entries, next, cursor, layout] = self.fields(array, "ARRAY")?;
                 if let Some(known) = self.shared_arrays.get(&id) {
                     if !known.is_some_and(|value| {
                         self.arena.value.canon_id(value.node)
@@ -250,7 +254,7 @@ impl Printer<'_> {
                 } else {
                     self.shared_arrays.insert(id, None);
                     write!(self.out, "array#{id}")?;
-                    self.write_array(entries, next, cursor, layout)?;
+                    self.write_array(array)?;
                     self.shared_arrays.insert(id, Some(array));
                 }
             }
@@ -264,17 +268,20 @@ impl Printer<'_> {
         Ok(())
     }
 
-    fn write_array(
-        &mut self,
-        entries: Value,
-        next: Value,
-        cursor: Value,
-        layout: Value,
-    ) -> Result<()> {
+    fn write_array(&mut self, array: Value) -> Result<()> {
+        let [entries, next, cursor, layout, immutable] = self.fields(array, "ARRAY")?;
+        let immutable = self.boolean(immutable)?;
         self.out.push('(');
         let entries = self.list(entries)?;
         let mut separator = "; ";
-        if let Some(layout) = self.opt(layout)? {
+        let layout = self.opt(layout)?;
+        if immutable {
+            self.out.push_str("immutable;");
+            if layout.is_some() {
+                self.out.push(' ');
+            }
+        }
+        if let Some(layout) = layout {
             match self.case(layout)? {
                 ("PACKED_LITERAL", &[capacity]) => {
                     write!(self.out, "packed={};", self.u32(capacity)?)?
@@ -296,6 +303,8 @@ impl Printer<'_> {
                 }
                 _ => return Err(Error::new("invalid array literal layout")),
             }
+        }
+        if immutable || layout.is_some() {
             if entries.is_empty() {
                 separator = " ";
             } else {

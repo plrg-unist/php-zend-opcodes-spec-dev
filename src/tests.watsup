@@ -23,7 +23,7 @@ def $branch_and_array = UNIT ([ 99 ]) eps eps
     (FRAME 0 0 ([ [ 120 ] ]) eps)
     ([ LITERAL (FLOAT 0x8000000000000000),
        LITERAL (ARRAY ([ ENTRY (KEY ([ 48 ])) (FLOAT 0xFFF8000000000042),
-                         ENTRY (INDEX (-3)) TRUE ]) 0 (ORDINAL_CURSOR 1) eps) ])
+                         ENTRY (INDEX (-3)) TRUE ]) 0 (ORDINAL_CURSOR 1) eps false) ])
     eps eps eps
     ([ OPLINE ASSIGN UNUSED (CV 0) (LIT 0) 7 eps eps eps eps eps false,
        OPLINE JMPZ UNUSED (CV 0) (TARGET 3) 7 eps eps eps eps eps false,
@@ -52,27 +52,32 @@ def $sharing_program(zval_l, zval_r, zval?) = UNIT ([ 115 ]) eps eps
 
 dec $shared_arrays : unit
 def $shared_arrays = $sharing_program(zval, zval, eps)
-  -- if zval_inner = SHARED_ARRAY 7 (ARRAY ([ ENTRY (INDEX 0) (INT 9) ]) eps (PHYSICAL_CURSOR 4) (PACKED_LITERAL 16))
-  -- if zval = SHARED_ARRAY 42 (ARRAY ([ ENTRY (INDEX 0) zval_inner, ENTRY (INDEX 1) zval_inner ]) 5 (ORDINAL_CURSOR 1) (MIXED_TABLE 16 ([ 0, 2 ])))
+  -- if zval_inner = SHARED_ARRAY 7 (ARRAY ([ ENTRY (INDEX 0) (INT 9) ]) eps (PHYSICAL_CURSOR 4) (PACKED_LITERAL 16) true)
+  -- if zval = SHARED_ARRAY 42 (ARRAY ([ ENTRY (INDEX 0) zval_inner, ENTRY (INDEX 1) zval_inner ]) 5 (ORDINAL_CURSOR 1) (MIXED_TABLE 16 ([ 0, 2 ])) false)
 
 dec $conflicting_arrays : unit
 def $conflicting_arrays = $sharing_program(
-  SHARED_ARRAY 7 (ARRAY eps eps eps eps),
-  SHARED_ARRAY 7 (ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps eps), eps)
+  SHARED_ARRAY 7 (ARRAY eps eps eps eps false),
+  SHARED_ARRAY 7 (ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps eps false), eps)
 
 dec $conflicting_layouts : unit
 def $conflicting_layouts = $sharing_program(
-  SHARED_ARRAY 7 (ARRAY eps eps eps (PACKED_LITERAL 16)),
-  SHARED_ARRAY 7 (ARRAY eps eps eps MIXED_LITERAL), eps)
+  SHARED_ARRAY 7 (ARRAY eps eps eps (PACKED_LITERAL 16) false),
+  SHARED_ARRAY 7 (ARRAY eps eps eps MIXED_LITERAL false), eps)
+
+dec $conflicting_mutability : unit
+def $conflicting_mutability = $sharing_program(
+  SHARED_ARRAY 7 (ARRAY eps eps eps eps false),
+  SHARED_ARRAY 7 (ARRAY eps eps eps eps true), eps)
 
 dec $bad_array_payload : unit
 def $bad_array_payload = $sharing_program(SHARED_ARRAY 7 TRUE, TRUE, eps)
 
 dec $bad_table_hole : unit
-def $bad_table_hole = $sharing_program(ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps (MIXED_TABLE 8 ([ 2 ])), TRUE, eps)
+def $bad_table_hole = $sharing_program(ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps (MIXED_TABLE 8 ([ 2 ])) false, TRUE, eps)
 
 dec $bad_physical_cursor : unit
-def $bad_physical_cursor = $sharing_program(ARRAY eps eps (PHYSICAL_CURSOR 9) (PACKED_LITERAL 8), TRUE, eps)
+def $bad_physical_cursor = $sharing_program(ARRAY eps eps (PHYSICAL_CURSOR 9) (PACKED_LITERAL 8) false, TRUE, eps)
 
 dec $numeric_static_key : unit
-def $numeric_static_key = $sharing_program(NULL, NULL, ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps (PACKED_LITERAL 8))
+def $numeric_static_key = $sharing_program(NULL, NULL, ARRAY ([ ENTRY (INDEX 0) TRUE ]) eps eps (PACKED_LITERAL 8) false)

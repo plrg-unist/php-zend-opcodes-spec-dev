@@ -34,13 +34,13 @@ def $snapshot_integer_key(INDEX _) = true
 def $snapshot_integer_key(KEY _) = false
 
 dec $snapshot_index(nat, runtimeEntry*, runtimeEntry*) : arrayIndex
-def $snapshot_index(_, eps, _) = STORAGE (-9223372036854775808) (VACANT 8)
+def $snapshot_index(_, eps, _) = STORAGE (-9223372036854775808) (VACANT 8) false
 def $snapshot_index(n_capacity, (ITEM arraykey _)*, _) =
-  STORAGE (-9223372036854775808) (MIXED n_capacity eps)
+  STORAGE (-9223372036854775808) (MIXED n_capacity eps) false
   -- if $(|arraykey*| > 0)
   -- if ~(true <- ($snapshot_integer_key(arraykey))*)
 def $snapshot_index(_, (ITEM arraykey _)*, runtimeEntry_visible*) =
-  STORAGE ($array_next(runtimeEntry_visible*, eps)) ($replay_layout(VACANT n_capacity, 0, 0, runtimeEntry_visible*))
+  STORAGE ($array_next(runtimeEntry_visible*, eps)) ($replay_layout(VACANT n_capacity, 0, 0, runtimeEntry_visible*)) false
   -- if true <- ($snapshot_integer_key(arraykey))*
   -- if n_capacity = $array_capacity(|arraykey*|, 8)
 

@@ -6,7 +6,7 @@ body - {
   frame 8 cache 0
   locals 4 ["other", "a", "value", "key"]
   size 25 literals 11 children 0
-  lit[0] = array(0 => array("a" => int(1), "b" => int(2), "c" => int(3), "d" => int(4), "e" => int(5), "f" => int(6), "g" => int(7), "h" => int(8); cursor=8), 1 => array#7("a" => int(1), "b" => int(2), "c" => int(3), "d" => int(4), "e" => int(5), "f" => int(6), "g" => int(7), "h" => int(8); cursor=8), 2 => array-ref(7))
+  lit[0] = array(0 => array("a" => int(1), "b" => int(2), "c" => int(3), "d" => int(4), "e" => int(5), "f" => int(6), "g" => int(7), "h" => int(8); cursor=8), 1 => array#7(immutable; "a" => int(1), "b" => int(2), "c" => int(3), "d" => int(4), "e" => int(5), "f" => int(6), "g" => int(7), "h" => int(8); cursor=8), 2 => array-ref(7))
   lit[1] = "a"
   lit[2] = "b"
   lit[3] = "c"

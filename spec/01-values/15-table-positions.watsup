@@ -62,7 +62,7 @@ def $iterator_start(ARRAY_VALUE _ runtimeEntry* arrayIndex? n?) =
   -- if $(n_raw < $table_used(arrayLayout, runtimeEntry*))
 
 dec $iterator_copies(slotValue) : bool
-def $iterator_copies(ARRAY_VALUE arrayId runtimeEntry* _ _) = $(|runtimeEntry*| > 0) /\ ~$frozen_literal(arrayId)
+def $iterator_copies(ARRAY_VALUE _ runtimeEntry* arrayIndex? _) = $(|runtimeEntry*| > 0) /\ ~$immutable_storage(arrayIndex?)
 
 ;; Registered iterators at the old end move to the new end on compaction.
 ;; Rehash starts adjusting positions after the first hole; at that first

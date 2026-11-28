@@ -762,7 +762,7 @@ static void check_declared_class(zo_reader *r, const zend_op_array *b, const zen
     }
 }
 
-static uint32_t freeze_bound_arg(zo_reader *r, const zend_op *send, uint32_t mask)
+static uint32_t check_bound_arg(zo_reader *r, const zend_op *send, uint32_t mask)
 {
     if (!mask || send->op1_type != IS_CONST || send->op2_type != IS_UNUSED
             || (send->opcode != ZEND_SEND_VAL && send->opcode != ZEND_SEND_VAL_EX
@@ -772,7 +772,10 @@ static uint32_t freeze_bound_arg(zo_reader *r, const zend_op *send, uint32_t mas
     if (Z_TYPE_P(value) >= IS_OBJECT || !position || position > 32) return 0;
     uint32_t bit = UINT32_C(1) << (position - 1);
     if (!(mask & bit)) return 0;
-    zo_freeze_bound_literal(r, value);
+    if (Z_TYPE_P(value) == IS_ARRAY && !(GC_FLAGS(Z_ARR_P(value)) & IS_ARRAY_IMMUTABLE)) {
+        zo_fail(r, "a constant-bound array must be immutable");
+    }
+    if (Z_TYPE_P(value) == IS_STRING) zo_intern_literal_string(value);
     return bit;
 }
 
@@ -791,11 +794,11 @@ static void check_partial(zo_reader *r, const zend_op_array *b, uint32_t index,
         invalid(r, b, op, "partial application needs a placeholder");
     }
     uint32_t named = 0;
-    uint32_t frozen = 0;
+    uint32_t constants = 0;
     for (uint32_t i = init + 1; i < index; ++i) {
         const zend_op *send = &b->opcodes[i];
         if (sites[i].parent != init) continue;
-        frozen |= freeze_bound_arg(r, send, mask);
+        constants |= check_bound_arg(r, send, mask);
         if (send->opcode != ZEND_SEND_PLACEHOLDER || send->op2_type != IS_CONST) continue;
         zend_string *name = Z_STR_P(RT_CONSTANT(send, send->op2));
         zval *position = names ? zend_hash_find(names, name) : NULL;
@@ -804,7 +807,7 @@ static void check_partial(zo_reader *r, const zend_op_array *b, uint32_t index,
         }
         ++named;
     }
-    if (mask & ~frozen) invalid(r, b, op, "bound argument mask refers to a nonconstant argument");
+    if (mask & ~constants) invalid(r, b, op, "bound argument mask refers to a nonconstant argument");
     if (names && named != zend_hash_num_elements(names)) invalid(r, b, op, "surplus named placeholder position");
 }
 

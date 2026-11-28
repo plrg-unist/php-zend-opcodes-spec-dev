@@ -62,15 +62,18 @@ static zend_op_array *compile_unit(zend_file_handle *file, int type)
             zend_error_noreturn(E_COMPILE_ERROR, "Cannot read opcode listing %s", ZSTR_VAL(file->filename));
         }
         HashTable *bindings = zend_new_array(0);
+        HashTable *deferred_bindings = zend_new_array(0);
         zo_reader r = {.p = contents, .end = contents + length, .path = file->filename,
-            .line = 1, .array_bindings = bindings};
+            .line = 1, .array_bindings = bindings, .deferred_array_bindings = deferred_bindings};
         zend_try {
             main = zo_load_unit(&r);
         } zend_catch {
             zend_array_release(bindings);
+            zend_array_release(deferred_bindings);
             zend_bailout();
         } zend_end_try();
         zend_array_release(bindings);
+        zend_array_release(deferred_bindings);
     } else {
         main = previous_compile_file(file, type);
     }
@@ -121,7 +124,7 @@ zend_module_entry zend_opcodes_module_entry = {
     "zend_opcodes", NULL,
     PHP_MINIT(zend_opcodes), PHP_MSHUTDOWN(zend_opcodes),
     PHP_RINIT(zend_opcodes), PHP_RSHUTDOWN(zend_opcodes),
-    NULL, NO_VERSION_YET, STANDARD_MODULE_PROPERTIES
+    NULL, NO_VERSION_YET, NO_MODULE_GLOBALS, zo_release_immutable_asts, STANDARD_MODULE_PROPERTIES_EX
 };
 
 #ifdef COMPILE_DL_ZEND_OPCODES

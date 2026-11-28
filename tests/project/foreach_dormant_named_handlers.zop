@@ -7,7 +7,7 @@ body - {
   frame 2 cache 80
   locals 6 ["b", "a", "value", "argc", "callback", "e"]
   size 34 literals 20 children 0
-  lit[0] = array(mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
+  lit[0] = array(immutable; mixed=8; holes=[1, 3]; "a" => true, "c" => true, "e" => true, "f" => true, "g" => true, "h" => true; position=8)
   lit[1] = "x"
   lit[2] = true
   lit[3] = array(0 => int(0))
@@ -22,7 +22,7 @@ body - {
   lit[12] = "Throwable"
   lit[13] = "throwable"
   lit[14] = "catch"
-  lit[15] = array("second" => true)
+  lit[15] = array(immutable; "second" => true)
   lit[16] = "{closure:pfa:foreach_dormant_named_handlers.php:14}"
   lit[17] = array("rest" => int(0))
   lit[18] = "finally"
